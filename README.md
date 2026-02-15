@@ -10,6 +10,9 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 ### Dashboard - Details
 ![System Details](screenshots/system-details.png)
 
+### Admin-Bereich
+![Admin Area](screenshots/admin-area.png)
+
 > **Hinweis**: Das Dashboard verfügt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität.
 
 ## Features
@@ -176,6 +179,9 @@ Zeigt alle aktivierten Storage-Systeme gruppiert nach Hersteller:
 - Übersicht aller konfigurierten Systeme
 - Systeme hinzufügen, bearbeiten, löschen
 - Aktivieren/Deaktivieren von Systemen
+- Zertifikatsverwaltung für firmeneigene CA- und Root-Zertifikate
+
+📖 **Detailliertes Administrator-Handbuch:** Siehe [ADMIN_GUIDE.md](ADMIN_GUIDE.md)
 
 ## Container-Deployment
 
@@ -270,11 +276,17 @@ Um ein neues Storage-System zu unterstützen:
 
 ## Sicherheit
 
-- API-Credentials werden verschlüsselt in der Datenbank gespeichert
-- HTTPS-Verbindungen zu Storage-Systemen (SSL-Verifizierung in Produktion empfohlen)
-- Verwenden Sie dedizierte Read-Only-Accounts
+**Interne Netzwerk-Anwendung:**
+- Das Dashboard ist ausschließlich für den Einsatz in internen Firmennetzwerken konzipiert
+- Verwendet firmeneigene CA- und Root-Zertifikate (keine Let's Encrypt oder öffentliche CAs)
+- Zertifikatsverwaltung im Admin-Bereich verfügbar
+
+**Sicherheitsfeatures:**
+- API-Credentials werden in der Datenbank gespeichert
+- HTTPS-Verbindungen zu Storage-Systemen mit Custom CA-Zertifikaten
+- Verwenden Sie dedizierte Read-Only-Accounts für Storage-Systeme
 - Ändern Sie den `SECRET_KEY` in Produktivumgebungen
-- Setzen Sie `SSL_VERIFY=true` in `.env` für Produktionsumgebungen mit gültigen SSL-Zertifikaten
+- Setzen Sie `SSL_VERIFY=true` in `.env` und laden Sie CA-Zertifikate im Admin-Bereich hoch
 
 **Hinweis zur Passwort-Speicherung**: In der aktuellen Version werden Passwörter im Klartext in der Datenbank gespeichert. Für produktive Umgebungen sollte eine Verschlüsselung implementiert werden (z.B. mit `cryptography.fernet`).
 
