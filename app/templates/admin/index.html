@@ -44,9 +44,23 @@
     background: #c0392b;
 }
 
+.btn-warning {
+    background: #f39c12;
+    color: white;
+}
+
+.btn-warning:hover {
+    background: #e67e22;
+}
+
 .btn-sm {
     padding: 0.4rem 0.8rem;
     font-size: 0.85rem;
+}
+
+.cluster-info {
+    font-size: 0.85rem;
+    color: #7f8c8d;
 }
 
 table {
@@ -125,32 +139,52 @@ tbody tr:hover {
             <th>Name</th>
             <th>Hersteller</th>
             <th>IP Adresse</th>
-            <th>Port</th>
+            <th>Cluster Info</th>
             <th>Status</th>
-            <th>Zugangsdaten</th>
             <th>Aktionen</th>
         </tr>
     </thead>
     <tbody>
         {% for system in systems %}
         <tr>
-            <td><strong>{{ system.name }}</strong></td>
+            <td>
+                <strong>{{ system.name }}</strong>
+                {% if system.get_dns_names() %}
+                <br><small class="cluster-info">DNS: {{ system.get_dns_names()[0] }}</small>
+                {% endif %}
+            </td>
             <td>{{ system.vendor }}</td>
-            <td>{{ system.ip_address }}</td>
-            <td>{{ system.port }}</td>
+            <td>
+                {{ system.ip_address }}:{{ system.port }}
+                {% if system.get_all_ips()|length > 1 %}
+                <br><small class="cluster-info">+{{ system.get_all_ips()|length - 1 }} weitere IPs</small>
+                {% endif %}
+            </td>
+            <td>
+                {% if system.cluster_type %}
+                <strong>{{ system.cluster_type }}</strong><br>
+                {% endif %}
+                {% if system.node_count %}
+                <small class="cluster-info">{{ system.node_count }} Nodes</small>
+                {% endif %}
+                {% if system.site_count %}
+                <small class="cluster-info">{{ system.site_count }} Sites</small>
+                {% endif %}
+                {% if system.last_discovery %}
+                <br><small class="cluster-info">Erkannt: {{ system.last_discovery.strftime('%d.%m.%Y %H:%M') }}</small>
+                {% endif %}
+            </td>
             <td>
                 <span class="status-indicator status-{{ 'enabled' if system.enabled else 'disabled' }}"></span>
                 {{ 'Aktiv' if system.enabled else 'Inaktiv' }}
             </td>
-            <td>
-                {% if system.api_username or system.api_token %}
-                    ✓ Konfiguriert
-                {% else %}
-                    ✗ Nicht konfiguriert
-                {% endif %}
-            </td>
             <td class="actions">
                 <a href="/admin/systems/{{ system.id }}/edit" class="btn btn-primary btn-sm">Bearbeiten</a>
+                <form method="POST" action="/admin/systems/{{ system.id }}/rediscover" style="display: inline;">
+                    <button type="submit" class="btn btn-warning btn-sm" title="System erneut erkennen">
+                        🔄 Discovery
+                    </button>
+                </form>
                 <form method="POST" action="/admin/systems/{{ system.id }}/delete" style="display: inline;">
                     <button type="submit" class="btn btn-danger btn-sm" 
                             onclick="return confirm('System {{ system.name }} wirklich löschen?')">
