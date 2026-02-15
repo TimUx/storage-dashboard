@@ -1,6 +1,6 @@
 """Main dashboard routes"""
-from flask import Blueprint, render_template
-from app.models import StorageSystem
+from flask import Blueprint, render_template, abort
+from app.models import StorageSystem, db
 from app.api import get_client
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -83,3 +83,43 @@ def index():
     return render_template('dashboard.html', 
                          grouped_systems=grouped_systems,
                          vendor_names=vendor_names)
+
+
+@bp.route('/systems/<int:system_id>/details')
+def system_details(system_id):
+    """Detailed view for a single storage system"""
+    system = StorageSystem.query.get_or_404(system_id)
+    
+    # Fetch current status
+    try:
+        client = get_client(
+            vendor=system.vendor,
+            ip_address=system.ip_address,
+            port=system.port,
+            username=system.api_username,
+            password=system.api_password,
+            token=system.api_token
+        )
+        status = client.get_health_status()
+    except Exception as e:
+        status = {
+            'status': 'error',
+            'hardware_status': 'unknown',
+            'cluster_status': 'unknown',
+            'alerts': 0,
+            'capacity_total_tb': 0,
+            'capacity_used_tb': 0,
+            'capacity_percent': 0,
+            'error': str(e)
+        }
+    
+    # Get partner cluster if exists
+    partner_cluster = None
+    if system.partner_cluster_id:
+        partner_cluster = StorageSystem.query.get(system.partner_cluster_id)
+    
+    return render_template('details.html', 
+                         system=system,
+                         status=status,
+                         partner_cluster=partner_cluster)
+

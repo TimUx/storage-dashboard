@@ -442,9 +442,178 @@ body.table-view .systems-table {
 .dashboard-footer a:hover {
     color: var(--itscare-red);
 }
+
+/* Filter Bar */
+.filter-bar {
+    background: var(--bg-white);
+    padding: 1rem 1.5rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
+    border-left: 4px solid var(--itscare-green);
+}
+
+.filter-bar h3 {
+    font-size: 1rem;
+    color: var(--itscare-blue);
+    margin: 0 0 0.75rem 0;
+    font-weight: 600;
+}
+
+.filter-controls {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.filter-group label {
+    font-size: 0.8rem;
+    color: var(--text-medium);
+    font-weight: 600;
+}
+
+.filter-group select,
+.filter-group input {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    font-size: 0.9rem;
+    background: white;
+    color: var(--text-dark);
+    min-width: 150px;
+}
+
+.filter-group select:focus,
+.filter-group input:focus {
+    outline: none;
+    border-color: var(--itscare-blue);
+    box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+}
+
+.filter-results {
+    color: var(--text-medium);
+    font-size: 0.9rem;
+    padding: 0.5rem 0;
+    font-weight: 600;
+}
+
+.btn-reset {
+    background: var(--text-light);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.3s;
+    margin-top: 1.25rem;
+}
+
+.btn-reset:hover {
+    background: var(--text-medium);
+}
+
+/* WebUI Links */
+.webui-link {
+    color: inherit;
+    text-decoration: none;
+    transition: all 0.3s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.webui-link:hover {
+    color: var(--itscare-blue);
+    text-shadow: 0 0 10px rgba(0, 102, 204, 0.3);
+}
+
+.webui-link-icon {
+    font-size: 0.85em;
+    opacity: 0.7;
+}
+
+.detail-btn {
+    background: var(--itscare-blue);
+    color: white;
+    border: none;
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+    font-weight: 600;
+}
+
+.detail-btn:hover {
+    background: var(--itscare-blue-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 102, 204, 0.3);
+}
+
+.card-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
 {% endblock %}
 
 {% block content %}
+
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <h3>🔍 Filter</h3>
+    <div class="filter-controls">
+        <div class="filter-group">
+            <label for="vendor-filter">Hersteller</label>
+            <select id="vendor-filter" onchange="applyFilters()">
+                <option value="">Alle</option>
+                <option value="pure">Pure Storage</option>
+                <option value="netapp-ontap">NetApp ONTAP</option>
+                <option value="netapp-storagegrid">NetApp StorageGRID</option>
+                <option value="dell-datadomain">Dell DataDomain</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="status-filter">Status</label>
+            <select id="status-filter" onchange="applyFilters()">
+                <option value="">Alle</option>
+                <option value="online">Healthy (Online)</option>
+                <option value="error">Unhealthy (Error)</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="cluster-filter">Cluster-Typ</label>
+            <select id="cluster-filter" onchange="applyFilters()">
+                <option value="">Alle</option>
+                <option value="ha">HA</option>
+                <option value="active-cluster">Active-Cluster</option>
+                <option value="metrocluster">MetroCluster</option>
+                <option value="local">Local</option>
+                <option value="multi-site">Multi-Site</option>
+                <option value="single-site">Single-Site</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="search-filter">Suche</label>
+            <input type="text" id="search-filter" placeholder="Name, IP, DNS..." oninput="applyFilters()">
+        </div>
+        <button class="btn-reset" onclick="resetFilters()">Zurücksetzen</button>
+        <div class="filter-results" id="filter-results"></div>
+    </div>
+</div>
+
 <div class="dashboard-header">
     <h2>Storage Systems Overview</h2>
     <div class="header-actions">
@@ -478,9 +647,21 @@ body.table-view .systems-table {
             {% for item in systems %}
             {% set system = item.system %}
             {% set status = item.status %}
-            <div class="system-card">
+            <div class="system-card" 
+                 data-vendor="{{ vendor }}" 
+                 data-status="{{ status.status }}"
+                 data-cluster-type="{{ system.cluster_type or '' }}"
+                 data-name="{{ system.name }}"
+                 data-ip="{{ system.ip_address }}"
+                 data-dns="{{ system.get_dns_names()[0] if system.get_dns_names() else '' }}">
                 <div class="system-header">
-                    <div class="system-name">{{ system.name }}</div>
+                    <div class="system-name">
+                        <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" 
+                           class="webui-link" title="Zur WebUI öffnen">
+                            {{ system.name }}
+                            <span class="webui-link-icon">↗</span>
+                        </a>
+                    </div>
                     {% if system.cluster_type %}
                     <span class="cluster-badge {{ system.cluster_type }}">
                         {% if system.cluster_type == 'ha' %}HA
@@ -548,6 +729,10 @@ body.table-view .systems-table {
                 {% if status.error %}
                 <div class="error-message">{{ status.error }}</div>
                 {% endif %}
+                
+                <div class="card-actions">
+                    <a href="/systems/{{ system.id }}/details" class="detail-btn">📊 Details</a>
+                </div>
             </div>
             {% endfor %}
         </div>
@@ -565,15 +750,24 @@ body.table-view .systems-table {
                         <th>Cluster</th>
                         <th class="status-cell">Alerts</th>
                         <th class="capacity-cell">Kapazität</th>
+                        <th>Aktionen</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for item in systems %}
                     {% set system = item.system %}
                     {% set status = item.status %}
-                    <tr>
+                    <tr data-vendor="{{ vendor }}" 
+                        data-status="{{ status.status }}"
+                        data-cluster-type="{{ system.cluster_type or '' }}"
+                        data-name="{{ system.name }}"
+                        data-ip="{{ system.ip_address }}"
+                        data-dns="{{ system.get_dns_names()[0] if system.get_dns_names() else '' }}">
                         <td>
-                            <strong>{{ system.name }}</strong>
+                            <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" 
+                               class="webui-link" title="Zur WebUI öffnen" style="font-weight: bold;">
+                                {{ system.name }} ↗
+                            </a>
                             {% if system.node_count or system.site_count %}
                             <br><small style="color: var(--text-light);">
                                 {% if system.node_count %}{{ system.node_count }}N{% endif %}
@@ -635,6 +829,11 @@ body.table-view .systems-table {
                             <div class="capacity-text">{{ "%.1f"|format(status.capacity_percent) }}%</div>
                             {% else %}-{% endif %}
                         </td>
+                        <td>
+                            <a href="/systems/{{ system.id }}/details" class="detail-btn" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;">
+                                Details
+                            </a>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -672,6 +871,96 @@ function switchView(view) {
 document.addEventListener('DOMContentLoaded', function() {
     const savedView = localStorage.getItem('dashboard-view') || 'card';
     switchView(savedView);
+    applyFilters(); // Apply initial filters
 });
+
+// Filter logic
+function applyFilters() {
+    const vendorFilter = document.getElementById('vendor-filter').value.toLowerCase();
+    const statusFilter = document.getElementById('status-filter').value.toLowerCase();
+    const clusterFilter = document.getElementById('cluster-filter').value.toLowerCase();
+    const searchFilter = document.getElementById('search-filter').value.toLowerCase();
+    
+    // Get all system cards and table rows
+    const systemCards = document.querySelectorAll('.system-card');
+    const tableRows = document.querySelectorAll('.systems-table tbody tr');
+    
+    let visibleCount = 0;
+    let totalCount = systemCards.length;
+    
+    // Filter cards
+    systemCards.forEach(card => {
+        const vendor = card.dataset.vendor || '';
+        const status = card.dataset.status || '';
+        const clusterType = card.dataset.clusterType || '';
+        const name = card.dataset.name || '';
+        const ip = card.dataset.ip || '';
+        const dns = card.dataset.dns || '';
+        
+        const matchVendor = !vendorFilter || vendor.includes(vendorFilter);
+        const matchStatus = !statusFilter || status === statusFilter;
+        const matchCluster = !clusterFilter || clusterType === clusterFilter;
+        const matchSearch = !searchFilter || 
+            name.toLowerCase().includes(searchFilter) ||
+            ip.includes(searchFilter) ||
+            dns.toLowerCase().includes(searchFilter);
+        
+        if (matchVendor && matchStatus && matchCluster && matchSearch) {
+            card.style.display = '';
+            visibleCount++;
+        } else {
+            card.style.display = 'none';
+        }
+    });
+    
+    // Filter table rows
+    tableRows.forEach(row => {
+        const vendor = row.dataset.vendor || '';
+        const status = row.dataset.status || '';
+        const clusterType = row.dataset.clusterType || '';
+        const name = row.dataset.name || '';
+        const ip = row.dataset.ip || '';
+        const dns = row.dataset.dns || '';
+        
+        const matchVendor = !vendorFilter || vendor.includes(vendorFilter);
+        const matchStatus = !statusFilter || status === statusFilter;
+        const matchCluster = !clusterFilter || clusterType === clusterFilter;
+        const matchSearch = !searchFilter || 
+            name.toLowerCase().includes(searchFilter) ||
+            ip.includes(searchFilter) ||
+            dns.toLowerCase().includes(searchFilter);
+        
+        if (matchVendor && matchStatus && matchCluster && matchSearch) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    // Update filter results
+    const resultsDiv = document.getElementById('filter-results');
+    resultsDiv.textContent = `${visibleCount} von ${totalCount} Systemen angezeigt`;
+    
+    // Show/hide vendor sections if all items are hidden
+    document.querySelectorAll('.vendor-section').forEach(section => {
+        const visibleCards = section.querySelectorAll('.system-card:not([style*="display: none"])');
+        const visibleRows = section.querySelectorAll('.systems-table tbody tr:not([style*="display: none"])');
+        
+        if (visibleCards.length === 0 && visibleRows.length === 0) {
+            section.style.display = 'none';
+        } else {
+            section.style.display = '';
+        }
+    });
+}
+
+// Reset filters
+function resetFilters() {
+    document.getElementById('vendor-filter').value = '';
+    document.getElementById('status-filter').value = '';
+    document.getElementById('cluster-filter').value = '';
+    document.getElementById('search-filter').value = '';
+    applyFilters();
+}
 </script>
 {% endblock %}
