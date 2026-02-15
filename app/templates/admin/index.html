@@ -129,7 +129,10 @@ tbody tr:hover {
 {% block content %}
 <div class="admin-header">
     <h2>Storage Systeme verwalten</h2>
-    <a href="/admin/systems/new" class="btn btn-primary">+ Neues System</a>
+    <div style="display: flex; gap: 1rem;">
+        <a href="/admin/certificates" class="btn btn-warning">🔒 Zertifikate</a>
+        <a href="/admin/systems/new" class="btn btn-primary">+ Neues System</a>
+    </div>
 </div>
 
 {% if systems %}

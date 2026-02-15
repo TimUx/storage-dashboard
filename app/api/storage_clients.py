@@ -5,9 +5,21 @@ import requests
 import warnings
 
 def get_ssl_verify():
-    """Get SSL verification setting from app config"""
+    """Get SSL verification setting from app config, with custom certificates if available"""
     try:
-        return current_app.config.get('SSL_VERIFY', False)
+        ssl_verify_enabled = current_app.config.get('SSL_VERIFY', False)
+        
+        if not ssl_verify_enabled:
+            return False
+        
+        # Try to get custom certificates
+        try:
+            from app.ssl_utils import get_ssl_context
+            return get_ssl_context()
+        except Exception:
+            # If custom certificates fail, use default
+            return True
+            
     except RuntimeError:
         # Outside application context, default to False for development
         return False
