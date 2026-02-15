@@ -12,9 +12,16 @@ def create_app():
     app = Flask(__name__)
     
     # Configuration
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+    secret_key = os.getenv('SECRET_KEY')
+    if not secret_key:
+        if os.getenv('FLASK_ENV') == 'production':
+            raise ValueError("SECRET_KEY must be set in production environment")
+        secret_key = 'dev-secret-key-change-in-production'
+    
+    app.config['SECRET_KEY'] = secret_key
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///storage_dashboard.db')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['SSL_VERIFY'] = os.getenv('SSL_VERIFY', 'false').lower() == 'true'
     
     db.init_app(app)
     

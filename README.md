@@ -200,6 +200,9 @@ Um ein neues Storage-System zu unterstützen:
 - HTTPS-Verbindungen zu Storage-Systemen (SSL-Verifizierung in Produktion empfohlen)
 - Verwenden Sie dedizierte Read-Only-Accounts
 - Ändern Sie den `SECRET_KEY` in Produktivumgebungen
+- Setzen Sie `SSL_VERIFY=true` in `.env` für Produktionsumgebungen mit gültigen SSL-Zertifikaten
+
+**Hinweis zur Passwort-Speicherung**: In der aktuellen Version werden Passwörter im Klartext in der Datenbank gespeichert. Für produktive Umgebungen sollte eine Verschlüsselung implementiert werden (z.B. mit `cryptography.fernet`).
 
 ## Lizenz
 

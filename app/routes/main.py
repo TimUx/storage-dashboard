@@ -44,9 +44,12 @@ def index():
     """Main dashboard view"""
     systems = StorageSystem.query.filter_by(enabled=True).all()
     
+    # Determine optimal number of workers based on system count
+    max_workers = min(len(systems), 10) if systems else 1
+    
     # Fetch status for all systems in parallel
     systems_status = []
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(fetch_system_status, system): system for system in systems}
         for future in as_completed(futures):
             try:

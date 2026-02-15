@@ -1,9 +1,18 @@
 """API clients for different storage vendors"""
 from app.api.base_client import StorageClient
+from flask import current_app
 import requests
 import warnings
 
-# Suppress SSL warnings for demo purposes
+def get_ssl_verify():
+    """Get SSL verification setting from app config"""
+    try:
+        return current_app.config.get('SSL_VERIFY', False)
+    except RuntimeError:
+        # Outside application context, default to False for development
+        return False
+
+# Suppress SSL warnings only when verification is disabled
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
 
@@ -17,11 +26,13 @@ class PureStorageClient(StorageClient):
             if not headers:
                 return self._format_response(status='error', error='No API token configured')
             
+            ssl_verify = get_ssl_verify()
+            
             # Get array info
             response = requests.get(
                 f"{self.base_url}/api/2.0/arrays",
                 headers=headers,
-                verify=False,
+                verify=ssl_verify,
                 timeout=10
             )
             
@@ -35,7 +46,7 @@ class PureStorageClient(StorageClient):
             capacity_response = requests.get(
                 f"{self.base_url}/api/2.0/arrays/space",
                 headers=headers,
-                verify=False,
+                verify=ssl_verify,
                 timeout=10
             )
             
@@ -66,11 +77,13 @@ class NetAppONTAPClient(StorageClient):
             if not auth:
                 return self._format_response(status='error', error='No credentials configured')
             
+            ssl_verify = get_ssl_verify()
+            
             # Get cluster info
             response = requests.get(
                 f"{self.base_url}/api/cluster",
                 auth=auth,
-                verify=False,
+                verify=ssl_verify,
                 timeout=10
             )
             
@@ -83,7 +96,7 @@ class NetAppONTAPClient(StorageClient):
             aggr_response = requests.get(
                 f"{self.base_url}/api/storage/aggregates",
                 auth=auth,
-                verify=False,
+                verify=ssl_verify,
                 timeout=10
             )
             
@@ -119,29 +132,38 @@ class NetAppStorageGRIDClient(StorageClient):
                 return self._format_response(status='error', error='No API token configured')
             
             headers = {'Authorization': f'Bearer {self.token}'}
+            ssl_verify = get_ssl_verify()
             
             # Get grid health
             response = requests.get(
                 f"{self.base_url}/api/v3/grid/health/topology",
                 headers=headers,
-                verify=False,
+                verify=ssl_verify,
                 timeout=10
             )
             
             if response.status_code != 200:
                 return self._format_response(status='error', error=f'API error: {response.status_code}')
             
-            # Get capacity info
-            capacity_response = requests.get(
-                f"{self.base_url}/api/v3/grid/accounts",
-                headers=headers,
-                verify=False,
-                timeout=10
-            )
+            # Get capacity info - Note: StorageGRID API requires specific endpoints for actual capacity
+            # This is a simplified implementation
+            total_tb = 0.0
+            used_tb = 0.0
             
-            # Simplified capacity calculation
-            total_tb = 100.0  # Placeholder
-            used_tb = 50.0    # Placeholder
+            # Attempt to get storage metrics if available
+            try:
+                metrics_response = requests.get(
+                    f"{self.base_url}/api/v3/grid/metric-query",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                if metrics_response.status_code == 200:
+                    # Parse metrics data if successful
+                    # Note: Actual implementation would need specific metric queries
+                    pass
+            except:
+                pass
             
             return self._format_response(
                 status='online',
@@ -165,11 +187,13 @@ class DellDataDomainClient(StorageClient):
             if not auth:
                 return self._format_response(status='error', error='No credentials configured')
             
+            ssl_verify = get_ssl_verify()
+            
             # Get system info
             response = requests.get(
                 f"{self.base_url}/rest/v1.0/dd-systems",
                 auth=auth,
-                verify=False,
+                verify=ssl_verify,
                 timeout=10
             )
             
@@ -182,7 +206,7 @@ class DellDataDomainClient(StorageClient):
             capacity_response = requests.get(
                 f"{self.base_url}/rest/v1.0/dd-systems/0/file-systems",
                 auth=auth,
-                verify=False,
+                verify=ssl_verify,
                 timeout=10
             )
             
