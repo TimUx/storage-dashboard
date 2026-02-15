@@ -2,6 +2,8 @@
 
 Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschiedener Hersteller über Browser und CLI.
 
+![Storage Dashboard](https://github.com/user-attachments/assets/e134b4f4-b3e7-4da8-b2b8-e853280272ca)
+
 ## Features
 
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
