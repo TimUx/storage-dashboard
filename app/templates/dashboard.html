@@ -1,734 +1,28 @@
 {% extends "base.html" %}
 
-{% block title %}Storage Dashboard - ITscare{% endblock %}
+{% block title %}Storage Dashboard{% endblock %}
 
 {% block styles %}
-/* ITscare Corporate Design - Full HD Optimization (1920x1080) */
-:root {
-    --primary-blue: #0066b3;
-    --primary-blue-dark: #004a82;
-    --accent-orange: #ff6600;
-    --accent-orange-dark: #cc5200;
-    --text-dark: #1a1a1a;
-    --text-medium: #4a4a4a;
-    --text-light: #7a7a7a;
-    --bg-light: #f5f7fa;
-    --bg-white: #ffffff;
-    --border-light: #e1e8ed;
-    --success: #28a745;
-    --warning: #ffc107;
-    --danger: #dc3545;
-    --info: #17a2b8;
-}
-
-body {
-    font-size: 14px;
-    background: var(--bg-light);
-}
-
-.container {
-    max-width: 1880px;
-    margin: 0 auto;
-    padding: 0.75rem;
-}
-
 .dashboard-header {
-    margin: 0.5rem 0 1rem 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: var(--bg-white);
-    padding: 1rem 1.5rem;
-    border-radius: 6px;
-    box-shadow: 0 2px 4px rgba(0, 102, 179, 0.1);
-}
-
-.dashboard-header h2 {
-    font-size: 1.5rem;
-    color: var(--primary-blue);
-    margin: 0;
-    font-weight: 600;
-}
-
-.header-actions {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-}
-
-.view-toggle {
-    display: flex;
-    background: var(--bg-light);
-    border-radius: 6px;
-    overflow: hidden;
-    border: 1px solid var(--border-light);
-}
-
-.view-toggle button {
-    background: transparent;
-    border: none;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-    color: var(--text-medium);
-    transition: all 0.3s;
-    font-weight: 500;
-}
-
-.view-toggle button:hover {
-    background: rgba(0, 102, 179, 0.1);
-}
-
-.view-toggle button.active {
-    background: var(--primary-blue);
-    color: white;
-}
-
-.refresh-btn {
-    background: linear-gradient(135deg, var(--accent-orange) 0%, var(--accent-orange-dark) 100%);
-    color: white;
-    border: none;
-    padding: 0.5rem 1.25rem;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    font-weight: 500;
-    transition: all 0.3s;
-    box-shadow: 0 2px 4px rgba(255, 102, 0, 0.2);
-}
-
-.refresh-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(255, 102, 0, 0.3);
-}
-
-.vendor-section {
-    margin: 0.75rem 0;
-}
-
-.vendor-header {
-    background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-blue-dark) 100%);
-    color: white;
-    padding: 0.75rem 1.25rem;
-    border-radius: 6px 6px 0 0;
-    font-size: 1.05rem;
-    font-weight: 600;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 2px 4px rgba(0, 102, 179, 0.15);
-}
-
-.vendor-count {
-    font-size: 0.85rem;
-    opacity: 0.9;
-    font-weight: 400;
-}
-
-/* Card View Styles - Optimized for 25 systems */
-.systems-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 0.75rem;
-    padding: 0.75rem;
-    background: var(--bg-white);
-    border-radius: 0 0 6px 6px;
-    box-shadow: 0 2px 4px rgba(0, 102, 179, 0.08);
-}
-
-.system-card {
-    border: 1px solid var(--border-light);
-    border-radius: 6px;
-    padding: 0.85rem;
-    background: var(--bg-white);
-    transition: all 0.25s ease;
-    position: relative;
-    overflow: hidden;
-}
-
-.system-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 3px;
-    background: linear-gradient(90deg, var(--primary-blue) 0%, var(--accent-orange) 100%);
-    transform: scaleX(0);
-    transition: transform 0.3s ease;
-}
-
-.system-card:hover::before {
-    transform: scaleX(1);
-}
-
-.system-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 102, 179, 0.15);
-    border-color: var(--primary-blue);
-}
-
-.system-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 0.5rem;
-}
-
-.system-name {
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--text-dark);
-    line-height: 1.3;
-    flex: 1;
-}
-
-.cluster-badge {
-    font-size: 0.7rem;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    font-weight: 600;
-    white-space: nowrap;
-    margin-left: 0.25rem;
-}
-
-.cluster-badge.ha { 
-    background: rgba(40, 167, 69, 0.15); 
-    color: var(--success); 
-    border: 1px solid rgba(40, 167, 69, 0.3);
-}
-.cluster-badge.active-cluster { 
-    background: rgba(0, 102, 179, 0.15); 
-    color: var(--primary-blue); 
-    border: 1px solid rgba(0, 102, 179, 0.3);
-}
-.cluster-badge.metrocluster { 
-    background: rgba(23, 162, 184, 0.15); 
-    color: var(--info); 
-    border: 1px solid rgba(23, 162, 184, 0.3);
-}
-.cluster-badge.local { 
-    background: rgba(108, 117, 125, 0.15); 
-    color: var(--text-medium); 
-    border: 1px solid rgba(108, 117, 125, 0.3);
-}
-.cluster-badge.multi-site { 
-    background: rgba(255, 102, 0, 0.15); 
-    color: var(--accent-orange); 
-    border: 1px solid rgba(255, 102, 0, 0.3);
-}
-.cluster-badge.single-site { 
-    background: rgba(108, 117, 125, 0.15); 
-    color: var(--text-medium); 
-    border: 1px solid rgba(108, 117, 125, 0.3);
-}
-
-.system-ip {
-    color: var(--text-light);
-    font-size: 0.75rem;
-    margin-bottom: 0.5rem;
-    font-family: 'Courier New', monospace;
-}
-
-.status-badge {
-    display: inline-block;
-    padding: 0.25rem 0.7rem;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-}
-
-.status-online { 
-    background: rgba(40, 167, 69, 0.15); 
-    color: var(--success); 
-    border: 1px solid rgba(40, 167, 69, 0.3);
-}
-.status-error { 
-    background: rgba(220, 53, 69, 0.15); 
-    color: var(--danger); 
-    border: 1px solid rgba(220, 53, 69, 0.3);
-}
-.status-offline { 
-    background: rgba(108, 117, 125, 0.15); 
-    color: var(--text-medium); 
-    border: 1px solid rgba(108, 117, 125, 0.3);
-}
-.status-warning { 
-    background: rgba(255, 193, 7, 0.15); 
-    color: #856404; 
-    border: 1px solid rgba(255, 193, 7, 0.3);
-}
-
-.metrics {
-    margin-top: 0.6rem;
-}
-
-.metric {
-    display: flex;
-    justify-content: space-between;
-    padding: 0.3rem 0;
-    font-size: 0.75rem;
-    border-bottom: 1px solid var(--bg-light);
-}
-
-.metric:last-child {
-    border-bottom: none;
-}
-
-.metric-label {
-    color: var(--text-light);
-    font-weight: 500;
-}
-
-.metric-value {
-    font-weight: 600;
-    color: var(--text-dark);
-}
-
-.metric-ok { color: var(--success); }
-.metric-warning { color: var(--warning); }
-.metric-error { color: var(--danger); }
-
-.capacity-bar {
-    width: 100%;
-    height: 6px;
-    background: var(--bg-light);
-    border-radius: 3px;
-    overflow: hidden;
-    margin-top: 0.5rem;
-}
-
-.capacity-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--primary-blue) 0%, var(--info) 100%);
-    transition: width 0.3s ease;
-}
-
-.capacity-fill.high {
-    background: linear-gradient(90deg, var(--warning) 0%, var(--accent-orange) 100%);
-}
-
-.capacity-fill.critical {
-    background: linear-gradient(90deg, var(--danger) 0%, #c82333 100%);
-}
-
-.capacity-text {
-    text-align: center;
-    font-size: 0.7rem;
-    color: var(--text-light);
-    margin-top: 0.25rem;
-    font-weight: 500;
-}
-
-/* Table View Styles */
-.systems-table {
-    display: none;
-    width: 100%;
-    background: var(--bg-white);
-    border-radius: 0 0 6px 6px;
-    box-shadow: 0 2px 4px rgba(0, 102, 179, 0.08);
-    overflow: hidden;
-}
-
-.systems-table table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-}
-
-.systems-table thead {
-    background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-blue-dark) 100%);
-    color: white;
-}
-
-.systems-table th {
-    padding: 0.75rem 0.6rem;
-    text-align: left;
-    font-weight: 600;
-    font-size: 0.8rem;
-}
-
-.systems-table td {
-    padding: 0.75rem 0.6rem;
-    border-bottom: 1px solid var(--bg-light);
-}
-
-.systems-table tbody tr {
-    transition: background 0.2s;
-}
-
-.systems-table tbody tr:hover {
-    background: rgba(0, 102, 179, 0.05);
-}
-
-.systems-table .status-cell {
-    text-align: center;
-}
-
-.systems-table .capacity-cell {
-    min-width: 150px;
-}
-
-.systems-table .capacity-bar {
-    margin-top: 0.25rem;
-}
-
-.error-message {
-    background: rgba(220, 53, 69, 0.1);
-    color: var(--danger);
-    padding: 0.5rem;
-    border-radius: 4px;
-    margin-top: 0.5rem;
-    font-size: 0.75rem;
-    border: 1px solid rgba(220, 53, 69, 0.2);
-}
-
-.no-systems {
-    text-align: center;
-    padding: 3rem;
-    color: var(--text-medium);
-    background: var(--bg-white);
-    border-radius: 6px;
-    box-shadow: 0 2px 4px rgba(0, 102, 179, 0.08);
-}
-
-.no-systems h3 {
-    color: var(--primary-blue);
-}
-
-.no-systems a {
-    color: var(--accent-orange);
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.no-systems a:hover {
-    text-decoration: underline;
-}
-
-/* View Toggle */
-body.table-view .systems-grid {
-    display: none;
-}
-
-body.table-view .systems-table {
-    display: block;
-}
-
-/* Node/Site Info */
-.node-info {
-    font-size: 0.7rem;
-    color: var(--text-light);
-    margin-top: 0.25rem;
-    font-weight: 500;
-}
-
-/* ITscare Branding Footer */
-.dashboard-footer {
-    text-align: center;
-    padding: 1rem;
-    color: var(--text-light);
-    font-size: 0.8rem;
-    margin-top: 1rem;
-}
-
-.dashboard-footer a {
-    color: var(--primary-blue);
-    text-decoration: none;
-}
-
-.dashboard-footer a:hover {
-    color: var(--accent-orange);
-}
-{% endblock %}
-
-{% block content %}
-<div class="dashboard-header">
-    <h2>Storage Systems Overview</h2>
-    <div class="header-actions">
-        <div class="view-toggle">
-            <button id="card-view-btn" class="active" onclick="switchView('card')">
-                <span>&#x25A0;&#x25A0;</span> Cards
-            </button>
-            <button id="table-view-btn" onclick="switchView('table')">
-                <span>☰</span> Table
-            </button>
-        </div>
-        <button class="refresh-btn" onclick="location.reload()">&#x21bb; Aktualisieren</button>
-    </div>
-</div>
-
-{% if not grouped_systems %}
-<div class="no-systems">
-    <h3>Keine Storage Systeme konfiguriert</h3>
-    <p>Fügen Sie Storage Systeme im <a href="/admin">Admin-Bereich</a> hinzu.</p>
-</div>
-{% else %}
-    {% for vendor, systems in grouped_systems.items() %}
-    <div class="vendor-section">
-        <div class="vendor-header">
-            <span>{{ vendor_names[vendor] }}</span>
-            <span class="vendor-count">{{ systems|length }} System{{ 'e' if systems|length != 1 else '' }}</span>
-        </div>
-        
-        <!-- Card View -->
-        <div class="systems-grid">
-            {% for item in systems %}
-            {% set system = item.system %}
-            {% set status = item.status %}
-            <div class="system-card">
-                <div class="system-header">
-                    <div class="system-name">{{ system.name }}</div>
-                    {% if system.cluster_type %}
-                    <span class="cluster-badge {{ system.cluster_type }}">
-                        {% if system.cluster_type == 'ha' %}HA
-                        {% elif system.cluster_type == 'active-cluster' %}Active
-                        {% elif system.cluster_type == 'metrocluster' %}Metro
-                        {% elif system.cluster_type == 'local' %}Local
-                        {% elif system.cluster_type == 'multi-site' %}Multi-Site
-                        {% elif system.cluster_type == 'single-site' %}Single
-                        {% else %}{{ system.cluster_type }}{% endif %}
-                    </span>
-                    {% endif %}
-                </div>
-                <div class="system-ip">{{ system.ip_address }}</div>
-                
-                <span class="status-badge status-{{ status.status }}">
-                    {% if status.status == 'online' %}✓ Online
-                    {% elif status.status == 'error' %}✗ Fehler
-                    {% else %}? Unbekannt{% endif %}
-                </span>
-                
-                {% if system.node_count or system.site_count %}
-                <div class="node-info">
-                    {% if system.node_count %}{{ system.node_count }} Nodes{% endif %}
-                    {% if system.node_count and system.site_count %} / {% endif %}
-                    {% if system.site_count %}{{ system.site_count }} Sites{% endif %}
-                </div>
-                {% endif %}
-                
-                {% if status.status == 'online' %}
-                <div class="metrics">
-                    <div class="metric">
-                        <span class="metric-label">Hardware:</span>
-                        <span class="metric-value metric-{{ status.hardware_status }}">
-                            {{ status.hardware_status|upper }}
-                        </span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Cluster:</span>
-                        <span class="metric-value metric-{{ status.cluster_status }}">
-                            {{ status.cluster_status|upper }}
-                        </span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Alerts:</span>
-                        <span class="metric-value {% if status.alerts > 0 %}metric-warning{% endif %}">
-                            {{ status.alerts }}
-                        </span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Kapazität:</span>
-                        <span class="metric-value">
-                            {{ "%.1f"|format(status.capacity_used_tb) }} / {{ "%.1f"|format(status.capacity_total_tb) }} TB
-                        </span>
-                    </div>
-                    <div class="capacity-bar">
-                        <div class="capacity-fill {% if status.capacity_percent > 90 %}critical{% elif status.capacity_percent > 75 %}high{% endif %}" 
-                             style="width: {{ status.capacity_percent }}%"></div>
-                    </div>
-                    <div class="capacity-text">
-                        {{ "%.1f"|format(status.capacity_percent) }}% belegt
-                    </div>
-                </div>
-                {% endif %}
-                
-                {% if status.error %}
-                <div class="error-message">{{ status.error }}</div>
-                {% endif %}
-            </div>
-            {% endfor %}
-        </div>
-        
-        <!-- Table View -->
-        <div class="systems-table">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Cluster-Typ</th>
-                        <th>IP</th>
-                        <th class="status-cell">Status</th>
-                        <th>Hardware</th>
-                        <th>Cluster</th>
-                        <th class="status-cell">Alerts</th>
-                        <th class="capacity-cell">Kapazität</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in systems %}
-                    {% set system = item.system %}
-                    {% set status = item.status %}
-                    <tr>
-                        <td>
-                            <strong>{{ system.name }}</strong>
-                            {% if system.node_count or system.site_count %}
-                            <br><small style="color: var(--text-light);">
-                                {% if system.node_count %}{{ system.node_count }}N{% endif %}
-                                {% if system.site_count %}/{{ system.site_count }}S{% endif %}
-                            </small>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if system.cluster_type %}
-                            <span class="cluster-badge {{ system.cluster_type }}">
-                                {% if system.cluster_type == 'ha' %}HA
-                                {% elif system.cluster_type == 'active-cluster' %}Active-Cluster
-                                {% elif system.cluster_type == 'metrocluster' %}MetroCluster
-                                {% elif system.cluster_type == 'local' %}Local
-                                {% elif system.cluster_type == 'multi-site' %}Multi-Site
-                                {% elif system.cluster_type == 'single-site' %}Single-Site
-                                {% else %}{{ system.cluster_type }}{% endif %}
-                            </span>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td><small style="font-family: 'Courier New', monospace;">{{ system.ip_address }}</small></td>
-                        <td class="status-cell">
-                            <span class="status-badge status-{{ status.status }}">
-                                {% if status.status == 'online' %}✓
-                                {% elif status.status == 'error' %}✗
-                                {% else %}?{% endif %}
-                            </span>
-                        </td>
-                        <td>
-                            {% if status.status == 'online' %}
-                            <span class="metric-value metric-{{ status.hardware_status }}">
-                                {{ status.hardware_status|upper }}
-                            </span>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td>
-                            {% if status.status == 'online' %}
-                            <span class="metric-value metric-{{ status.cluster_status }}">
-                                {{ status.cluster_status|upper }}
-                            </span>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td class="status-cell">
-                            {% if status.status == 'online' %}
-                            <span class="{% if status.alerts > 0 %}metric-warning{% endif %}">
-                                {{ status.alerts }}
-                            </span>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td class="capacity-cell">
-                            {% if status.status == 'online' and status.capacity_total_tb > 0 %}
-                            <div>
-                                <small>{{ "%.1f"|format(status.capacity_used_tb) }} / {{ "%.1f"|format(status.capacity_total_tb) }} TB</small>
-                            </div>
-                            <div class="capacity-bar">
-                                <div class="capacity-fill {% if status.capacity_percent > 90 %}critical{% elif status.capacity_percent > 75 %}high{% endif %}" 
-                                     style="width: {{ status.capacity_percent }}%"></div>
-                            </div>
-                            <div class="capacity-text">{{ "%.1f"|format(status.capacity_percent) }}%</div>
-                            {% else %}-{% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    {% endfor %}
-{% endif %}
-
-<div class="dashboard-footer">
-    Powered by <a href="https://www.itscare.de" target="_blank">ITscare</a> | Storage Dashboard v1.0
-</div>
-
-<script>
-// View switching with localStorage persistence
-function switchView(view) {
-    const cardBtn = document.getElementById('card-view-btn');
-    const tableBtn = document.getElementById('table-view-btn');
-    
-    if (view === 'card') {
-        document.body.classList.remove('table-view');
-        cardBtn.classList.add('active');
-        tableBtn.classList.remove('active');
-    } else {
-        document.body.classList.add('table-view');
-        tableBtn.classList.add('active');
-        cardBtn.classList.remove('active');
-    }
-    
-    // Save preference
-    localStorage.setItem('dashboard-view', view);
-}
-
-// Restore view preference on load
-document.addEventListener('DOMContentLoaded', function() {
-    const savedView = localStorage.getItem('dashboard-view') || 'card';
-    switchView(savedView);
-});
-</script>
-{% endblock %}
-
-
-.dashboard-header {
-    margin: 0.5rem 0 1rem 0;
+    margin: 1rem 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
 
 .dashboard-header h2 {
-    font-size: 1.5rem;
+    font-size: 1.8rem;
     color: #2c3e50;
-    margin: 0;
-}
-
-.header-actions {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-}
-
-.view-toggle {
-    display: flex;
-    background: #ecf0f1;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.view-toggle button {
-    background: transparent;
-    border: none;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-    color: #7f8c8d;
-    transition: all 0.3s;
-}
-
-.view-toggle button:hover {
-    background: #bdc3c7;
-}
-
-.view-toggle button.active {
-    background: #3498db;
-    color: white;
 }
 
 .refresh-btn {
     background: #3498db;
     color: white;
     border: none;
-    padding: 0.5rem 1.25rem;
+    padding: 0.75rem 1.5rem;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 1rem;
     transition: background 0.3s;
 }
 
@@ -737,113 +31,93 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 
 .vendor-section {
-    margin: 0.75rem 0;
+    margin: 1.5rem 0;
 }
 
 .vendor-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #34495e;
     color: white;
-    padding: 0.5rem 1rem;
+    padding: 0.75rem 1rem;
     border-radius: 4px 4px 0 0;
-    font-size: 1rem;
-    font-weight: 600;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    font-size: 1.2rem;
+    font-weight: bold;
 }
 
-.vendor-count {
-    font-size: 0.85rem;
-    opacity: 0.9;
-}
-
-/* Card View Styles - Optimized for 25 systems */
 .systems-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 0.75rem;
-    padding: 0.75rem;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    padding: 1rem;
     background: white;
     border-radius: 0 0 4px 4px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .system-card {
-    border: 1px solid #e0e0e0;
+    border: 1px solid #ddd;
     border-radius: 4px;
-    padding: 0.75rem;
+    padding: 1rem;
     background: #fafafa;
-    transition: all 0.2s;
-    position: relative;
+    transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .system-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    border-color: #3498db;
-}
-
-.system-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 0.5rem;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
 }
 
 .system-name {
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 1.1rem;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
     color: #2c3e50;
-    line-height: 1.2;
-    flex: 1;
 }
-
-.cluster-badge {
-    font-size: 0.7rem;
-    padding: 0.15rem 0.4rem;
-    border-radius: 3px;
-    background: #ecf0f1;
-    color: #7f8c8d;
-    white-space: nowrap;
-    margin-left: 0.25rem;
-}
-
-.cluster-badge.ha { background: #d1f2eb; color: #0e6655; }
-.cluster-badge.active-cluster { background: #d4edda; color: #155724; }
-.cluster-badge.metrocluster { background: #cce5ff; color: #004085; }
-.cluster-badge.local { background: #e2e3e5; color: #383d41; }
-.cluster-badge.multi-site { background: #fff3cd; color: #856404; }
 
 .system-ip {
     color: #7f8c8d;
-    font-size: 0.75rem;
-    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
 }
 
 .status-badge {
     display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: bold;
+    margin: 0.25rem 0;
 }
 
-.status-online { background: #d4edda; color: #155724; }
-.status-error { background: #f8d7da; color: #721c24; }
-.status-offline { background: #e2e3e5; color: #383d41; }
-.status-warning { background: #fff3cd; color: #856404; }
+.status-online {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-error {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.status-offline {
+    background: #e2e3e5;
+    color: #383d41;
+}
+
+.status-warning {
+    background: #fff3cd;
+    color: #856404;
+}
 
 .metrics {
-    margin-top: 0.5rem;
+    margin-top: 0.75rem;
 }
 
 .metric {
     display: flex;
     justify-content: space-between;
-    padding: 0.25rem 0;
-    font-size: 0.75rem;
-    border-bottom: 1px solid #ecf0f1;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 0.9rem;
 }
 
 .metric:last-child {
@@ -851,113 +125,62 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 
 .metric-label {
-    color: #95a5a6;
+    color: #7f8c8d;
 }
 
 .metric-value {
-    font-weight: 600;
+    font-weight: bold;
     color: #2c3e50;
 }
 
-.metric-ok { color: #27ae60; }
-.metric-warning { color: #f39c12; }
-.metric-error { color: #e74c3c; }
+.metric-ok {
+    color: #27ae60;
+}
+
+.metric-warning {
+    color: #f39c12;
+}
+
+.metric-error {
+    color: #e74c3c;
+}
 
 .capacity-bar {
     width: 100%;
-    height: 6px;
+    height: 8px;
     background: #ecf0f1;
-    border-radius: 3px;
+    border-radius: 4px;
     overflow: hidden;
-    margin-top: 0.4rem;
+    margin-top: 0.5rem;
 }
 
 .capacity-fill {
     height: 100%;
-    background: linear-gradient(90deg, #3498db 0%, #2980b9 100%);
+    background: #3498db;
     transition: width 0.3s;
 }
 
 .capacity-fill.high {
-    background: linear-gradient(90deg, #f39c12 0%, #e67e22 100%);
+    background: #f39c12;
 }
 
 .capacity-fill.critical {
-    background: linear-gradient(90deg, #e74c3c 0%, #c0392b 100%);
-}
-
-.capacity-text {
-    text-align: center;
-    font-size: 0.7rem;
-    color: #7f8c8d;
-    margin-top: 0.2rem;
-}
-
-/* Table View Styles */
-.systems-table {
-    display: none;
-    width: 100%;
-    background: white;
-    border-radius: 0 0 4px 4px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    overflow: hidden;
-}
-
-.systems-table table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-}
-
-.systems-table thead {
-    background: #34495e;
-    color: white;
-}
-
-.systems-table th {
-    padding: 0.75rem 0.5rem;
-    text-align: left;
-    font-weight: 600;
-    font-size: 0.8rem;
-}
-
-.systems-table td {
-    padding: 0.75rem 0.5rem;
-    border-bottom: 1px solid #ecf0f1;
-}
-
-.systems-table tbody tr:hover {
-    background: #f8f9fa;
-}
-
-.systems-table .status-cell {
-    text-align: center;
-}
-
-.systems-table .capacity-cell {
-    min-width: 150px;
-}
-
-.systems-table .capacity-bar {
-    margin-top: 0.25rem;
+    background: #e74c3c;
 }
 
 .error-message {
     background: #f8d7da;
     color: #721c24;
-    padding: 0.4rem;
-    border-radius: 3px;
-    margin-top: 0.4rem;
-    font-size: 0.75rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
 }
 
 .no-systems {
     text-align: center;
     padding: 3rem;
     color: #7f8c8d;
-    background: white;
-    border-radius: 4px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .no-systems a {
@@ -968,38 +191,12 @@ document.addEventListener('DOMContentLoaded', function() {
 .no-systems a:hover {
     text-decoration: underline;
 }
-
-/* View Toggle */
-body.table-view .systems-grid {
-    display: none;
-}
-
-body.table-view .systems-table {
-    display: block;
-}
-
-/* Node/Site Info */
-.node-info {
-    font-size: 0.7rem;
-    color: #7f8c8d;
-    margin-top: 0.25rem;
-}
 {% endblock %}
 
 {% block content %}
 <div class="dashboard-header">
     <h2>Storage Systems Overview</h2>
-    <div class="header-actions">
-        <div class="view-toggle">
-            <button id="card-view-btn" class="active" onclick="switchView('card')">
-                <span>&#x25A0;&#x25A0;</span> Cards
-            </button>
-            <button id="table-view-btn" onclick="switchView('table')">
-                <span>☰</span> Table
-            </button>
-        </div>
-        <button class="refresh-btn" onclick="location.reload()">&#x21bb; Aktualisieren</button>
-    </div>
+    <button class="refresh-btn" onclick="location.reload()">&#x21bb; Aktualisieren</button>
 </div>
 
 {% if not grouped_systems %}
@@ -1011,30 +208,14 @@ body.table-view .systems-table {
     {% for vendor, systems in grouped_systems.items() %}
     <div class="vendor-section">
         <div class="vendor-header">
-            <span>{{ vendor_names[vendor] }}</span>
-            <span class="vendor-count">{{ systems|length }} System{{ 'e' if systems|length != 1 else '' }}</span>
+            {{ vendor_names[vendor] }} ({{ systems|length }} System{{ 'e' if systems|length != 1 else '' }})
         </div>
-        
-        <!-- Card View -->
         <div class="systems-grid">
             {% for item in systems %}
             {% set system = item.system %}
             {% set status = item.status %}
             <div class="system-card">
-                <div class="system-header">
-                    <div class="system-name">{{ system.name }}</div>
-                    {% if system.cluster_type %}
-                    <span class="cluster-badge {{ system.cluster_type }}">
-                        {% if system.cluster_type == 'ha' %}HA
-                        {% elif system.cluster_type == 'active-cluster' %}Active
-                        {% elif system.cluster_type == 'metrocluster' %}Metro
-                        {% elif system.cluster_type == 'local' %}Local
-                        {% elif system.cluster_type == 'multi-site' %}Multi-Site
-                        {% elif system.cluster_type == 'single-site' %}Single
-                        {% else %}{{ system.cluster_type }}{% endif %}
-                    </span>
-                    {% endif %}
-                </div>
+                <div class="system-name">{{ system.name }}</div>
                 <div class="system-ip">{{ system.ip_address }}</div>
                 
                 <span class="status-badge status-{{ status.status }}">
@@ -1042,14 +223,6 @@ body.table-view .systems-table {
                     {% elif status.status == 'error' %}✗ Fehler
                     {% else %}? Unbekannt{% endif %}
                 </span>
-                
-                {% if system.node_count or system.site_count %}
-                <div class="node-info">
-                    {% if system.node_count %}{{ system.node_count }} Nodes{% endif %}
-                    {% if system.node_count and system.site_count %} / {% endif %}
-                    {% if system.site_count %}{{ system.site_count }} Sites{% endif %}
-                </div>
-                {% endif %}
                 
                 {% if status.status == 'online' %}
                 <div class="metrics">
@@ -1081,7 +254,7 @@ body.table-view .systems-table {
                         <div class="capacity-fill {% if status.capacity_percent > 90 %}critical{% elif status.capacity_percent > 75 %}high{% endif %}" 
                              style="width: {{ status.capacity_percent }}%"></div>
                     </div>
-                    <div class="capacity-text">
+                    <div style="text-align: center; font-size: 0.85rem; color: #7f8c8d; margin-top: 0.25rem;">
                         {{ "%.1f"|format(status.capacity_percent) }}% belegt
                     </div>
                 </div>
@@ -1093,123 +266,7 @@ body.table-view .systems-table {
             </div>
             {% endfor %}
         </div>
-        
-        <!-- Table View -->
-        <div class="systems-table">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Cluster-Typ</th>
-                        <th>IP</th>
-                        <th class="status-cell">Status</th>
-                        <th>Hardware</th>
-                        <th>Cluster</th>
-                        <th class="status-cell">Alerts</th>
-                        <th class="capacity-cell">Kapazität</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in systems %}
-                    {% set system = item.system %}
-                    {% set status = item.status %}
-                    <tr>
-                        <td>
-                            <strong>{{ system.name }}</strong>
-                            {% if system.node_count or system.site_count %}
-                            <br><small style="color: #7f8c8d;">
-                                {% if system.node_count %}{{ system.node_count }}N{% endif %}
-                                {% if system.site_count %}/{{ system.site_count }}S{% endif %}
-                            </small>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if system.cluster_type %}
-                            <span class="cluster-badge {{ system.cluster_type }}">
-                                {% if system.cluster_type == 'ha' %}HA
-                                {% elif system.cluster_type == 'active-cluster' %}Active-Cluster
-                                {% elif system.cluster_type == 'metrocluster' %}MetroCluster
-                                {% elif system.cluster_type == 'local' %}Local
-                                {% elif system.cluster_type == 'multi-site' %}Multi-Site
-                                {% elif system.cluster_type == 'single-site' %}Single-Site
-                                {% else %}{{ system.cluster_type }}{% endif %}
-                            </span>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td><small>{{ system.ip_address }}</small></td>
-                        <td class="status-cell">
-                            <span class="status-badge status-{{ status.status }}">
-                                {% if status.status == 'online' %}✓
-                                {% elif status.status == 'error' %}✗
-                                {% else %}?{% endif %}
-                            </span>
-                        </td>
-                        <td>
-                            {% if status.status == 'online' %}
-                            <span class="metric-value metric-{{ status.hardware_status }}">
-                                {{ status.hardware_status|upper }}
-                            </span>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td>
-                            {% if status.status == 'online' %}
-                            <span class="metric-value metric-{{ status.cluster_status }}">
-                                {{ status.cluster_status|upper }}
-                            </span>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td class="status-cell">
-                            {% if status.status == 'online' %}
-                            <span class="{% if status.alerts > 0 %}metric-warning{% endif %}">
-                                {{ status.alerts }}
-                            </span>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td class="capacity-cell">
-                            {% if status.status == 'online' and status.capacity_total_tb > 0 %}
-                            <div>
-                                <small>{{ "%.1f"|format(status.capacity_used_tb) }} / {{ "%.1f"|format(status.capacity_total_tb) }} TB</small>
-                            </div>
-                            <div class="capacity-bar">
-                                <div class="capacity-fill {% if status.capacity_percent > 90 %}critical{% elif status.capacity_percent > 75 %}high{% endif %}" 
-                                     style="width: {{ status.capacity_percent }}%"></div>
-                            </div>
-                            <div class="capacity-text">{{ "%.1f"|format(status.capacity_percent) }}%</div>
-                            {% else %}-{% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
     </div>
     {% endfor %}
 {% endif %}
-
-<script>
-// View switching with localStorage persistence
-function switchView(view) {
-    const cardBtn = document.getElementById('card-view-btn');
-    const tableBtn = document.getElementById('table-view-btn');
-    
-    if (view === 'card') {
-        document.body.classList.remove('table-view');
-        cardBtn.classList.add('active');
-        tableBtn.classList.remove('active');
-    } else {
-        document.body.classList.add('table-view');
-        tableBtn.classList.add('active');
-        cardBtn.classList.remove('active');
-    }
-    
-    // Save preference
-    localStorage.setItem('dashboard-view', view);
-}
-
-// Restore view preference on load
-document.addEventListener('DOMContentLoaded', function() {
-    const savedView = localStorage.getItem('dashboard-view') || 'card';
-    switchView(savedView);
-});
-</script>
 {% endblock %}
