@@ -17,7 +17,7 @@ services:
     environment:
       # Flask configuration
       - FLASK_ENV=production
-      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env file}
       
       # Database configuration
       - DATABASE_URL=sqlite:////app/data/storage_dashboard.db

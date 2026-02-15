@@ -55,8 +55,9 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 git clone https://github.com/TimUx/storage-dashboard.git
 cd storage-dashboard
 
-# Secret Key generieren
+# Secret Key generieren und in .env speichern
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+echo "SSL_VERIFY=false" >> .env
 
 # Mit Podman starten
 podman-compose up -d
@@ -184,7 +185,12 @@ Das Dashboard kann als Docker/Podman Container betrieben werden. Siehe [CONTAINE
 ```bash
 git clone https://github.com/TimUx/storage-dashboard.git
 cd storage-dashboard
+
+# .env Datei mit Secret Key erstellen
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+echo "SSL_VERIFY=false" >> .env
+
+# Container starten
 podman-compose up -d
 ```
 

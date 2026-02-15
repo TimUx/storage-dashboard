@@ -43,10 +43,11 @@ cd storage-dashboard
 Erstellen Sie eine `.env` Datei für die Konfiguration:
 
 ```bash
-cat > .env << 'EOF'
-# Secret Key für Flask Session (ÄNDERN!)
-SECRET_KEY=your-super-secret-key-here-change-this
+# Generieren Sie einen sicheren Secret Key
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
 
+# Fügen Sie weitere Optionen hinzu
+cat >> .env << 'EOF'
 # SSL Verifizierung für Storage APIs
 SSL_VERIFY=false
 
@@ -55,10 +56,7 @@ SSL_VERIFY=false
 EOF
 ```
 
-**Wichtig:** Generieren Sie einen sicheren Secret Key:
-```bash
-python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" >> .env
-```
+**Wichtig:** Der Secret Key ist essentiell für die Sicherheit der Anwendung!
 
 ### 3. Container starten
 
@@ -73,7 +71,8 @@ podman run -d \
   --name storage-dashboard \
   -p 5000:5000 \
   -v storage-data:/app/data:Z \
-  --env-file .env \
+  -e SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
+  -e SSL_VERIFY=false \
   storage-dashboard:latest
 ```
 
