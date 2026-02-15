@@ -4,6 +4,8 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 
 ![Storage Dashboard](https://github.com/user-attachments/assets/e134b4f4-b3e7-4da8-b2b8-e853280272ca)
 
+> **Hinweis**: Das Dashboard verfügt jetzt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität. Neue Screenshots mit aktualisierten Beispieldaten folgen in Kürze.
+
 ## Features
 
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
@@ -84,6 +86,12 @@ python run.py
 ```
 
 Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
+
+**Dashboard-Features:**
+- **Auto-Refresh**: Aktivieren Sie die Auto-Refresh-Funktion, um das Dashboard automatisch alle 45 Sekunden zu aktualisieren
+- **Filter**: Nutzen Sie die Filteroptionen, um gezielt nach Systemen zu suchen
+- **Ansichten**: Wechseln Sie zwischen Card-View (Kacheln) und Table-View (Tabelle)
+- **Multithreading**: Alle Systeme werden parallel abgefragt für optimale Performance
 
 Für Produktivumgebungen mit Gunicorn:
 
