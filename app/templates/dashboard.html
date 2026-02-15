@@ -948,12 +948,14 @@ function startAutoRefresh() {
         countdownSeconds--;
         updateTimerDisplay();
         
+        // Trigger refresh when countdown reaches zero
         if (countdownSeconds <= 0) {
-            countdownSeconds = refreshTimeSeconds;
+            refreshDashboard();
+            return; // Exit early as refreshDashboard will reload the page
         }
     }, 1000);
     
-    // Start auto-refresh interval
+    // Start auto-refresh interval as a backup
     autoRefreshInterval = setInterval(function() {
         refreshDashboard();
     }, refreshTimeSeconds * 1000);
@@ -994,10 +996,8 @@ function refreshDashboard() {
 }
 
 function manualRefresh() {
-    // Reset the countdown when manually refreshing
-    if (autoRefreshInterval) {
-        countdownSeconds = refreshTimeSeconds;
-    }
+    // If auto-refresh is enabled, it will restart after reload
+    // No need to manipulate intervals as the page reload will handle it
     location.reload();
 }
 
