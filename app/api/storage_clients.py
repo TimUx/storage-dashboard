@@ -28,11 +28,12 @@ class PureStorageClient(StorageClient):
             
             ssl_verify = get_ssl_verify()
             
-            # Create FlashArray client
+            # Create FlashArray client with timeout
             client = flasharray.Client(
                 target=self.ip_address,
                 api_token=self.token,
-                verify_ssl=ssl_verify
+                verify_ssl=ssl_verify,
+                timeout=5  # 5 second timeout
             )
             
             # Get array info
