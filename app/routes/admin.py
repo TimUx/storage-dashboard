@@ -187,11 +187,24 @@ def new_certificate():
                 return redirect(url_for('admin.new_certificate'))
             
             # Read certificate content
-            cert_pem = cert_file.read().decode('utf-8')
+            try:
+                cert_pem = cert_file.read().decode('utf-8')
+            except UnicodeDecodeError:
+                flash('Das Zertifikat muss UTF-8 kodiert sein oder im PEM-Format vorliegen.', 'error')
+                return redirect(url_for('admin.new_certificate'))
             
-            # Basic validation
+            # Validate PEM format
             if '-----BEGIN CERTIFICATE-----' not in cert_pem:
                 flash('Ungültiges Zertifikatsformat. Nur PEM-Format wird unterstützt.', 'error')
+                return redirect(url_for('admin.new_certificate'))
+            
+            # Validate certificate can be parsed
+            try:
+                from cryptography import x509
+                from cryptography.hazmat.backends import default_backend
+                x509.load_pem_x509_certificate(cert_pem.encode(), default_backend())
+            except Exception as e:
+                flash(f'Zertifikat konnte nicht geladen werden: {str(e)}', 'error')
                 return redirect(url_for('admin.new_certificate'))
             
             # Create certificate
@@ -232,9 +245,21 @@ def edit_certificate(cert_id):
             if 'certificate_file' in request.files:
                 cert_file = request.files['certificate_file']
                 if cert_file.filename != '':
-                    cert_pem = cert_file.read().decode('utf-8')
+                    try:
+                        cert_pem = cert_file.read().decode('utf-8')
+                    except UnicodeDecodeError:
+                        flash('Das Zertifikat muss UTF-8 kodiert sein oder im PEM-Format vorliegen.', 'warning')
+                        return render_template('admin/certificate_form.html', certificate=certificate, action='Edit')
+                    
                     if '-----BEGIN CERTIFICATE-----' in cert_pem:
-                        certificate.certificate_pem = cert_pem
+                        # Validate certificate can be parsed
+                        try:
+                            from cryptography import x509
+                            from cryptography.hazmat.backends import default_backend
+                            x509.load_pem_x509_certificate(cert_pem.encode(), default_backend())
+                            certificate.certificate_pem = cert_pem
+                        except Exception as e:
+                            flash(f'Zertifikat konnte nicht geladen werden: {str(e)}', 'warning')
                     else:
                         flash('Ungültiges Zertifikatsformat', 'warning')
             

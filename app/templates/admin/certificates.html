@@ -220,7 +220,7 @@ tbody tr:hover {
                 {{ 'Aktiv' if cert.enabled else 'Inaktiv' }}
             </td>
             <td>
-                <span class="cert-info">{{ cert.created_at.strftime('%d.%m.%Y %H:%M') if cert.created_at else '-' }}</span>
+                <span class="cert-info">{{ cert.created_at|format_datetime }}</span>
             </td>
             <td class="actions">
                 <a href="/admin/certificates/{{ cert.id }}/edit" class="btn btn-primary btn-sm">Bearbeiten</a>

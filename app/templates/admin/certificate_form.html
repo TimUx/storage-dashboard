@@ -154,7 +154,7 @@
         <div class="form-group">
             <label for="certificate_file">Zertifikatsdatei <span class="required">{{ '' if certificate else '*' }}</span></label>
             <input type="file" id="certificate_file" name="certificate_file" 
-                   accept=".pem,.crt,.cer,.der"
+                   accept=".pem,.crt,.cer"
                    {{ '' if certificate else 'required' }}>
             <div class="form-help">
                 {% if certificate %}
