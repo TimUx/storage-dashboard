@@ -902,7 +902,6 @@ body.table-view .systems-table {
 
 <script>
 // Auto-refresh configuration
-let autoRefreshInterval = null;
 let autoRefreshCountdown = null;
 let refreshTimeSeconds = 45; // Default to 45 seconds (middle of 30-60 range)
 let countdownSeconds = refreshTimeSeconds;
@@ -954,18 +953,9 @@ function startAutoRefresh() {
             return; // Exit early as refreshDashboard will reload the page
         }
     }, 1000);
-    
-    // Start auto-refresh interval as a backup
-    autoRefreshInterval = setInterval(function() {
-        refreshDashboard();
-    }, refreshTimeSeconds * 1000);
 }
 
 function stopAutoRefresh() {
-    if (autoRefreshInterval) {
-        clearInterval(autoRefreshInterval);
-        autoRefreshInterval = null;
-    }
     if (autoRefreshCountdown) {
         clearInterval(autoRefreshCountdown);
         autoRefreshCountdown = null;
