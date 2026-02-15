@@ -176,6 +176,20 @@ Zeigt alle aktivierten Storage-Systeme gruppiert nach Hersteller:
 - Systeme hinzufügen, bearbeiten, löschen
 - Aktivieren/Deaktivieren von Systemen
 
+## Container-Deployment
+
+Das Dashboard kann als Docker/Podman Container betrieben werden. Siehe [CONTAINER.md](CONTAINER.md) für Details.
+
+**Schnellstart:**
+```bash
+git clone https://github.com/TimUx/storage-dashboard.git
+cd storage-dashboard
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+podman-compose up -d
+```
+
+Dashboard verfügbar unter: `http://localhost:5000`
+
 ### Dokumentation (`/admin/docs`)
 
 Detaillierte Anleitungen zur API-Einrichtung für jedes Storage-System.
