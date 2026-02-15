@@ -2,9 +2,15 @@
 
 Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschiedener Hersteller über Browser und CLI.
 
-![Storage Dashboard](https://github.com/user-attachments/assets/e134b4f4-b3e7-4da8-b2b8-e853280272ca)
+## Screenshots
 
-> **Hinweis**: Das Dashboard verfügt jetzt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität. Neue Screenshots mit aktualisierten Beispieldaten folgen in Kürze.
+### Dashboard - Card View
+![Dashboard Card View](screenshots/dashboard-card-view.png)
+
+### Dashboard - Details
+![System Details](screenshots/system-details.png)
+
+> **Hinweis**: Das Dashboard verfügt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität.
 
 ## Features
 
@@ -41,27 +47,51 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 
 ## Installation
 
-### 1. Repository klonen
+### Option 1: Container-Deployment (Empfohlen)
+
+**Schnellstart mit Podman/Docker:**
+
+```bash
+git clone https://github.com/TimUx/storage-dashboard.git
+cd storage-dashboard
+
+# Secret Key generieren
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+
+# Mit Podman starten
+podman-compose up -d
+
+# Oder mit Docker starten
+docker-compose up -d
+```
+
+Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
+
+📖 **Detaillierte Container-Dokumentation:** Siehe [CONTAINER.md](CONTAINER.md)
+
+### Option 2: Manuelle Installation
+
+#### 1. Repository klonen
 
 ```bash
 git clone https://github.com/TimUx/storage-dashboard.git
 cd storage-dashboard
 ```
 
-### 2. Python Virtual Environment erstellen
+#### 2. Python Virtual Environment erstellen
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate  # Auf Linux/Mac
 ```
 
-### 3. Abhängigkeiten installieren
+#### 3. Abhängigkeiten installieren
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Konfiguration
+#### 4. Konfiguration
 
 Kopieren Sie die Beispiel-Konfiguration:
 
