@@ -1,0 +1,52 @@
+# Git files
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database files (use volumes instead)
+*.db
+instance/
+
+# Environment files (provide at runtime)
+.env
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Documentation
+*.md
+!README.md
+
+# Tests
+tests/
+test_*.py
+*_test.py
+
+# Deployment files
+DEPLOYMENT.md
+storage-dashboard.service
+
+# Temporary files
+tmp/
+*.tmp
+*.log

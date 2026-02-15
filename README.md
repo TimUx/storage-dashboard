@@ -2,18 +2,30 @@
 
 Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschiedener Hersteller über Browser und CLI.
 
-![Storage Dashboard](https://github.com/user-attachments/assets/e134b4f4-b3e7-4da8-b2b8-e853280272ca)
+## Screenshots
+
+### Dashboard - Card View
+![Dashboard Card View](screenshots/dashboard-card-view.png)
+
+### Dashboard - Details
+![System Details](screenshots/system-details.png)
+
+> **Hinweis**: Das Dashboard verfügt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität.
 
 ## Features
 
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
+- **Auto-Refresh**: Automatische Aktualisierung des Dashboards alle 45 Sekunden (konfigurierbar)
+- **Multithreading**: Parallele Abfrage aller Systeme für schnelle Performance
+- **Modernes Design**: ITScare Corporate Design mit farbigen Accents und modernen UI-Elementen
 - **CLI Interface**: Zugriff auf Dashboard-Daten über die Kommandozeile
 - **Admin-Bereich**: Verwaltung von Storage-Systemen mit Namen, IPs und API-Credentials
 - **API-Abfrage**: Automatische Abfrage von Health-Status über Hersteller-APIs
 - **Status-Übersicht**: Hardware-Status, Cluster-Status, Alerts und Kapazität
 - **Gruppierung**: Systeme nach Hersteller gruppiert
 - **Single-Page-View**: Alle Systeme auf einen Blick ohne Scrollen
+- **Filter-Funktionen**: Filterung nach Hersteller, Status, Cluster-Typ und Freitext-Suche
 
 ## Unterstützte Storage-Systeme
 
@@ -35,27 +47,52 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 
 ## Installation
 
-### 1. Repository klonen
+### Option 1: Container-Deployment (Empfohlen)
+
+**Schnellstart mit Podman/Docker:**
+
+```bash
+git clone https://github.com/TimUx/storage-dashboard.git
+cd storage-dashboard
+
+# Secret Key generieren und in .env speichern
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+echo "SSL_VERIFY=false" >> .env
+
+# Mit Podman starten
+podman-compose up -d
+
+# Oder mit Docker starten
+docker-compose up -d
+```
+
+Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
+
+📖 **Detaillierte Container-Dokumentation:** Siehe [CONTAINER.md](CONTAINER.md)
+
+### Option 2: Manuelle Installation
+
+#### 1. Repository klonen
 
 ```bash
 git clone https://github.com/TimUx/storage-dashboard.git
 cd storage-dashboard
 ```
 
-### 2. Python Virtual Environment erstellen
+#### 2. Python Virtual Environment erstellen
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate  # Auf Linux/Mac
 ```
 
-### 3. Abhängigkeiten installieren
+#### 3. Abhängigkeiten installieren
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Konfiguration
+#### 4. Konfiguration
 
 Kopieren Sie die Beispiel-Konfiguration:
 
@@ -80,6 +117,12 @@ python run.py
 ```
 
 Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
+
+**Dashboard-Features:**
+- **Auto-Refresh**: Aktivieren Sie die Auto-Refresh-Funktion, um das Dashboard automatisch alle 45 Sekunden zu aktualisieren
+- **Filter**: Nutzen Sie die Filteroptionen, um gezielt nach Systemen zu suchen
+- **Ansichten**: Wechseln Sie zwischen Card-View (Kacheln) und Table-View (Tabelle)
+- **Multithreading**: Alle Systeme werden parallel abgefragt für optimale Performance
 
 Für Produktivumgebungen mit Gunicorn:
 
@@ -117,17 +160,41 @@ python cli.py admin remove <ID>
 ### Dashboard (`/`)
 
 Zeigt alle aktivierten Storage-Systeme gruppiert nach Hersteller:
+- **Auto-Refresh**: Optionale automatische Aktualisierung alle 45 Sekunden mit Countdown-Timer
+- **Ansichten**: Umschaltbar zwischen Card-View (Kacheln) und Table-View (Tabelle)
+- **Filter**: Filterung nach Hersteller, Status, Cluster-Typ und Freitext-Suche (Name, IP, DNS)
 - Hardware-Status
 - Cluster-Status
 - Anzahl Alerts
 - Kapazität (gesamt, belegt, Prozent)
-- Visuelle Kapazitäts-Anzeige
+- Visuelle Kapazitäts-Anzeige mit Farbcodierung
+- Direkte Links zur System-WebUI
+- ITScare Corporate Design mit modernen Farbakzenten
 
 ### Admin-Bereich (`/admin`)
 
 - Übersicht aller konfigurierten Systeme
 - Systeme hinzufügen, bearbeiten, löschen
 - Aktivieren/Deaktivieren von Systemen
+
+## Container-Deployment
+
+Das Dashboard kann als Docker/Podman Container betrieben werden. Siehe [CONTAINER.md](CONTAINER.md) für Details.
+
+**Schnellstart:**
+```bash
+git clone https://github.com/TimUx/storage-dashboard.git
+cd storage-dashboard
+
+# .env Datei mit Secret Key erstellen
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+echo "SSL_VERIFY=false" >> .env
+
+# Container starten
+podman-compose up -d
+```
+
+Dashboard verfügbar unter: `http://localhost:5000`
 
 ### Dokumentation (`/admin/docs`)
 
