@@ -13,34 +13,71 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #f5f5f5;
+            background: #f5f7fa;
             color: #333;
         }
         
         .navbar {
-            background: #2c3e50;
+            background: linear-gradient(135deg, #0066CC 0%, #004C99 100%);
             color: white;
             padding: 1rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            box-shadow: 0 4px 12px rgba(0, 102, 204, 0.2);
+            position: relative;
+        }
+        
+        .navbar::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, #E30613 0%, #00A651 50%, #0066CC 100%);
         }
         
         .navbar h1 {
             font-size: 1.5rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .navbar h1::before {
+            content: '💾';
+            font-size: 1.3rem;
+        }
+        
+        .navbar-links {
+            display: flex;
+            gap: 0.5rem;
         }
         
         .navbar a {
             color: white;
             text-decoration: none;
-            margin-left: 1.5rem;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            transition: background 0.3s;
+            padding: 0.6rem 1.2rem;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            font-size: 0.95rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
         
         .navbar a:hover {
-            background: #34495e;
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .navbar a.active {
+            background: #E30613;
+            border-color: #E30613;
+            box-shadow: 0 2px 6px rgba(227, 6, 19, 0.4);
         }
         
         .container {
@@ -52,20 +89,21 @@
         .alert {
             padding: 1rem;
             margin: 1rem 0;
-            border-radius: 4px;
+            border-radius: 6px;
             border-left: 4px solid;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
         
         .alert-success {
-            background: #d4edda;
-            border-color: #28a745;
-            color: #155724;
+            background: rgba(0, 166, 81, 0.1);
+            border-color: #00A651;
+            color: #006837;
         }
         
         .alert-error {
-            background: #f8d7da;
-            border-color: #dc3545;
-            color: #721c24;
+            background: rgba(227, 6, 19, 0.1);
+            border-color: #E30613;
+            color: #B30510;
         }
         
         {% block styles %}{% endblock %}
@@ -74,7 +112,7 @@
 <body>
     <nav class="navbar">
         <h1>Storage Dashboard</h1>
-        <div>
+        <div class="navbar-links">
             <a href="/">Dashboard</a>
             <a href="/admin">Admin</a>
             <a href="/admin/docs">Dokumentation</a>

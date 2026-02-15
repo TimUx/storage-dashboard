@@ -60,6 +60,52 @@ body {
     align-items: center;
 }
 
+.auto-refresh-control {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-light);
+    border-radius: 6px;
+    border: 1px solid var(--border-light);
+}
+
+.auto-refresh-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-medium);
+    font-weight: 500;
+    user-select: none;
+}
+
+.auto-refresh-label input[type="checkbox"] {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--itscare-green);
+}
+
+.refresh-timer {
+    font-size: 0.85rem;
+    color: var(--itscare-blue);
+    font-weight: 600;
+    min-width: 80px;
+    text-align: right;
+}
+
+.refresh-timer.refreshing {
+    color: var(--itscare-green);
+    animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
 .view-toggle {
     display: flex;
     background: var(--bg-light);
@@ -617,6 +663,13 @@ body.table-view .systems-table {
 <div class="dashboard-header">
     <h2>Storage Systems Overview</h2>
     <div class="header-actions">
+        <div class="auto-refresh-control">
+            <label class="auto-refresh-label">
+                <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh()">
+                <span>Auto-Refresh</span>
+            </label>
+            <span class="refresh-timer" id="refresh-timer"></span>
+        </div>
         <div class="view-toggle">
             <button id="card-view-btn" class="active" onclick="switchView('card')">
                 <span>&#x25A0;&#x25A0;</span> Cards
@@ -625,7 +678,7 @@ body.table-view .systems-table {
                 <span>☰</span> Table
             </button>
         </div>
-        <button class="refresh-btn" onclick="location.reload()">&#x21bb; Aktualisieren</button>
+        <button class="refresh-btn" onclick="manualRefresh()">&#x21bb; Aktualisieren</button>
     </div>
 </div>
 
@@ -848,6 +901,106 @@ body.table-view .systems-table {
 </div>
 
 <script>
+// Auto-refresh configuration
+let autoRefreshInterval = null;
+let autoRefreshCountdown = null;
+let refreshTimeSeconds = 45; // Default to 45 seconds (middle of 30-60 range)
+let countdownSeconds = refreshTimeSeconds;
+
+// Initialize auto-refresh on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const savedView = localStorage.getItem('dashboard-view') || 'card';
+    switchView(savedView);
+    applyFilters(); // Apply initial filters
+    
+    // Restore auto-refresh preference
+    const autoRefreshEnabled = localStorage.getItem('auto-refresh-enabled') === 'true';
+    document.getElementById('auto-refresh-toggle').checked = autoRefreshEnabled;
+    
+    if (autoRefreshEnabled) {
+        startAutoRefresh();
+    } else {
+        updateTimerDisplay();
+    }
+});
+
+function toggleAutoRefresh() {
+    const isEnabled = document.getElementById('auto-refresh-toggle').checked;
+    localStorage.setItem('auto-refresh-enabled', isEnabled);
+    
+    if (isEnabled) {
+        startAutoRefresh();
+    } else {
+        stopAutoRefresh();
+    }
+}
+
+function startAutoRefresh() {
+    // Clear any existing intervals
+    stopAutoRefresh();
+    
+    // Reset countdown
+    countdownSeconds = refreshTimeSeconds;
+    updateTimerDisplay();
+    
+    // Start countdown timer (updates every second)
+    autoRefreshCountdown = setInterval(function() {
+        countdownSeconds--;
+        updateTimerDisplay();
+        
+        if (countdownSeconds <= 0) {
+            countdownSeconds = refreshTimeSeconds;
+        }
+    }, 1000);
+    
+    // Start auto-refresh interval
+    autoRefreshInterval = setInterval(function() {
+        refreshDashboard();
+    }, refreshTimeSeconds * 1000);
+}
+
+function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+    if (autoRefreshCountdown) {
+        clearInterval(autoRefreshCountdown);
+        autoRefreshCountdown = null;
+    }
+    updateTimerDisplay();
+}
+
+function updateTimerDisplay() {
+    const timerElement = document.getElementById('refresh-timer');
+    const isEnabled = document.getElementById('auto-refresh-toggle').checked;
+    
+    if (isEnabled) {
+        timerElement.textContent = `${countdownSeconds}s`;
+        timerElement.classList.remove('refreshing');
+    } else {
+        timerElement.textContent = '';
+        timerElement.classList.remove('refreshing');
+    }
+}
+
+function refreshDashboard() {
+    const timerElement = document.getElementById('refresh-timer');
+    timerElement.textContent = 'Lädt...';
+    timerElement.classList.add('refreshing');
+    
+    // Reload the page
+    location.reload();
+}
+
+function manualRefresh() {
+    // Reset the countdown when manually refreshing
+    if (autoRefreshInterval) {
+        countdownSeconds = refreshTimeSeconds;
+    }
+    location.reload();
+}
+
 // View switching with localStorage persistence
 function switchView(view) {
     const cardBtn = document.getElementById('card-view-btn');
@@ -866,13 +1019,6 @@ function switchView(view) {
     // Save preference
     localStorage.setItem('dashboard-view', view);
 }
-
-// Restore view preference on load
-document.addEventListener('DOMContentLoaded', function() {
-    const savedView = localStorage.getItem('dashboard-view') || 'card';
-    switchView(savedView);
-    applyFilters(); // Apply initial filters
-});
 
 // Filter logic
 function applyFilters() {
