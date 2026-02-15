@@ -100,7 +100,8 @@ If you discover a security vulnerability, please report it by:
 
 5. **Enable HTTPS**
    - Use Nginx reverse proxy with SSL/TLS
-   - Obtain certificates from Let's Encrypt
+   - Use company-provided CA and root certificates (not Let's Encrypt)
+   - Configure custom certificates in the Admin area
    - Force HTTPS redirects
 
 6. **Regular Updates**

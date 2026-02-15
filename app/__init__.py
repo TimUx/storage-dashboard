@@ -3,6 +3,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
 import os
+from datetime import datetime
 
 load_dotenv()
 
@@ -24,6 +25,16 @@ def create_app():
     app.config['SSL_VERIFY'] = os.getenv('SSL_VERIFY', 'false').lower() == 'true'
     
     db.init_app(app)
+    
+    # Register custom Jinja2 filters
+    @app.template_filter('format_datetime')
+    def format_datetime_filter(dt, format='%d.%m.%Y %H:%M'):
+        """Format datetime safely"""
+        if dt is None:
+            return '-'
+        if isinstance(dt, datetime):
+            return dt.strftime(format)
+        return str(dt)
     
     # Register blueprints
     from app.routes import main, admin, api

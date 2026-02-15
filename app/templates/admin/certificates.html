@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block title %}Zertifikate - Admin{% endblock %}
+
+{% block styles %}
+.admin-header {
+    margin: 1.5rem 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.admin-header h2 {
+    font-size: 1.8rem;
+    color: #2c3e50;
+}
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background: #3498db;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #2980b9;
+}
+
+.btn-success {
+    background: #27ae60;
+    color: white;
+}
+
+.btn-success:hover {
+    background: #229954;
+}
+
+.btn-warning {
+    background: #f39c12;
+    color: white;
+}
+
+.btn-warning:hover {
+    background: #e67e22;
+}
+
+.btn-danger {
+    background: #e74c3c;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c0392b;
+}
+
+.btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+}
+
+.cert-info {
+    font-size: 0.85rem;
+    color: #7f8c8d;
+}
+
+table {
+    width: 100%;
+    background: white;
+    border-collapse: collapse;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+thead {
+    background: #34495e;
+    color: white;
+}
+
+th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+}
+
+td {
+    padding: 1rem;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.status-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 0.5rem;
+}
+
+.status-enabled {
+    background: #27ae60;
+}
+
+.status-disabled {
+    background: #95a5a6;
+}
+
+.actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.no-certificates {
+    text-align: center;
+    padding: 3rem;
+    background: white;
+    border-radius: 4px;
+    color: #7f8c8d;
+}
+
+.cert-type-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.cert-type-ca {
+    background: #3498db;
+    color: white;
+}
+
+.cert-type-root {
+    background: #9b59b6;
+    color: white;
+}
+
+.info-box {
+    background: #e8f4f8;
+    border-left: 4px solid #3498db;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border-radius: 4px;
+}
+
+.info-box h3 {
+    margin-top: 0;
+    color: #2c3e50;
+}
+
+.info-box p {
+    margin-bottom: 0.5rem;
+    line-height: 1.6;
+}
+{% endblock %}
+
+{% block content %}
+<div class="admin-header">
+    <h2>🔒 Zertifikatsverwaltung</h2>
+    <a href="/admin/certificates/new" class="btn btn-primary">+ Neues Zertifikat</a>
+</div>
+
+<div class="info-box">
+    <h3>Über Zertifikatsverwaltung</h3>
+    <p>
+        Laden Sie hier firmeneigene CA- und Root-Zertifikate hoch, um sichere HTTPS-Verbindungen 
+        zu Storage-Systemen mit selbst-signierten oder internen Zertifikaten zu ermöglichen.
+    </p>
+    <p>
+        <strong>Hinweis:</strong> Nach dem Hochladen von Zertifikaten setzen Sie <code>SSL_VERIFY=true</code> 
+        in der .env-Datei und starten Sie das Dashboard neu.
+    </p>
+</div>
+
+{% if certificates %}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Typ</th>
+            <th>Beschreibung</th>
+            <th>Status</th>
+            <th>Erstellt am</th>
+            <th>Aktionen</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for cert in certificates %}
+        <tr>
+            <td><strong>{{ cert.name }}</strong></td>
+            <td>
+                <span class="cert-type-badge cert-type-{{ cert.certificate_type }}">
+                    {{ 'CA-Zertifikat' if cert.certificate_type == 'ca' else 'Root-Zertifikat' }}
+                </span>
+            </td>
+            <td>
+                <span class="cert-info">{{ cert.description or '-' }}</span>
+            </td>
+            <td>
+                <span class="status-indicator status-{{ 'enabled' if cert.enabled else 'disabled' }}"></span>
+                {{ 'Aktiv' if cert.enabled else 'Inaktiv' }}
+            </td>
+            <td>
+                <span class="cert-info">{{ cert.created_at|format_datetime }}</span>
+            </td>
+            <td class="actions">
+                <a href="/admin/certificates/{{ cert.id }}/edit" class="btn btn-primary btn-sm">Bearbeiten</a>
+                <a href="/admin/certificates/{{ cert.id }}/download" class="btn btn-success btn-sm">Download</a>
+                <form method="POST" action="/admin/certificates/{{ cert.id }}/toggle" style="display: inline;">
+                    <button type="submit" class="btn btn-warning btn-sm">
+                        {{ '🔒 Deaktivieren' if cert.enabled else '🔓 Aktivieren' }}
+                    </button>
+                </form>
+                <form method="POST" action="/admin/certificates/{{ cert.id }}/delete" style="display: inline;">
+                    <button type="submit" class="btn btn-danger btn-sm" 
+                            onclick="return confirm('Zertifikat {{ cert.name }} wirklich löschen?')">
+                        Löschen
+                    </button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="no-certificates">
+    <h3>Keine Zertifikate vorhanden</h3>
+    <p>Klicken Sie auf "Neues Zertifikat", um ein CA- oder Root-Zertifikat hochzuladen.</p>
+</div>
+{% endif %}
+{% endblock %}

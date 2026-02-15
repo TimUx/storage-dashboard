@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Zertifikat - Admin{% endblock %}
+
+{% block styles %}
+.form-container {
+    max-width: 800px;
+    margin: 2rem auto;
+    background: white;
+    padding: 2rem;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.form-container h2 {
+    color: #2c3e50;
+    margin-bottom: 1.5rem;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: #2c3e50;
+}
+
+.form-group input[type="text"],
+.form-group input[type="file"],
+.form-group textarea,
+.form-group select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+
+.form-group textarea {
+    min-height: 100px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+.form-group input[type="checkbox"] {
+    width: auto;
+    margin-right: 0.5rem;
+}
+
+.form-help {
+    font-size: 0.875rem;
+    color: #7f8c8d;
+    margin-top: 0.25rem;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background: #3498db;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #2980b9;
+}
+
+.btn-secondary {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #7f8c8d;
+}
+
+.info-box {
+    background: #fff3cd;
+    border-left: 4px solid #f39c12;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border-radius: 4px;
+}
+
+.info-box strong {
+    color: #856404;
+}
+
+.info-box ul {
+    margin: 0.5rem 0 0 1.5rem;
+}
+
+.required {
+    color: #e74c3c;
+}
+{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <h2>{{ action }} Zertifikat</h2>
+    
+    <div class="info-box">
+        <strong>💡 Hinweis:</strong>
+        <ul>
+            <li>Unterstützte Formate: PEM (.pem, .crt, .cer)</li>
+            <li>Das Zertifikat muss mit <code>-----BEGIN CERTIFICATE-----</code> beginnen</li>
+            <li>Für vollständige Zertifikatsketten laden Sie jedes Zertifikat einzeln hoch</li>
+        </ul>
+    </div>
+    
+    <form method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+            <label for="name">Name <span class="required">*</span></label>
+            <input type="text" id="name" name="name" required 
+                   value="{{ certificate.name if certificate else '' }}"
+                   placeholder="z.B. Firmen-Root-CA oder IT-Department-CA">
+            <div class="form-help">Ein eindeutiger, beschreibender Name für das Zertifikat</div>
+        </div>
+        
+        <div class="form-group">
+            <label for="certificate_type">Zertifikatstyp <span class="required">*</span></label>
+            <select id="certificate_type" name="certificate_type" required>
+                <option value="ca" {{ 'selected' if certificate and certificate.certificate_type == 'ca' else '' }}>
+                    CA-Zertifikat
+                </option>
+                <option value="root" {{ 'selected' if certificate and certificate.certificate_type == 'root' else '' }}>
+                    Root-Zertifikat
+                </option>
+            </select>
+            <div class="form-help">
+                <strong>Root:</strong> Oberste Zertifizierungsstelle<br>
+                <strong>CA:</strong> Intermediate oder Sub-CA
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="certificate_file">Zertifikatsdatei <span class="required">{{ '' if certificate else '*' }}</span></label>
+            <input type="file" id="certificate_file" name="certificate_file" 
+                   accept=".pem,.crt,.cer"
+                   {{ '' if certificate else 'required' }}>
+            <div class="form-help">
+                {% if certificate %}
+                Lassen Sie leer, um das bestehende Zertifikat beizubehalten
+                {% else %}
+                Wählen Sie eine PEM-Zertifikatsdatei aus
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="description">Beschreibung</label>
+            <textarea id="description" name="description" 
+                      placeholder="z.B. Gültig bis 2030, Ausgestellt von IT-Abteilung">{{ certificate.description if certificate else '' }}</textarea>
+            <div class="form-help">Optional: Zusätzliche Informationen zum Zertifikat</div>
+        </div>
+        
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="enabled" 
+                       {{ 'checked' if not certificate or certificate.enabled else '' }}>
+                Zertifikat aktivieren
+            </label>
+            <div class="form-help">Nur aktive Zertifikate werden für SSL-Verifizierung verwendet</div>
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">{{ action }}</button>
+            <a href="/admin/certificates" class="btn btn-secondary">Abbrechen</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
