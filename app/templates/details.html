@@ -1,0 +1,594 @@
+{% extends "base.html" %}
+
+{% block title %}{{ system.name }} - Details{% endblock %}
+
+{% block content %}
+<style>
+    :root {
+        --itscare-blue: #0066CC;
+        --itscare-blue-dark: #004C99;
+        --itscare-red: #E30613;
+        --itscare-red-dark: #B30510;
+        --itscare-green: #00A651;
+        --itscare-green-dark: #008040;
+    }
+
+    .detail-container {
+        max-width: 1600px;
+        margin: 0 auto;
+        padding: 1.5rem;
+    }
+
+    .detail-header {
+        background: linear-gradient(135deg, var(--itscare-blue) 0%, var(--itscare-blue-dark) 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .detail-header h1 {
+        margin: 0 0 0.5rem 0;
+        font-size: 1.8rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .webui-link {
+        color: white;
+        text-decoration: none;
+        transition: all 0.3s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .webui-link:hover {
+        color: #FFE5E8;
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+    }
+
+    .webui-link-icon {
+        font-size: 1.2rem;
+    }
+
+    .detail-meta {
+        display: flex;
+        gap: 2rem;
+        flex-wrap: wrap;
+        font-size: 0.95rem;
+    }
+
+    .detail-meta-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .detail-card {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .detail-card h2 {
+        color: var(--itscare-blue);
+        font-size: 1.2rem;
+        margin: 0 0 1rem 0;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--itscare-blue);
+    }
+
+    .detail-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #ecf0f1;
+    }
+
+    .detail-row:last-child {
+        border-bottom: none;
+    }
+
+    .detail-label {
+        font-weight: 600;
+        color: #7f8c8d;
+    }
+
+    .detail-value {
+        color: #2c3e50;
+        text-align: right;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .status-online {
+        background: var(--itscare-green);
+        color: white;
+    }
+
+    .status-error {
+        background: var(--itscare-red);
+        color: white;
+    }
+
+    .status-ok {
+        background: var(--itscare-green);
+        color: white;
+    }
+
+    .status-warning {
+        background: #f39c12;
+        color: white;
+    }
+
+    .status-unknown {
+        background: #95a5a6;
+        color: white;
+    }
+
+    .cluster-badge {
+        display: inline-block;
+        padding: 0.3rem 0.8rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .cluster-ha { background: var(--itscare-green); color: white; }
+    .cluster-active-cluster { background: var(--itscare-blue); color: white; }
+    .cluster-metrocluster { background: #2980b9; color: white; }
+    .cluster-local { background: #95a5a6; color: white; }
+    .cluster-multi-site { background: var(--itscare-red); color: white; }
+    .cluster-single-site { background: #95a5a6; color: white; }
+
+    .capacity-bar-container {
+        width: 100%;
+        height: 24px;
+        background: #ecf0f1;
+        border-radius: 12px;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .capacity-bar {
+        height: 100%;
+        transition: width 0.3s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .capacity-normal { background: linear-gradient(90deg, var(--itscare-blue), #3498db); }
+    .capacity-high { background: linear-gradient(90deg, #f39c12, #f1c40f); }
+    .capacity-critical { background: linear-gradient(90deg, var(--itscare-red), #e74c3c); }
+
+    .node-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .node-item {
+        background: #f8f9fa;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        border-radius: 6px;
+        border-left: 4px solid var(--itscare-blue);
+    }
+
+    .node-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+
+    .node-name {
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--itscare-blue);
+    }
+
+    .node-name a {
+        color: var(--itscare-blue);
+        text-decoration: none;
+        transition: color 0.3s;
+    }
+
+    .node-name a:hover {
+        color: var(--itscare-blue-dark);
+        text-decoration: underline;
+    }
+
+    .node-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 0.5rem;
+        font-size: 0.9rem;
+    }
+
+    .node-detail {
+        color: #7f8c8d;
+    }
+
+    .node-detail strong {
+        color: #2c3e50;
+    }
+
+    .ip-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .ip-badge {
+        background: var(--itscare-blue);
+        color: white;
+        padding: 0.25rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-family: monospace;
+    }
+
+    .dns-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .dns-badge {
+        background: #34495e;
+        color: white;
+        padding: 0.25rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-family: monospace;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .btn {
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 6px;
+        font-size: 1rem;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.3s;
+        font-weight: 600;
+    }
+
+    .btn-primary {
+        background: var(--itscare-blue);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: var(--itscare-blue-dark);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 102, 204, 0.3);
+    }
+
+    .btn-secondary {
+        background: #95a5a6;
+        color: white;
+    }
+
+    .btn-secondary:hover {
+        background: #7f8c8d;
+    }
+
+    .btn-warning {
+        background: #f39c12;
+        color: white;
+    }
+
+    .btn-warning:hover {
+        background: #e67e22;
+    }
+
+    .info-message {
+        background: #e8f4fd;
+        border-left: 4px solid var(--itscare-blue);
+        padding: 1rem;
+        border-radius: 4px;
+        color: #2c3e50;
+        margin: 1rem 0;
+    }
+
+    .error-message {
+        background: #ffe8e8;
+        border-left: 4px solid var(--itscare-red);
+        padding: 1rem;
+        border-radius: 4px;
+        color: #721c24;
+        margin: 1rem 0;
+    }
+
+    .partner-cluster-link {
+        color: var(--itscare-blue);
+        text-decoration: none;
+        font-weight: 600;
+        transition: color 0.3s;
+    }
+
+    .partner-cluster-link:hover {
+        color: var(--itscare-blue-dark);
+        text-decoration: underline;
+    }
+</style>
+
+<div class="detail-container">
+    <div class="action-buttons">
+        <a href="/" class="btn btn-secondary">← Zurück zum Dashboard</a>
+        <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
+            🌐 WebUI öffnen ↗
+        </a>
+        <form method="POST" action="/admin/systems/{{ system.id }}/rediscover" style="display: inline;">
+            <button type="submit" class="btn btn-warning">🔄 Neu Erkennen</button>
+        </form>
+    </div>
+
+    <div class="detail-header">
+        <h1>
+            <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" class="webui-link" 
+               title="Zur WebUI öffnen">
+                {{ system.name }}
+                <span class="webui-link-icon">↗</span>
+            </a>
+        </h1>
+        <div class="detail-meta">
+            <div class="detail-meta-item">
+                <strong>Hersteller:</strong> {{ system.vendor }}
+            </div>
+            <div class="detail-meta-item">
+                <strong>Status:</strong> 
+                <span class="status-badge status-{{ status.status }}">{{ status.status }}</span>
+            </div>
+            {% if system.cluster_type %}
+            <div class="detail-meta-item">
+                <strong>Cluster-Typ:</strong>
+                <span class="cluster-badge cluster-{{ system.cluster_type }}">{{ system.cluster_type }}</span>
+            </div>
+            {% endif %}
+            {% if system.last_discovery %}
+            <div class="detail-meta-item">
+                <strong>Letztes Update:</strong> {{ system.last_discovery.strftime('%d.%m.%Y %H:%M') }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if status.error %}
+    <div class="error-message">
+        <strong>⚠️ Fehler beim Abrufen der Daten:</strong> {{ status.error }}
+    </div>
+    {% endif %}
+
+    <div class="detail-grid">
+        <!-- Status Overview -->
+        <div class="detail-card">
+            <h2>📊 Status-Übersicht</h2>
+            <div class="detail-row">
+                <span class="detail-label">Hardware Status:</span>
+                <span class="detail-value">
+                    <span class="status-badge status-{{ 'ok' if status.hardware_status == 'ok' else 'warning' if status.hardware_status == 'warning' else 'unknown' }}">
+                        {{ status.hardware_status }}
+                    </span>
+                </span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Cluster Status:</span>
+                <span class="detail-value">
+                    <span class="status-badge status-{{ 'ok' if status.cluster_status == 'ok' else 'warning' if status.cluster_status == 'warning' else 'unknown' }}">
+                        {{ status.cluster_status }}
+                    </span>
+                </span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Offene Alerts:</span>
+                <span class="detail-value">
+                    <span class="status-badge status-{{ 'ok' if status.alerts == 0 else 'warning' }}">
+                        {{ status.alerts }}
+                    </span>
+                </span>
+            </div>
+        </div>
+
+        <!-- Capacity -->
+        <div class="detail-card">
+            <h2>💾 Kapazität</h2>
+            <div class="detail-row">
+                <span class="detail-label">Gesamt:</span>
+                <span class="detail-value">{{ "%.2f"|format(status.capacity_total_tb) }} TB</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Belegt:</span>
+                <span class="detail-value">{{ "%.2f"|format(status.capacity_used_tb) }} TB</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Frei:</span>
+                <span class="detail-value">{{ "%.2f"|format(status.capacity_total_tb - status.capacity_used_tb) }} TB</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Auslastung:</span>
+                <span class="detail-value">{{ "%.1f"|format(status.capacity_percent) }}%</span>
+            </div>
+            <div style="margin-top: 1rem;">
+                <div class="capacity-bar-container">
+                    <div class="capacity-bar capacity-{{ 'normal' if status.capacity_percent < 75 else 'high' if status.capacity_percent < 90 else 'critical' }}" 
+                         style="width: {{ status.capacity_percent }}%">
+                        {{ "%.1f"|format(status.capacity_percent) }}%
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Network Information -->
+    <div class="detail-card">
+        <h2>🌐 Netzwerk-Information</h2>
+        <div class="detail-row">
+            <span class="detail-label">Primäre IP:</span>
+            <span class="detail-value">
+                <span class="ip-badge">{{ system.ip_address }}:{{ system.port }}</span>
+            </span>
+        </div>
+        
+        {% if system.get_dns_names() %}
+        <div class="detail-row">
+            <span class="detail-label">DNS-Namen:</span>
+            <span class="detail-value">
+                <div class="dns-list">
+                    {% for dns_name in system.get_dns_names() %}
+                    <span class="dns-badge">{{ dns_name }}</span>
+                    {% endfor %}
+                </div>
+            </span>
+        </div>
+        {% endif %}
+
+        {% if system.get_all_ips() and system.get_all_ips()|length > 1 %}
+        <div class="detail-row">
+            <span class="detail-label">Alle IPs:</span>
+            <span class="detail-value">
+                <div class="ip-list">
+                    {% for ip in system.get_all_ips() %}
+                    <span class="ip-badge">{{ ip }}</span>
+                    {% endfor %}
+                </div>
+            </span>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Cluster Information -->
+    {% if system.cluster_type or system.node_count or system.site_count or partner_cluster %}
+    <div class="detail-card">
+        <h2>🔗 Cluster-Information</h2>
+        
+        {% if system.cluster_type %}
+        <div class="detail-row">
+            <span class="detail-label">Cluster-Typ:</span>
+            <span class="detail-value">
+                <span class="cluster-badge cluster-{{ system.cluster_type }}">{{ system.cluster_type }}</span>
+            </span>
+        </div>
+        {% endif %}
+
+        {% if system.node_count %}
+        <div class="detail-row">
+            <span class="detail-label">Anzahl Nodes:</span>
+            <span class="detail-value">{{ system.node_count }}</span>
+        </div>
+        {% endif %}
+
+        {% if system.site_count %}
+        <div class="detail-row">
+            <span class="detail-label">Anzahl Sites:</span>
+            <span class="detail-value">{{ system.site_count }}</span>
+        </div>
+        {% endif %}
+
+        {% if partner_cluster %}
+        <div class="detail-row">
+            <span class="detail-label">Partner-Cluster:</span>
+            <span class="detail-value">
+                <a href="/systems/{{ partner_cluster.id }}/details" class="partner-cluster-link">
+                    {{ partner_cluster.name }} →
+                </a>
+            </span>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Nodes -->
+    {% if system.get_node_details() %}
+    <div class="detail-card" style="grid-column: 1 / -1;">
+        <h2>🖥️ Nodes ({{ system.get_node_details()|length }})</h2>
+        <ul class="node-list">
+            {% for node in system.get_node_details() %}
+            <li class="node-item">
+                <div class="node-header">
+                    <div class="node-name">
+                        {% if node.ips and node.ips|length > 0 %}
+                        <a href="https://{{ node.ips[0] }}" target="_blank" rel="noopener noreferrer" 
+                           title="Zur WebUI des Nodes">
+                            {{ node.name }} ↗
+                        </a>
+                        {% else %}
+                        {{ node.name }}
+                        {% endif %}
+                    </div>
+                    {% if node.status %}
+                    <span class="status-badge status-{{ 'online' if node.status in ['online', 'ready', 'ok'] else 'warning' }}">
+                        {{ node.status }}
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="node-details">
+                    {% if node.model %}
+                    <div class="node-detail"><strong>Model:</strong> {{ node.model }}</div>
+                    {% endif %}
+                    {% if node.version %}
+                    <div class="node-detail"><strong>Version:</strong> {{ node.version }}</div>
+                    {% endif %}
+                    {% if node.mode %}
+                    <div class="node-detail"><strong>Mode:</strong> {{ node.mode }}</div>
+                    {% endif %}
+                    {% if node.serial %}
+                    <div class="node-detail"><strong>Serial:</strong> {{ node.serial }}</div>
+                    {% endif %}
+                    {% if node.uuid %}
+                    <div class="node-detail"><strong>UUID:</strong> {{ node.uuid[:8] }}...</div>
+                    {% endif %}
+                </div>
+                {% if node.ips %}
+                <div class="ip-list">
+                    {% for ip in node.ips %}
+                    <span class="ip-badge">{{ ip }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% else %}
+    <div class="info-message">
+        <strong>ℹ️ Hinweis:</strong> Keine detaillierten Node-Informationen verfügbar. 
+        Verwenden Sie den "Neu Erkennen" Button, um die Informationen zu aktualisieren.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

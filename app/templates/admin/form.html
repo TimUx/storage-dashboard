@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} System - Admin{% endblock %}
+
+{% block styles %}
+.form-container {
+    max-width: 800px;
+    margin: 2rem auto;
+    background: white;
+    padding: 2rem;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.form-header {
+    margin-bottom: 2rem;
+}
+
+.form-header h2 {
+    color: #2c3e50;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+.form-group small {
+    display: block;
+    margin-top: 0.25rem;
+    color: #7f8c8d;
+    font-size: 0.85rem;
+}
+
+.checkbox-group {
+    display: flex;
+    align-items: center;
+}
+
+.checkbox-group input {
+    width: auto;
+    margin-right: 0.5rem;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background: #3498db;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #2980b9;
+}
+
+.btn-secondary {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #7f8c8d;
+}
+
+.credential-section {
+    background: #f8f9fa;
+    padding: 1.5rem;
+    border-radius: 4px;
+    margin: 1rem 0;
+}
+
+.credential-section h3 {
+    margin-bottom: 1rem;
+    color: #2c3e50;
+    font-size: 1.1rem;
+}
+{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="form-header">
+        <h2>{{ action }} Storage System</h2>
+    </div>
+    
+    <form method="POST">
+        <div class="form-group">
+            <label for="name">Name *</label>
+            <input type="text" id="name" name="name" required 
+                   value="{{ system.name if system else '' }}">
+            <small>Eindeutiger Name für das Storage System</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="vendor">Hersteller / Typ *</label>
+            <select id="vendor" name="vendor" required>
+                <option value="">-- Bitte wählen --</option>
+                <option value="pure" {{ 'selected' if system and system.vendor == 'pure' else '' }}>
+                    Pure Storage
+                </option>
+                <option value="netapp-ontap" {{ 'selected' if system and system.vendor == 'netapp-ontap' else '' }}>
+                    NetApp ONTAP 9
+                </option>
+                <option value="netapp-storagegrid" {{ 'selected' if system and system.vendor == 'netapp-storagegrid' else '' }}>
+                    NetApp StorageGRID 11
+                </option>
+                <option value="dell-datadomain" {{ 'selected' if system and system.vendor == 'dell-datadomain' else '' }}>
+                    Dell DataDomain
+                </option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label for="ip_address">IP Adresse / Hostname *</label>
+            <input type="text" id="ip_address" name="ip_address" required 
+                   value="{{ system.ip_address if system else '' }}">
+        </div>
+        
+        <div class="form-group">
+            <label for="port">Port</label>
+            <input type="number" id="port" name="port" value="{{ system.port if system else 443 }}">
+            <small>Standard: 443</small>
+        </div>
+        
+        {% if system and system.cluster_type %}
+        <div class="form-group">
+            <label>Cluster-Typ (automatisch erkannt)</label>
+            <input type="text" value="{{ system.cluster_type }}" disabled style="background: #f0f0f0;">
+            <small>Wurde automatisch bei der Discovery erkannt</small>
+        </div>
+        {% endif %}
+        
+        {% if system and system.node_count %}
+        <div class="form-group">
+            <label>Anzahl Nodes (automatisch erkannt)</label>
+            <input type="number" value="{{ system.node_count }}" disabled style="background: #f0f0f0;">
+            <small>Wurde automatisch bei der Discovery erkannt</small>
+        </div>
+        {% endif %}
+        
+        {% if system and system.site_count %}
+        <div class="form-group">
+            <label>Anzahl Sites (automatisch erkannt)</label>
+            <input type="number" value="{{ system.site_count }}" disabled style="background: #f0f0f0;">
+            <small>Wurde automatisch bei der Discovery erkannt</small>
+        </div>
+        {% endif %}
+        
+        {% if system and system.get_dns_names() %}
+        <div class="form-group">
+            <label>DNS Namen (automatisch ermittelt)</label>
+            <textarea disabled style="background: #f0f0f0; min-height: 60px;">{{ ', '.join(system.get_dns_names()) }}</textarea>
+            <small>Reverse DNS Lookup Ergebnisse</small>
+        </div>
+        {% endif %}
+        
+        {% if system and system.get_node_details() %}
+        <div class="form-group">
+            <label>Node Details (automatisch erkannt)</label>
+            <div style="background: #f0f0f0; padding: 0.5rem; border-radius: 4px; max-height: 200px; overflow-y: auto;">
+                {% for node in system.get_node_details() %}
+                <div style="margin-bottom: 0.5rem; padding: 0.5rem; background: white; border-radius: 3px;">
+                    <strong>{{ node.get('name', 'Unknown') }}</strong>
+                    {% if node.get('status') %} - Status: {{ node.get('status') }}{% endif %}
+                    {% if node.get('model') %} - Model: {{ node.get('model') }}{% endif %}
+                    {% if node.get('ips') %}<br><small>IPs: {{ ', '.join(node.get('ips', [])) }}</small>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            <small>Node-Informationen wurden automatisch erkannt</small>
+        </div>
+        {% endif %}
+        
+        {% if system and system.last_discovery %}
+        <div class="form-group">
+            <label>Letzte Discovery</label>
+            <input type="text" value="{{ system.last_discovery.strftime('%Y-%m-%d %H:%M:%S') }}" disabled style="background: #f0f0f0;">
+            <small>Zeitpunkt der letzten automatischen Erkennung</small>
+        </div>
+        {% endif %}
+        
+        <div class="credential-section">
+            <h3>API Zugangsdaten</h3>
+            
+            <div class="form-group">
+                <label for="api_username">Benutzername</label>
+                <input type="text" id="api_username" name="api_username" 
+                       value="{{ system.api_username if system else '' }}">
+                <small>Für NetApp ONTAP und Dell DataDomain</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="api_password">Passwort</label>
+                <input type="password" id="api_password" name="api_password" 
+                       value="{{ system.api_password if system else '' }}">
+                <small>Für NetApp ONTAP und Dell DataDomain</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="api_token">API Token</label>
+                <input type="text" id="api_token" name="api_token" 
+                       value="{{ system.api_token if system else '' }}">
+                <small>Für Pure Storage und NetApp StorageGRID</small>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <div class="checkbox-group">
+                <input type="checkbox" id="enabled" name="enabled" 
+                       {{ 'checked' if not system or system.enabled else '' }}>
+                <label for="enabled" style="margin-bottom: 0;">System aktiviert</label>
+            </div>
+            <small>Deaktivierte Systeme werden nicht im Dashboard angezeigt</small>
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Speichern</button>
+            <a href="/admin" class="btn btn-secondary">Abbrechen</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
