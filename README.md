@@ -8,12 +8,16 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
+- **Auto-Refresh**: Automatische Aktualisierung des Dashboards alle 45 Sekunden (konfigurierbar)
+- **Multithreading**: Parallele Abfrage aller Systeme für schnelle Performance
+- **Modernes Design**: ITScare Corporate Design mit farbigen Accents und modernen UI-Elementen
 - **CLI Interface**: Zugriff auf Dashboard-Daten über die Kommandozeile
 - **Admin-Bereich**: Verwaltung von Storage-Systemen mit Namen, IPs und API-Credentials
 - **API-Abfrage**: Automatische Abfrage von Health-Status über Hersteller-APIs
 - **Status-Übersicht**: Hardware-Status, Cluster-Status, Alerts und Kapazität
 - **Gruppierung**: Systeme nach Hersteller gruppiert
 - **Single-Page-View**: Alle Systeme auf einen Blick ohne Scrollen
+- **Filter-Funktionen**: Filterung nach Hersteller, Status, Cluster-Typ und Freitext-Suche
 
 ## Unterstützte Storage-Systeme
 
@@ -117,11 +121,16 @@ python cli.py admin remove <ID>
 ### Dashboard (`/`)
 
 Zeigt alle aktivierten Storage-Systeme gruppiert nach Hersteller:
+- **Auto-Refresh**: Optionale automatische Aktualisierung alle 45 Sekunden mit Countdown-Timer
+- **Ansichten**: Umschaltbar zwischen Card-View (Kacheln) und Table-View (Tabelle)
+- **Filter**: Filterung nach Hersteller, Status, Cluster-Typ und Freitext-Suche (Name, IP, DNS)
 - Hardware-Status
 - Cluster-Status
 - Anzahl Alerts
 - Kapazität (gesamt, belegt, Prozent)
-- Visuelle Kapazitäts-Anzeige
+- Visuelle Kapazitäts-Anzeige mit Farbcodierung
+- Direkte Links zur System-WebUI
+- ITScare Corporate Design mit modernen Farbakzenten
 
 ### Admin-Bereich (`/admin`)
 
