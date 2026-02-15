@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}API Dokumentation - Admin{% endblock %}
+
+{% block styles %}
+.docs-container {
+    max-width: 900px;
+    margin: 2rem auto;
+    background: white;
+    padding: 2rem;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.docs-container h2 {
+    color: #2c3e50;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid #3498db;
+    padding-bottom: 0.5rem;
+}
+
+.docs-container h3 {
+    color: #34495e;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.docs-container p {
+    line-height: 1.6;
+    margin-bottom: 1rem;
+}
+
+.docs-container ul, .docs-container ol {
+    margin-left: 2rem;
+    margin-bottom: 1rem;
+    line-height: 1.8;
+}
+
+.docs-container code {
+    background: #f8f9fa;
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    color: #e74c3c;
+}
+
+.docs-container pre {
+    background: #2c3e50;
+    color: #ecf0f1;
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+}
+
+.docs-container pre code {
+    background: none;
+    color: #ecf0f1;
+    padding: 0;
+}
+
+.vendor-card {
+    background: #f8f9fa;
+    border-left: 4px solid #3498db;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    border-radius: 4px;
+}
+
+.vendor-card h4 {
+    color: #2c3e50;
+    margin-bottom: 0.75rem;
+}
+
+.note {
+    background: #fff3cd;
+    border-left: 4px solid #f39c12;
+    padding: 1rem;
+    margin: 1rem 0;
+    border-radius: 4px;
+}
+
+.note strong {
+    color: #856404;
+}
+{% endblock %}
+
+{% block content %}
+<div class="docs-container">
+    <h1>API Einrichtungs-Dokumentation</h1>
+    
+    <p>Diese Anleitung beschreibt, wie Sie API-Zugriff für jedes unterstützte Storage-System einrichten.</p>
+    
+    <h2>1. Pure Storage</h2>
+    
+    <div class="vendor-card">
+        <h4>API-Token erstellen</h4>
+        <ol>
+            <li>Melden Sie sich bei Ihrem Pure Storage FlashArray an</li>
+            <li>Navigieren Sie zu <strong>System → Users</strong></li>
+            <li>Wählen Sie einen Benutzer aus oder erstellen Sie einen neuen</li>
+            <li>Klicken Sie auf <strong>Create API Token</strong></li>
+            <li>Kopieren Sie den generierten Token</li>
+        </ol>
+        
+        <p><strong>In der Dashboard-Konfiguration:</strong></p>
+        <ul>
+            <li>Tragen Sie den Token im Feld <code>API Token</code> ein</li>
+            <li>Lassen Sie Benutzername und Passwort leer</li>
+        </ul>
+    </div>
+    
+    <div class="note">
+        <strong>Hinweis:</strong> Pure Storage verwendet REST API v2. Stellen Sie sicher, dass Ihr Array diese Version unterstützt.
+    </div>
+    
+    <h2>2. NetApp ONTAP 9</h2>
+    
+    <div class="vendor-card">
+        <h4>API-Zugriff einrichten</h4>
+        <ol>
+            <li>Stellen Sie sicher, dass die ONTAP REST API aktiviert ist</li>
+            <li>Erstellen Sie einen Benutzer mit entsprechenden Berechtigungen:
+                <pre><code>security login create -user-or-group-name api_user -application http -authentication-method password -role readonly</code></pre>
+            </li>
+            <li>Setzen Sie ein Passwort für den Benutzer</li>
+        </ol>
+        
+        <p><strong>In der Dashboard-Konfiguration:</strong></p>
+        <ul>
+            <li>Tragen Sie Benutzername im Feld <code>Benutzername</code> ein</li>
+            <li>Tragen Sie Passwort im Feld <code>Passwort</code> ein</li>
+            <li>Lassen Sie API Token leer</li>
+        </ul>
+    </div>
+    
+    <div class="note">
+        <strong>Hinweis:</strong> Für produktive Umgebungen sollte eine dedizierte Read-Only-Rolle verwendet werden.
+    </div>
+    
+    <h2>3. NetApp StorageGRID 11</h2>
+    
+    <div class="vendor-card">
+        <h4>S3 API-Token erstellen</h4>
+        <ol>
+            <li>Melden Sie sich am StorageGRID Management Interface an</li>
+            <li>Navigieren Sie zu <strong>Configuration → API Credentials</strong></li>
+            <li>Erstellen Sie neue API-Zugangsdaten</li>
+            <li>Kopieren Sie den Access Key und Secret Key</li>
+            <li>Verwenden Sie diese zur Token-Generierung über die Auth API</li>
+        </ol>
+        
+        <p><strong>Token-Generierung:</strong></p>
+        <pre><code>POST https://&lt;storagegrid-ip&gt;/api/v3/authorize
+{
+  "username": "root",
+  "password": "your-password",
+  "cookie": true,
+  "csrfToken": true
+}</code></pre>
+        
+        <p><strong>In der Dashboard-Konfiguration:</strong></p>
+        <ul>
+            <li>Tragen Sie den Bearer Token im Feld <code>API Token</code> ein</li>
+            <li>Lassen Sie Benutzername und Passwort leer</li>
+        </ul>
+    </div>
+    
+    <h2>4. Dell DataDomain</h2>
+    
+    <div class="vendor-card">
+        <h4>REST API-Zugriff einrichten</h4>
+        <ol>
+            <li>Stellen Sie sicher, dass die REST API auf Ihrem DataDomain-System aktiviert ist</li>
+            <li>Verwenden Sie einen vorhandenen Benutzer oder erstellen Sie einen neuen:
+                <pre><code>user add &lt;username&gt; role admin</code></pre>
+            </li>
+            <li>Setzen Sie ein Passwort für den Benutzer</li>
+        </ol>
+        
+        <p><strong>In der Dashboard-Konfiguration:</strong></p>
+        <ul>
+            <li>Tragen Sie Benutzername im Feld <code>Benutzername</code> ein</li>
+            <li>Tragen Sie Passwort im Feld <code>Passwort</code> ein</li>
+            <li>Lassen Sie API Token leer</li>
+        </ul>
+    </div>
+    
+    <div class="note">
+        <strong>Hinweis:</strong> Die REST API ist standardmäßig auf Port 443 verfügbar.
+    </div>
+    
+    <h2>Sicherheitshinweise</h2>
+    
+    <ul>
+        <li>Verwenden Sie immer dedizierte Read-Only-Accounts für das Dashboard</li>
+        <li>Speichern Sie Credentials niemals in öffentlich zugänglichen Repositories</li>
+        <li>Rotieren Sie API-Tokens und Passwörter regelmäßig</li>
+        <li>Verwenden Sie sichere Verbindungen (HTTPS)</li>
+        <li>Beschränken Sie den Netzwerkzugriff auf die Management-Schnittstellen</li>
+    </ul>
+    
+    <h2>Fehlerbehebung</h2>
+    
+    <h3>Verbindungsfehler</h3>
+    <ul>
+        <li>Überprüfen Sie die IP-Adresse und den Port</li>
+        <li>Stellen Sie sicher, dass das Storage-System vom Dashboard-Server erreichbar ist</li>
+        <li>Überprüfen Sie Firewall-Regeln</li>
+    </ul>
+    
+    <h3>Authentifizierungsfehler</h3>
+    <ul>
+        <li>Verifizieren Sie Benutzername und Passwort</li>
+        <li>Überprüfen Sie die Gültigkeit des API-Tokens</li>
+        <li>Stellen Sie sicher, dass der Benutzer die notwendigen Berechtigungen hat</li>
+    </ul>
+    
+    <h3>API-Fehler</h3>
+    <ul>
+        <li>Überprüfen Sie, ob die REST API auf dem Storage-System aktiviert ist</li>
+        <li>Stellen Sie sicher, dass die API-Version kompatibel ist</li>
+        <li>Prüfen Sie die Logs für detaillierte Fehlermeldungen</li>
+    </ul>
+</div>
+{% endblock %}

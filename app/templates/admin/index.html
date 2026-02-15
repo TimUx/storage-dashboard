@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}Admin - Storage Dashboard{% endblock %}
+
+{% block styles %}
+.admin-header {
+    margin: 1.5rem 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.admin-header h2 {
+    font-size: 1.8rem;
+    color: #2c3e50;
+}
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background: #3498db;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #2980b9;
+}
+
+.btn-danger {
+    background: #e74c3c;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c0392b;
+}
+
+.btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+}
+
+table {
+    width: 100%;
+    background: white;
+    border-collapse: collapse;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+thead {
+    background: #34495e;
+    color: white;
+}
+
+th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+}
+
+td {
+    padding: 1rem;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.status-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 0.5rem;
+}
+
+.status-enabled {
+    background: #27ae60;
+}
+
+.status-disabled {
+    background: #95a5a6;
+}
+
+.actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.no-systems {
+    text-align: center;
+    padding: 3rem;
+    background: white;
+    border-radius: 4px;
+    color: #7f8c8d;
+}
+{% endblock %}
+
+{% block content %}
+<div class="admin-header">
+    <h2>Storage Systeme verwalten</h2>
+    <a href="/admin/systems/new" class="btn btn-primary">+ Neues System</a>
+</div>
+
+{% if systems %}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Hersteller</th>
+            <th>IP Adresse</th>
+            <th>Port</th>
+            <th>Status</th>
+            <th>Zugangsdaten</th>
+            <th>Aktionen</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for system in systems %}
+        <tr>
+            <td><strong>{{ system.name }}</strong></td>
+            <td>{{ system.vendor }}</td>
+            <td>{{ system.ip_address }}</td>
+            <td>{{ system.port }}</td>
+            <td>
+                <span class="status-indicator status-{{ 'enabled' if system.enabled else 'disabled' }}"></span>
+                {{ 'Aktiv' if system.enabled else 'Inaktiv' }}
+            </td>
+            <td>
+                {% if system.api_username or system.api_token %}
+                    ✓ Konfiguriert
+                {% else %}
+                    ✗ Nicht konfiguriert
+                {% endif %}
+            </td>
+            <td class="actions">
+                <a href="/admin/systems/{{ system.id }}/edit" class="btn btn-primary btn-sm">Bearbeiten</a>
+                <form method="POST" action="/admin/systems/{{ system.id }}/delete" style="display: inline;">
+                    <button type="submit" class="btn btn-danger btn-sm" 
+                            onclick="return confirm('System {{ system.name }} wirklich löschen?')">
+                        Löschen
+                    </button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="no-systems">
+    <h3>Keine Storage Systeme vorhanden</h3>
+    <p>Klicken Sie auf "Neues System", um ein Storage System hinzuzufügen.</p>
+</div>
+{% endif %}
+{% endblock %}
