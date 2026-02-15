@@ -26,6 +26,9 @@ def new_system():
                 api_username=request.form.get('api_username', '').strip() or None,
                 api_password=request.form.get('api_password', '').strip() or None,
                 api_token=request.form.get('api_token', '').strip() or None,
+                cluster_type=request.form.get('cluster_type', '').strip() or None,
+                node_count=int(request.form['node_count']) if request.form.get('node_count', '').strip() else None,
+                site_count=int(request.form['site_count']) if request.form.get('site_count', '').strip() else None,
                 enabled=request.form.get('enabled') == 'on'
             )
             db.session.add(system)
@@ -52,6 +55,9 @@ def edit_system(system_id):
             system.api_username = request.form.get('api_username', '').strip() or None
             system.api_password = request.form.get('api_password', '').strip() or None
             system.api_token = request.form.get('api_token', '').strip() or None
+            system.cluster_type = request.form.get('cluster_type', '').strip() or None
+            system.node_count = int(request.form['node_count']) if request.form.get('node_count', '').strip() else None
+            system.site_count = int(request.form['site_count']) if request.form.get('site_count', '').strip() else None
             system.enabled = request.form.get('enabled') == 'on'
             db.session.commit()
             flash('Storage system updated successfully', 'success')

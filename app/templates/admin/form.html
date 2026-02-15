@@ -157,6 +157,64 @@
             <small>Standard: 443</small>
         </div>
         
+        <div class="form-group">
+            <label for="cluster_type">Cluster-Typ (optional)</label>
+            <select id="cluster_type" name="cluster_type">
+                <option value="">-- Nicht angegeben --</option>
+                <optgroup label="Pure Storage">
+                    <option value="ha" {{ 'selected' if system and system.cluster_type == 'ha' else '' }}>HA Cluster</option>
+                    <option value="active-cluster" {{ 'selected' if system and system.cluster_type == 'active-cluster' else '' }}>Active Cluster</option>
+                </optgroup>
+                <optgroup label="NetApp ONTAP">
+                    <option value="local" {{ 'selected' if system and system.cluster_type == 'local' else '' }}>Local Cluster</option>
+                    <option value="metrocluster" {{ 'selected' if system and system.cluster_type == 'metrocluster' else '' }}>MetroCluster</option>
+                </optgroup>
+                <optgroup label="StorageGRID">
+                    <option value="single-site" {{ 'selected' if system and system.cluster_type == 'single-site' else '' }}>Single Site</option>
+                    <option value="multi-site" {{ 'selected' if system and system.cluster_type == 'multi-site' else '' }}>Multi-Site</option>
+                </optgroup>
+            </select>
+            <small>Cluster-Architektur des Systems</small>
+        </div>
+        
+        <div class="form-group" id="node-fields" style="display: none;">
+            <label for="node_count">Anzahl Nodes (optional)</label>
+            <input type="number" id="node_count" name="node_count" min="1" 
+                   value="{{ system.node_count if system else '' }}">
+            <small>Anzahl der Nodes im Cluster (v.a. für StorageGRID)</small>
+        </div>
+        
+        <div class="form-group" id="site-fields" style="display: none;">
+            <label for="site_count">Anzahl Sites (optional)</label>
+            <input type="number" id="site_count" name="site_count" min="1" 
+                   value="{{ system.site_count if system else '' }}">
+            <small>Anzahl der Sites (v.a. für StorageGRID Multi-Site)</small>
+        </div>
+        
+        <script>
+            // Show/hide node and site fields based on cluster type
+            document.getElementById('cluster_type').addEventListener('change', function() {
+                const nodeFields = document.getElementById('node-fields');
+                const siteFields = document.getElementById('site-fields');
+                const clusterType = this.value;
+                
+                if (clusterType === 'single-site' || clusterType === 'multi-site') {
+                    nodeFields.style.display = 'block';
+                } else {
+                    nodeFields.style.display = 'none';
+                }
+                
+                if (clusterType === 'multi-site') {
+                    siteFields.style.display = 'block';
+                } else {
+                    siteFields.style.display = 'none';
+                }
+            });
+            
+            // Trigger on page load
+            document.getElementById('cluster_type').dispatchEvent(new Event('change'));
+        </script>
+        
         <div class="credential-section">
             <h3>API Zugangsdaten</h3>
             
