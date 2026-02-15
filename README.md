@@ -183,6 +183,24 @@ Zeigt alle aktivierten Storage-Systeme gruppiert nach Hersteller:
 
 📖 **Detailliertes Administrator-Handbuch:** Siehe [ADMIN_GUIDE.md](ADMIN_GUIDE.md)
 
+### Zertifikatsverwaltung (`/admin/certificates`)
+
+![Certificate Management](screenshots/certificates-page.png)
+
+Das Dashboard unterstützt firmeneigene CA- und Root-Zertifikate für sichere Verbindungen in internen Netzwerken:
+
+- **CA-Zertifikate hochladen**: Intermediate oder Sub-CA Zertifikate
+- **Root-Zertifikate verwalten**: Oberste Zertifizierungsstelle
+- **PEM-Format**: Unterstützung für .pem, .crt, .cer Dateien
+- **Aktivieren/Deaktivieren**: Flexible Kontrolle über verwendete Zertifikate
+- **Download**: Exportieren Sie gespeicherte Zertifikate
+
+**Verwendung:**
+1. Navigieren Sie zu `/admin/certificates`
+2. Laden Sie Ihre firmeneigenen Zertifikate hoch
+3. Setzen Sie `SSL_VERIFY=true` in der `.env`-Datei
+4. Starten Sie das Dashboard neu
+
 ## Container-Deployment
 
 Das Dashboard kann als Docker/Podman Container betrieben werden. Siehe [CONTAINER.md](CONTAINER.md) für Details.
