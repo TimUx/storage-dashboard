@@ -52,7 +52,23 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 
 ### Option 1: Container-Deployment (Empfohlen)
 
-**Schnellstart mit Podman/Docker:**
+**Schnellstart mit vorgefertigtem GitHub Image:**
+
+```bash
+# .env Datei mit Secret Key erstellen
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+echo "SSL_VERIFY=false" >> .env
+
+# Container mit vorgefertigtem Image starten
+podman run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data:Z \
+  --env-file .env \
+  ghcr.io/timux/storage-dashboard:latest
+```
+
+**Oder mit Docker Compose (verwendet automatisch das GitHub Image):**
 
 ```bash
 git clone https://github.com/TimUx/storage-dashboard.git
@@ -205,7 +221,24 @@ Das Dashboard unterstützt firmeneigene CA- und Root-Zertifikate für sichere Ve
 
 Das Dashboard kann als Docker/Podman Container betrieben werden. Siehe [CONTAINER.md](CONTAINER.md) für Details.
 
-**Schnellstart:**
+**Schnellstart mit vorgefertigtem GitHub Image:**
+```bash
+# .env Datei mit Secret Key erstellen
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+echo "SSL_VERIFY=false" >> .env
+
+# Container starten
+podman run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data:Z \
+  --env-file .env \
+  ghcr.io/timux/storage-dashboard:latest
+```
+
+Dashboard verfügbar unter: `http://localhost:5000`
+
+**Mit Docker Compose:**
 ```bash
 git clone https://github.com/TimUx/storage-dashboard.git
 cd storage-dashboard
@@ -214,11 +247,9 @@ cd storage-dashboard
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
 echo "SSL_VERIFY=false" >> .env
 
-# Container starten
+# Container starten (verwendet automatisch das GitHub Image)
 podman-compose up -d
 ```
-
-Dashboard verfügbar unter: `http://localhost:5000`
 
 ### Dokumentation (`/admin/docs`)
 

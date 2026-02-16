@@ -340,6 +340,97 @@ podman network inspect bridge
 podman inspect storage-dashboard | grep -A 10 NetworkSettings
 ```
 
+## GitHub Container Registry
+
+### Vorgefertigtes Image verwenden
+
+Das Storage Dashboard wird automatisch als Docker Image auf GitHub Container Registry (ghcr.io) bereitgestellt.
+
+**Vorteile:**
+- Kein lokales Build notwendig
+- Schnellerer Start
+- Offizielle, getestete Images
+
+#### Image herunterladen und starten
+
+```bash
+# Image herunterladen
+podman pull ghcr.io/timux/storage-dashboard:latest
+
+# Container starten
+podman run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data:Z \
+  --env-file .env \
+  ghcr.io/timux/storage-dashboard:latest
+```
+
+**Mit Docker:**
+```bash
+docker pull ghcr.io/timux/storage-dashboard:latest
+docker run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data \
+  --env-file .env \
+  ghcr.io/timux/storage-dashboard:latest
+```
+
+#### Docker-Compose mit GitHub Image
+
+Die Datei `docker-compose.yml` ist bereits für die Verwendung des GitHub-Images konfiguriert:
+
+```bash
+# Starten mit vorgefertigtem Image
+podman-compose up -d
+# oder
+docker-compose up -d
+```
+
+Das Image wird automatisch von ghcr.io heruntergeladen, falls es noch nicht lokal vorhanden ist.
+
+#### Lokales Build erzwingen
+
+Wenn Sie dennoch lokal bauen möchten, kommentieren Sie in `docker-compose.yml` die Build-Zeilen aus:
+
+```yaml
+services:
+  storage-dashboard:
+    # image: ghcr.io/timux/storage-dashboard:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+```
+
+Dann:
+```bash
+podman-compose up -d --build
+```
+
+### GitHub Action: Image automatisch bauen
+
+Das Repository verfügt über eine GitHub Action, die automatisch ein Docker Image erstellt und auf GitHub Container Registry hochlädt.
+
+**Workflow manuell auslösen:**
+1. Gehen Sie zu: `https://github.com/TimUx/storage-dashboard/actions/workflows/build-and-push-image.yml`
+2. Klicken Sie auf "Run workflow"
+3. Optional: Geben Sie einen Tag-Namen ein (Standard: `latest`)
+4. Klicken Sie auf "Run workflow"
+
+Das Image wird dann automatisch gebaut und unter `ghcr.io/timux/storage-dashboard:TAG` bereitgestellt.
+
+**Verwendung eines spezifischen Tags:**
+```bash
+podman pull ghcr.io/timux/storage-dashboard:v1.0.0
+podman run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data:Z \
+  --env-file .env \
+  ghcr.io/timux/storage-dashboard:v1.0.0
+```
+
 ## Container Registry
 
 ### Image in Registry hochladen
