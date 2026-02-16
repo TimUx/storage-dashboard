@@ -2,10 +2,12 @@ version: '3.8'
 
 services:
   storage-dashboard:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: storage-dashboard:latest
+    # Use pre-built image from GitHub Container Registry
+    # To build locally instead, uncomment the 'build' section and comment out the image line
+    image: ghcr.io/timux/storage-dashboard:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: storage-dashboard
     restart: unless-stopped
     
