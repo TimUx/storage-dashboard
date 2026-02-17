@@ -14,18 +14,20 @@
     }
 
     .detail-container {
-        max-width: 1600px;
-        margin: 0 auto;
+        width: 100%;
+        margin: 0;
         padding: 1.5rem;
     }
 
     .detail-header {
-        background: linear-gradient(135deg, var(--itscare-blue) 0%, var(--itscare-blue-dark) 100%);
-        color: white;
+        background: white;
+        color: #333;
         padding: 1.5rem;
         border-radius: 8px;
         margin-bottom: 1.5rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
+        border-bottom: 4px solid;
+        border-image: linear-gradient(90deg, var(--itscare-blue) 0%, var(--itscare-blue) 33.33%, var(--itscare-green) 33.33%, var(--itscare-green) 66.66%, var(--itscare-red) 66.66%, var(--itscare-red) 100%) 1;
     }
 
     .detail-header h1 {
@@ -34,20 +36,22 @@
         display: flex;
         align-items: center;
         gap: 1rem;
+        color: var(--itscare-blue);
     }
 
     .webui-link {
-        color: white;
+        color: var(--itscare-blue);
         text-decoration: none;
         transition: all 0.3s;
         display: inline-flex;
         align-items: center;
         gap: 0.3rem;
+        font-weight: 500;
     }
 
     .webui-link:hover {
-        color: #FFE5E8;
-        text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        color: var(--itscare-blue-dark);
+        text-decoration: underline;
     }
 
     .webui-link-icon {
@@ -59,12 +63,14 @@
         gap: 2rem;
         flex-wrap: wrap;
         font-size: 0.95rem;
+        color: #333;
     }
 
     .detail-meta-item {
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        color: var(--text-medium);
     }
 
     .detail-grid {
