@@ -3,7 +3,7 @@
 import click
 import sys
 from app import create_app, db
-from app.models import StorageSystem
+from app.models import StorageSystem, AdminUser, AppSettings
 from app.api import get_client
 from tabulate import tabulate
 
@@ -201,5 +201,54 @@ def admin_disable(system_id):
         click.echo(f"✓ Storage System '{system.name}' deaktiviert.")
 
 
+@admin.command('create-user')
+@click.option('--username', prompt='Username', help='Admin username')
+@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Admin password')
+def admin_create_user(username, password):
+    """Create a new admin user"""
+    app = create_app()
+    with app.app_context():
+        # Check if user already exists
+        existing = AdminUser.query.filter_by(username=username).first()
+        if existing:
+            click.echo(f"✗ Benutzer '{username}' existiert bereits.", err=True)
+            sys.exit(1)
+        
+        # Create new admin user
+        user = AdminUser(username=username)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        
+        click.echo(f"✓ Admin-Benutzer '{username}' erfolgreich erstellt.")
+
+
+@admin.command('list-users')
+def admin_list_users():
+    """List all admin users"""
+    app = create_app()
+    with app.app_context():
+        users = AdminUser.query.all()
+        
+        if not users:
+            click.echo("Keine Admin-Benutzer vorhanden.")
+            click.echo("Verwenden Sie 'cli.py admin create-user' um einen Benutzer zu erstellen.")
+            return
+        
+        table_data = []
+        for user in users:
+            table_data.append([
+                user.id,
+                user.username,
+                '✓' if user.is_active else '✗',
+                user.last_login.strftime('%d.%m.%Y %H:%M') if user.last_login else '-',
+                user.created_at.strftime('%d.%m.%Y %H:%M') if user.created_at else '-'
+            ])
+        
+        headers = ['ID', 'Benutzername', 'Aktiv', 'Letzter Login', 'Erstellt']
+        click.echo(tabulate(table_data, headers=headers, tablefmt='grid'))
+
+
 if __name__ == '__main__':
     cli()
+

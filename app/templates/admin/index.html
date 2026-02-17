@@ -27,30 +27,30 @@
 }
 
 .btn-primary {
-    background: #3498db;
+    background: var(--accent-color);
     color: white;
 }
 
 .btn-primary:hover {
-    background: #2980b9;
+    background: #007ab8;
 }
 
 .btn-danger {
-    background: #e74c3c;
+    background: var(--primary-color);
     color: white;
 }
 
 .btn-danger:hover {
-    background: #c0392b;
+    background: #8a0235;
 }
 
 .btn-warning {
-    background: #f39c12;
-    color: white;
+    background: var(--secondary-color);
+    color: #333;
 }
 
 .btn-warning:hover {
-    background: #e67e22;
+    background: #a8ba00;
 }
 
 .btn-sm {
@@ -73,7 +73,7 @@ table {
 }
 
 thead {
-    background: #34495e;
+    background: var(--accent-color);
     color: white;
 }
 
@@ -105,7 +105,7 @@ tbody tr:hover {
 }
 
 .status-enabled {
-    background: #27ae60;
+    background: var(--secondary-color);
 }
 
 .status-disabled {
@@ -130,7 +130,10 @@ tbody tr:hover {
 <div class="admin-header">
     <h2>Storage Systeme verwalten</h2>
     <div style="display: flex; gap: 1rem;">
+        <a href="/admin/settings" class="btn btn-warning">⚙️ Einstellungen</a>
         <a href="/admin/certificates" class="btn btn-warning">🔒 Zertifikate</a>
+        <a href="/admin/import" class="btn btn-primary">📥 Importieren</a>
+        <a href="/admin/export" class="btn btn-primary">📤 Exportieren</a>
         <a href="/admin/systems/new" class="btn btn-primary">+ Neues System</a>
     </div>
 </div>

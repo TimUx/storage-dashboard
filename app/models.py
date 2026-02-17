@@ -1,6 +1,9 @@
 """Database models"""
 from app import db
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask_login import UserMixin
+from app.crypto_utils import encrypt_value, decrypt_value
 import json
 
 class StorageSystem(db.Model):
@@ -11,9 +14,9 @@ class StorageSystem(db.Model):
     name = db.Column(db.String(100), nullable=False, unique=True)
     vendor = db.Column(db.String(50), nullable=False)  # pure, netapp-ontap, netapp-storagegrid, dell-datadomain
     ip_address = db.Column(db.String(100), nullable=False)
-    api_username = db.Column(db.String(100))
-    api_password = db.Column(db.String(200))
-    api_token = db.Column(db.String(500))
+    _api_username = db.Column('api_username', db.String(500))  # Encrypted
+    _api_password = db.Column('api_password', db.String(500))  # Encrypted
+    _api_token = db.Column('api_token', db.Text)  # Encrypted
     port = db.Column(db.Integer, default=443)
     enabled = db.Column(db.Boolean, default=True)
     
@@ -37,6 +40,37 @@ class StorageSystem(db.Model):
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Encrypted property accessors
+    @property
+    def api_username(self):
+        """Decrypt and return api_username"""
+        return decrypt_value(self._api_username) if self._api_username else None
+    
+    @api_username.setter
+    def api_username(self, value):
+        """Encrypt and store api_username"""
+        self._api_username = encrypt_value(value) if value else None
+    
+    @property
+    def api_password(self):
+        """Decrypt and return api_password"""
+        return decrypt_value(self._api_password) if self._api_password else None
+    
+    @api_password.setter
+    def api_password(self, value):
+        """Encrypt and store api_password"""
+        self._api_password = encrypt_value(value) if value else None
+    
+    @property
+    def api_token(self):
+        """Decrypt and return api_token"""
+        return decrypt_value(self._api_token) if self._api_token else None
+    
+    @api_token.setter
+    def api_token(self, value):
+        """Encrypt and store api_token"""
+        self._api_token = encrypt_value(value) if value else None
     
     def get_dns_names(self):
         """Get DNS names as list"""
@@ -138,3 +172,54 @@ class Certificate(db.Model):
     
     def __repr__(self):
         return f'<Certificate {self.name} ({self.certificate_type})>'
+
+
+class AdminUser(UserMixin, db.Model):
+    """Admin user for authentication"""
+    __tablename__ = 'admin_users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime)
+    
+    def set_password(self, password):
+        """Hash and set password"""
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        """Verify password"""
+        return check_password_hash(self.password_hash, password)
+    
+    def get_id(self):
+        """Required for Flask-Login"""
+        return str(self.id)
+    
+    def __repr__(self):
+        return f'<AdminUser {self.username}>'
+
+
+class AppSettings(db.Model):
+    """Application settings for customization"""
+    __tablename__ = 'app_settings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    # Color scheme
+    primary_color = db.Column(db.String(7), default='#A70240')  # Red
+    secondary_color = db.Column(db.String(7), default='#BED600')  # Yellow-green
+    accent_color = db.Column(db.String(7), default='#0098DB')  # Blue
+    
+    # Logo
+    logo_filename = db.Column(db.String(255))
+    logo_data = db.Column(db.LargeBinary)  # Store logo as binary data
+    
+    # Other settings
+    company_name = db.Column(db.String(100), default='Storage Dashboard')
+    
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<AppSettings {self.id}>'
+
