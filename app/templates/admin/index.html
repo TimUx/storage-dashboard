@@ -130,6 +130,11 @@ tbody tr:hover {
 <div class="admin-header">
     <h2>Storage Systeme verwalten</h2>
     <div style="display: flex; gap: 1rem;">
+        <form method="POST" action="{{ url_for('admin.rediscover_all_systems') }}" style="display: inline;">
+            <button type="submit" class="btn btn-warning" onclick="return confirm('Wirklich Discovery für alle Systeme durchführen? Dies kann einige Zeit dauern.');">
+                🔄 Discover All
+            </button>
+        </form>
         <a href="/admin/settings" class="btn btn-warning">⚙️ Einstellungen</a>
         <a href="/admin/certificates" class="btn btn-warning">🔒 Zertifikate</a>
         <a href="/admin/import" class="btn btn-primary">📥 Importieren</a>

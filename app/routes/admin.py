@@ -182,6 +182,70 @@ def rediscover_system(system_id):
     return redirect(url_for('admin.index'))
 
 
+@bp.route('/systems/rediscover-all', methods=['POST'])
+@login_required
+def rediscover_all_systems():
+    """Re-run discovery for all storage systems"""
+    systems = StorageSystem.query.all()
+    
+    if not systems:
+        flash('No storage systems configured', 'warning')
+        return redirect(url_for('admin.index'))
+    
+    success_count = 0
+    error_count = 0
+    
+    for system in systems:
+        try:
+            discovery_result = auto_discover_system(
+                vendor=system.vendor,
+                ip_address=system.ip_address,
+                username=system.api_username,
+                password=system.api_password,
+                api_token=system.api_token,
+                ssl_verify=False
+            )
+            
+            if 'error' not in discovery_result:
+                system.cluster_type = discovery_result.get('cluster_type')
+                system.node_count = discovery_result.get('node_count')
+                system.site_count = discovery_result.get('site_count')
+                system.set_dns_names(discovery_result.get('dns_names', []))
+                system.set_all_ips(discovery_result.get('all_ips', []))
+                system.set_node_details(discovery_result.get('node_details', []))
+                system.last_discovery = datetime.utcnow()
+                system.discovery_error = None
+                success_count += 1
+            else:
+                system.discovery_error = discovery_result.get('error')
+                system.last_discovery = datetime.utcnow()
+                error_count += 1
+                logger.warning(f'Discovery error for {system.name}: {discovery_result.get("error")}')
+        
+        except Exception as e:
+            system.discovery_error = str(e)
+            system.last_discovery = datetime.utcnow()
+            error_count += 1
+            logger.error(f'Error re-discovering system {system.name}: {e}', exc_info=True)
+    
+    # Commit all changes
+    try:
+        db.session.commit()
+        
+        if error_count == 0:
+            flash(f'All {success_count} systems successfully re-discovered!', 'success')
+        elif success_count > 0:
+            flash(f'{success_count} systems re-discovered successfully, {error_count} had errors.', 'warning')
+        else:
+            flash(f'All {error_count} systems had discovery errors. Check system details for more information.', 'error')
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f'Error committing discovery changes: {e}', exc_info=True)
+        flash(f'Error saving discovery results: {str(e)}', 'error')
+    
+    return redirect(url_for('admin.index'))
+
+
 @bp.route('/systems/<int:system_id>/delete', methods=['POST'])
 @login_required
 def delete_system(system_id):

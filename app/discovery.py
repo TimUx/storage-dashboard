@@ -5,6 +5,11 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Pure Storage shelf controller pattern
+# Shelf controllers have '.SC' in their names (e.g., SH9.SC0, SH9.SC1)
+# These are not actual nodes and should be filtered out
+SHELF_CONTROLLER_PATTERN = '.SC'
+
 
 def reverse_dns_lookup(ip_address):
     """
@@ -83,7 +88,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 controller_items = list(getattr(controllers_response, 'items', []))
                 
                 # Filter out shelf controllers (names containing .SC)
-                actual_nodes = [ctrl for ctrl in controller_items if '.SC' not in getattr(ctrl, 'name', '')]
+                actual_nodes = [ctrl for ctrl in controller_items if SHELF_CONTROLLER_PATTERN not in getattr(ctrl, 'name', '')]
                 discovery_data['node_count'] = len(actual_nodes)
                 
                 for ctrl in actual_nodes:
@@ -194,7 +199,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
             'all_ips': [ip_address],
             'node_details': [],
             'partner_info': None,
-            'ha_enabled': False,
+            'ha_enabled': False,  # Will be set to True if 2+ nodes are found
             'metrocluster_enabled': False
         }
         
@@ -202,10 +207,6 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
         try:
             cluster = Cluster()
             cluster.get()
-            
-            # Check for HA (High Availability) - typically 2+ nodes
-            # HA is the default for ONTAP clusters with 2 or more nodes
-            discovery_data['ha_enabled'] = True  # Will be confirmed after node count
             
             # Check for MetroCluster
             if hasattr(cluster, 'metrocluster') and cluster.metrocluster:
@@ -259,7 +260,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                 node_info = {
                     'name': node.name if hasattr(node, 'name') else 'Unknown',
                     'uuid': node.uuid if hasattr(node, 'uuid') else None,
-                    'status': getattr(node, 'state', 'unknown'),
+                    'status': getattr(node, 'state', 'unknown'),  # 'status' key for consistency with Pure Storage
                     'model': getattr(node, 'model', 'unknown'),
                     'serial': getattr(node, 'serial_number', 'unknown'),
                     'version': getattr(node, 'version', {}).get('full', 'unknown') if hasattr(node, 'version') else 'unknown',

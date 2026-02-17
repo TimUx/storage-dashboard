@@ -3,6 +3,9 @@ from app.api.base_client import StorageClient
 from flask import current_app
 import requests
 import warnings
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_ssl_verify():
     """Get SSL verification setting from app config, with custom certificates if available"""
@@ -172,8 +175,6 @@ class NetAppONTAPClient(StorageClient):
                             used_bytes += used
             except Exception as aggr_error:
                 # Log the error but continue with 0 capacity
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.warning(f"Could not get aggregate space info for {self.ip_address}: {aggr_error}")
             
             return self._format_response(
