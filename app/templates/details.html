@@ -565,6 +565,21 @@
         </div>
         {% endif %}
 
+        {% if mc_info.configuration_type %}
+        <div class="detail-row">
+            <span class="detail-label">MetroCluster Typ:</span>
+            <span class="detail-value">
+                {% if mc_info.configuration_type == 'ip_fabric' %}
+                    MetroCluster IP
+                {% elif mc_info.configuration_type == 'fabric' %}
+                    MetroCluster FC
+                {% else %}
+                    {{ mc_info.configuration_type }}
+                {% endif %}
+            </span>
+        </div>
+        {% endif %}
+
         {% if mc_info.local_cluster_name %}
         <div class="detail-row">
             <span class="detail-label">Lokales Cluster:</span>

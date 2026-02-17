@@ -58,14 +58,32 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
     try:
         import requests
         
+        base_url = f"https://{ip_address}"
+        
+        # Detect API version dynamically
+        api_version = PURE_API_VERSION  # Default fallback
+        try:
+            version_response = requests.get(
+                f"{base_url}/api/api_version",
+                verify=ssl_verify,
+                timeout=API_TIMEOUT
+            )
+            if version_response.status_code == 200:
+                data = version_response.json()
+                versions = data.get('version', [])
+                if versions:
+                    # Use the latest version (usually last in the list)
+                    api_version = versions[-1] if isinstance(versions, list) else versions
+                    logger.info(f"Detected Pure Storage API version: {api_version}")
+        except Exception as e:
+            logger.warning(f"Could not detect API version for {ip_address}, using default {PURE_API_VERSION}: {e}")
+        
         # FlashArray REST API v2 headers
         headers = {
             'x-auth-token': api_token,
             'Accept': 'application/json',
             'Content-Type': 'application/json'
         }
-        
-        base_url = f"https://{ip_address}"
         
         discovery_data = {
             'cluster_type': None,
@@ -80,7 +98,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         # Get array info
         # REST API v2: GET /api/2.x/arrays
         arrays_response = requests.get(
-            f"{base_url}/api/{PURE_API_VERSION}/arrays",
+            f"{base_url}/api/{api_version}/arrays",
             headers=headers,
             verify=ssl_verify,
             timeout=API_TIMEOUT
@@ -94,7 +112,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         # REST API v2: GET /api/2.x/controllers
         try:
             controllers_response = requests.get(
-                f"{base_url}/api/{PURE_API_VERSION}/controllers",
+                f"{base_url}/api/{api_version}/controllers",
                 headers=headers,
                 verify=ssl_verify,
                 timeout=API_TIMEOUT
@@ -123,7 +141,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                     # REST API v2: GET /api/2.x/network-interfaces?filter=services='management'
                     try:
                         network_interfaces_response = requests.get(
-                            f"{base_url}/api/{PURE_API_VERSION}/network-interfaces",
+                            f"{base_url}/api/{api_version}/network-interfaces",
                             headers=headers,
                             params={'filter': "services='management'"},
                             verify=ssl_verify,
@@ -159,7 +177,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         # An array is ActiveCluster if at least one pod has arrays.length > 1
         try:
             pods_response = requests.get(
-                f"{base_url}/api/{PURE_API_VERSION}/pods",
+                f"{base_url}/api/{api_version}/pods",
                 headers=headers,
                 verify=ssl_verify,
                 timeout=API_TIMEOUT
@@ -439,46 +457,20 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
             logger.warning(f"Could not get StorageGRID sites: {sites_error}")
         
         # Get grid nodes
+        # Use node-health API to get detailed node information including siteName
+        site_names = set()  # Track unique site names for multi-site detection
         try:
-            nodes_response = requests.get(
-                f"{base_url}/api/v4/grid/nodes",
+            node_health_response = requests.get(
+                f"{base_url}/api/v4/grid/node-health",
                 headers=headers,
                 verify=ssl_verify,
                 timeout=API_TIMEOUT
             )
             
-            if nodes_response.status_code == 200:
-                nodes_data = nodes_response.json()
+            if node_health_response.status_code == 200:
+                node_health_data = node_health_response.json()
                 # Response format: {"data": [{node_details}, ...]}
-                nodes_list = nodes_data.get('data', [])
-                
-                # Also try to get service IDs to determine node types more accurately
-                service_ids_map = {}
-                try:
-                    service_ids_response = requests.get(
-                        f"{base_url}/api/v4/grid/service-ids",
-                        headers=headers,
-                        verify=ssl_verify,
-                        timeout=API_TIMEOUT
-                    )
-                    
-                    if service_ids_response.status_code == 200:
-                        service_ids_data = service_ids_response.json()
-                        services = service_ids_data.get('data', [])
-                        
-                        # Map node IDs to their primary service types
-                        for service in services:
-                            node_id = service.get('nodeId')
-                            service_type = service.get('type', '')
-                            
-                            if node_id:
-                                if node_id not in service_ids_map:
-                                    service_ids_map[node_id] = []
-                                service_ids_map[node_id].append(service_type)
-                        
-                        logger.info(f"StorageGRID: Collected service IDs for {len(service_ids_map)} nodes")
-                except Exception as service_error:
-                    logger.debug(f"Could not get StorageGRID service IDs: {service_error}")
+                nodes_list = node_health_data.get('data', [])
                 
                 all_nodes = []
                 for node in nodes_list:
@@ -486,58 +478,145 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                     node_id = node.get('id', '')
                     node_type = node.get('type', 'unknown')
                     node_state = node.get('state', 'unknown')
-                    node_site = node.get('site', 'Unknown Site')
+                    site_name = node.get('siteName', 'Unknown Site')
+                    site_id = node.get('siteId')
                     
-                    # Try to determine node type from service IDs if type is unknown
-                    if node_type == 'unknown' and node_id in service_ids_map:
-                        services = service_ids_map[node_id]
-                        # Determine type based on services running on the node
-                        if 'ADC' in services or 'LDR' in services:
-                            node_type = 'Storage Node'
-                        elif 'CMN' in services or 'NMS' in services:
-                            node_type = 'Admin Node'
-                        elif 'CLB' in services or 'nginx' in services:
-                            node_type = 'Gateway Node'
-                        elif 'ARC' in services:
-                            node_type = 'Archive Node'
-                    
-                    # Get node IPs if available
-                    node_ips = []
-                    if 'ips' in node:
-                        node_ips = node.get('ips', [])
-                    elif 'addresses' in node:
-                        # Alternative field name
-                        node_ips = node.get('addresses', [])
+                    # Track unique site names
+                    if site_name and site_name != 'Unknown Site':
+                        site_names.add(site_name)
                     
                     node_info = {
                         'name': node_name,
                         'id': node_id,
-                        'site': node_site,
+                        'site': site_name,  # Use siteName from node-health API
                         'type': node_type,
-                        'status': node_state,
-                        'ips': node_ips
+                        'status': node_state
                     }
                     
-                    all_nodes.append(node_info)
+                    # Add site_id if available
+                    if site_id:
+                        node_info['site_id'] = site_id
                     
-                    # Add IPs to discovery data
-                    for ip in node_ips:
-                        if ip and ip not in discovery_data['all_ips']:
-                            discovery_data['all_ips'].append(ip)
-                            # Try DNS lookup for each IP
-                            try:
-                                dns_names = reverse_dns_lookup(ip)
-                                discovery_data['dns_names'].extend(dns_names)
-                            except:
-                                pass
+                    all_nodes.append(node_info)
                 
                 discovery_data['node_count'] = len(all_nodes)
                 discovery_data['node_details'] = all_nodes
                 
-                logger.info(f"StorageGRID: Found {len(all_nodes)} nodes")
+                logger.info(f"StorageGRID: Found {len(all_nodes)} nodes from node-health API")
+                
+                # If nodes have different site names, it's multi-site
+                if len(site_names) > 1:
+                    discovery_data['site_count'] = len(site_names)
+                    discovery_data['cluster_type'] = 'multi-site'
+                    logger.info(f"Multi-site detected from node siteNames: {len(site_names)} unique sites ({', '.join(site_names)})")
+                elif len(site_names) == 1:
+                    # Update site count if we found exactly one site name
+                    if discovery_data['site_count'] == 1:
+                        discovery_data['cluster_type'] = 'single-site'
                     
         except Exception as nodes_error:
-            logger.warning(f"Could not get StorageGRID nodes: {nodes_error}")
+            logger.warning(f"Could not get StorageGRID node-health: {nodes_error}")
+            
+            # Fallback to old /grid/nodes API if node-health fails
+            try:
+                nodes_response = requests.get(
+                    f"{base_url}/api/v4/grid/nodes",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=API_TIMEOUT
+                )
+                
+                if nodes_response.status_code == 200:
+                    nodes_data = nodes_response.json()
+                    # Response format: {"data": [{node_details}, ...]}
+                    nodes_list = nodes_data.get('data', [])
+                
+                    # Also try to get service IDs to determine node types more accurately
+                    service_ids_map = {}
+                    try:
+                        service_ids_response = requests.get(
+                            f"{base_url}/api/v4/grid/service-ids",
+                            headers=headers,
+                            verify=ssl_verify,
+                            timeout=API_TIMEOUT
+                        )
+                        
+                        if service_ids_response.status_code == 200:
+                            service_ids_data = service_ids_response.json()
+                            services = service_ids_data.get('data', [])
+                            
+                            # Map node IDs to their primary service types
+                            for service in services:
+                                node_id = service.get('nodeId')
+                                service_type = service.get('type', '')
+                                
+                                if node_id:
+                                    if node_id not in service_ids_map:
+                                        service_ids_map[node_id] = []
+                                    service_ids_map[node_id].append(service_type)
+                            
+                            logger.info(f"StorageGRID: Collected service IDs for {len(service_ids_map)} nodes")
+                    except Exception as service_error:
+                        logger.debug(f"Could not get StorageGRID service IDs: {service_error}")
+                    
+                    all_nodes = []
+                    for node in nodes_list:
+                        node_name = node.get('name', 'Unknown')
+                        node_id = node.get('id', '')
+                        node_type = node.get('type', 'unknown')
+                        node_state = node.get('state', 'unknown')
+                        node_site = node.get('site', 'Unknown Site')
+                        
+                        # Try to determine node type from service IDs if type is unknown
+                        if node_type == 'unknown' and node_id in service_ids_map:
+                            services = service_ids_map[node_id]
+                            # Determine type based on services running on the node
+                            if 'ADC' in services or 'LDR' in services:
+                                node_type = 'Storage Node'
+                            elif 'CMN' in services or 'NMS' in services:
+                                node_type = 'Admin Node'
+                            elif 'CLB' in services or 'nginx' in services:
+                                node_type = 'Gateway Node'
+                            elif 'ARC' in services:
+                                node_type = 'Archive Node'
+                        
+                        # Get node IPs if available
+                        node_ips = []
+                        if 'ips' in node:
+                            node_ips = node.get('ips', [])
+                        elif 'addresses' in node:
+                            # Alternative field name
+                            node_ips = node.get('addresses', [])
+                        
+                        node_info = {
+                            'name': node_name,
+                            'id': node_id,
+                            'site': node_site,
+                            'type': node_type,
+                            'status': node_state,
+                            'ips': node_ips
+                        }
+                        
+                        all_nodes.append(node_info)
+                        
+                        # Add IPs to discovery data
+                        for ip in node_ips:
+                            if ip and ip not in discovery_data['all_ips']:
+                                discovery_data['all_ips'].append(ip)
+                                # Try DNS lookup for each IP
+                                try:
+                                    dns_names = reverse_dns_lookup(ip)
+                                    discovery_data['dns_names'].extend(dns_names)
+                                except:
+                                    pass
+                    
+                    discovery_data['node_count'] = len(all_nodes)
+                    discovery_data['node_details'] = all_nodes
+                    
+                    logger.info(f"StorageGRID: Found {len(all_nodes)} nodes from fallback API")
+                        
+            except Exception as fallback_error:
+                logger.warning(f"Could not get StorageGRID nodes from fallback API: {fallback_error}")
         
         # Try to get topology as fallback if nodes endpoint didn't work
         if discovery_data['node_count'] == 0:

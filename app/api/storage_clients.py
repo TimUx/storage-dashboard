@@ -250,8 +250,18 @@ class PureStorageClient(StorageClient):
             array_name = None
             if 'items' in array_data and len(array_data['items']) > 0:
                 item = array_data['items'][0]
-                # Get full version with Purity/FA prefix
-                os_version = item.get('os') or item.get('version')
+                # Get version string (e.g., "Purity//FA 6.5.10" or just "6.5.10")
+                raw_version = item.get('os') or item.get('version')
+                if raw_version:
+                    # Extract numeric version from string like "Purity//FA 6.5.10"
+                    # Split by spaces and find the part that looks like a version number
+                    import re
+                    version_match = re.search(r'(\d+\.\d+\.\d+)', raw_version)
+                    if version_match:
+                        os_version = version_match.group(1)
+                    else:
+                        # If no version pattern found, use the raw string
+                        os_version = raw_version
                 array_name = item.get('name')
             
             # Get space/capacity info
@@ -582,13 +592,17 @@ class NetAppONTAPClient(StorageClient):
                             logger.info(f"MetroCluster detected for {self.ip_address}: {configuration_state}")
                             
                             # Store MetroCluster configuration info
+                            # configuration_type can be "ip_fabric" (MetroCluster IP) or "fabric" (MetroCluster FC)
                             local_cluster_from_mc = metrocluster_data.get('local', {}).get('cluster', {}).get('name')
+                            configuration_type = metrocluster_data.get('configuration_type')
+                            
                             metrocluster_info = {
                                 'configuration_state': configuration_state,
-                                'mode': metrocluster_data.get('mode'),  # 'ip' or 'fc'
+                                'mode': metrocluster_data.get('mode'),  # 'ip' or 'fc' (legacy field)
+                                'configuration_type': configuration_type,  # 'ip_fabric' or 'fabric'
                                 'uuid': metrocluster_data.get('uuid'),
                                 'local_cluster_name': local_cluster_from_mc if local_cluster_from_mc is not None else cluster_name,
-                                'partner_cluster_name': metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
+                                'partner_cluster_name': metrocluster_data.get('remote', {}).get('cluster', {}).get('name') or metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
                             }
                             
                             # Extract nodes directly from metrocluster response if available
@@ -904,6 +918,7 @@ class NetAppStorageGRIDClient(StorageClient):
             # Get node health information
             # API: GET /api/v4/grid/node-health
             nodes_info = []
+            site_names = set()  # Track unique site names
             try:
                 node_health_response = requests.get(
                     f"{self.base_url}/api/v4/grid/node-health",
@@ -921,6 +936,12 @@ class NetAppStorageGRIDClient(StorageClient):
                         node_name = node.get('name', 'Unknown')
                         node_state = node.get('state', 'unknown')
                         node_type = node.get('type', 'unknown')
+                        site_name = node.get('siteName')
+                        site_id = node.get('siteId')
+                        
+                        # Track unique site names for multi-site detection
+                        if site_name:
+                            site_names.add(site_name)
                         
                         node_info = {
                             'name': node_name,
@@ -928,6 +949,12 @@ class NetAppStorageGRIDClient(StorageClient):
                             'type': node_type,
                             'status': node_state
                         }
+                        
+                        # Add site information if available
+                        if site_name:
+                            node_info['site'] = site_name
+                        if site_id:
+                            node_info['site_id'] = site_id
                         
                         # Check node health
                         if node_state and node_state.lower() not in STORAGEGRID_HEALTHY_NODE_STATES:
@@ -968,6 +995,12 @@ class NetAppStorageGRIDClient(StorageClient):
                         logger.info(f"Found {site_count} sites in StorageGRID {self.ip_address}")
             except Exception as sites_error:
                 logger.warning(f"Could not get StorageGRID sites for {self.ip_address}: {sites_error}")
+            
+            # If we couldn't get sites from API but have site names from nodes, use those
+            # This addresses the problem: if nodes have different siteNames, it's multi-site
+            if site_count == 1 and len(site_names) > 1:
+                site_count = len(site_names)
+                logger.info(f"Multi-site detected from node siteNames: {site_count} unique sites ({', '.join(site_names)})")
             
             # Get capacity info using metric-query API
             # StorageGRID uses Prometheus-style metrics
