@@ -403,9 +403,10 @@ class PureStorageClient(StorageClient):
                 
                 if alerts_response.status_code == 200:
                     alerts_data = alerts_response.json()
-                    # All returned items are open alerts (filtered by API)
                     items = alerts_data.get('items', [])
-                    alerts_count = len(items)
+                    # API should return only open alerts, but filter as fallback
+                    # in case the API doesn't support the filter parameter
+                    alerts_count = sum(1 for a in items if a.get('state', '').lower() != 'closed')
                     
                     if alerts_count > 0:
                         logger.info(f"Found {alerts_count} open alerts for {self.ip_address}")
