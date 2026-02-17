@@ -390,21 +390,22 @@ class PureStorageClient(StorageClient):
                 logger.warning(f"Could not get hardware status for {self.ip_address}: {hw_error}")
             
             # Get alerts
-            # REST API v2: GET /api/2.x/alerts
+            # REST API v2: GET /api/2.x/alerts?filter=state='open'
             alerts_count = 0
             try:
                 alerts_response = requests.get(
                     f"{self.base_url}/api/{api_version}/alerts",
                     headers=headers,
+                    params={'filter': "state='open'"},
                     verify=ssl_verify,
                     timeout=10
                 )
                 
                 if alerts_response.status_code == 200:
                     alerts_data = alerts_response.json()
-                    # Count open alerts (those that are not closed)
+                    # All returned items are open alerts (filtered by API)
                     items = alerts_data.get('items', [])
-                    alerts_count = sum(1 for a in items if a.get('state', '').lower() != 'closed')
+                    alerts_count = len(items)
                     
                     if alerts_count > 0:
                         logger.info(f"Found {alerts_count} open alerts for {self.ip_address}")
@@ -979,11 +980,13 @@ class NetAppStorageGRIDClient(StorageClient):
             
             # Get alerts count
             # API: GET /api/v4/grid/alerts
+            # Filter for active alerts only to reduce response size
             alerts_count = 0
             try:
                 alerts_response = requests.get(
                     f"{self.base_url}/api/v4/grid/alerts",
                     headers=headers,
+                    params={'state': 'active'},  # Filter for active alerts
                     verify=ssl_verify,
                     timeout=10
                 )
@@ -991,7 +994,8 @@ class NetAppStorageGRIDClient(StorageClient):
                 if alerts_response.status_code == 200:
                     alerts_data = alerts_response.json()
                     alerts_list = alerts_data.get('data', [])
-                    # Count active/unresolved alerts
+                    # All returned items should be active alerts (filtered by API)
+                    # Keep fallback filtering in case API doesn't support the filter
                     alerts_count = sum(1 for alert in alerts_list if alert.get('state', '').lower() in STORAGEGRID_ACTIVE_ALERT_STATES)
                     
                     if alerts_count > 0:
