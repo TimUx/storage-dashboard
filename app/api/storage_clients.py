@@ -31,6 +31,43 @@ def get_ssl_verify():
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
 
+def extract_field_with_fallbacks(data, field_names):
+    """
+    Helper function to extract a field value from data dictionary
+    trying multiple possible field names.
+    
+    Args:
+        data: Dictionary to search
+        field_names: List of field names to try in order
+    
+    Returns:
+        First non-None value found, or None if none found
+    """
+    if not data:
+        return None
+    
+    for field_name in field_names:
+        # Handle nested field names like 'version.full'
+        if '.' in field_name:
+            parts = field_name.split('.')
+            value = data
+            for part in parts:
+                if value and isinstance(value, dict):
+                    value = value.get(part)
+                else:
+                    value = None
+                    break
+            if value:
+                return value
+        else:
+            # Simple field name
+            value = data.get(field_name)
+            if value:
+                return value
+    
+    return None
+
+
 class PureStorageClient(StorageClient):
     """Pure Storage FlashArray client using REST API"""
     
@@ -180,7 +217,12 @@ class NetAppONTAPClient(StorageClient):
                 
                 cluster_data = cluster_response.json()
                 cluster_name = cluster_data.get('name', 'unknown')
-                os_version = cluster_data.get('version', {}).get('full') or cluster_data.get('version', {}).get('generation')
+                
+                # Extract OS version with null check
+                version_data = cluster_data.get('version')
+                os_version = None
+                if version_data and isinstance(version_data, dict):
+                    os_version = version_data.get('full') or version_data.get('generation')
                 
             except Exception as cluster_error:
                 return self._format_response(
@@ -300,7 +342,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 
                 if version_response.status_code == 200:
                     version_data = version_response.json()
-                    os_version = version_data.get('data', {}).get('productVersion') or version_data.get('productVersion')
+                    os_version = extract_field_with_fallbacks(version_data, ['data.productVersion', 'productVersion'])
             except Exception as version_error:
                 logger.warning(f"Could not get StorageGRID version for {self.ip_address}: {version_error}")
             
@@ -322,29 +364,24 @@ class NetAppStorageGRIDClient(StorageClient):
                     usage_data = usage_response.json()
                     logger.info(f"StorageGRID usage response: {usage_data}")
                     
-                    # Parse storage usage data
-                    # StorageGRID API v4 returns data in 'data' object
-                    data = usage_data.get('data', {})
+                    # Parse storage usage data using helper function
+                    # StorageGRID API v4 returns data in 'data' object or at root level
+                    data = usage_data.get('data', usage_data)
                     
-                    # Try different possible field names based on API documentation
-                    # Total capacity
-                    if 'storageTotalBytes' in data:
-                        total_bytes = data.get('storageTotalBytes', 0)
-                    elif 'totalCapacityBytes' in data:
-                        total_bytes = data.get('totalCapacityBytes', 0)
-                    elif 'totalCapacity' in data:
-                        total_bytes = data.get('totalCapacity', 0)
+                    # Try different possible field names for total capacity
+                    total_bytes = extract_field_with_fallbacks(data, [
+                        'storageTotalBytes', 
+                        'totalCapacityBytes', 
+                        'totalCapacity'
+                    ]) or 0
                     
-                    # Used capacity
-                    if 'storageUsedBytes' in data:
-                        used_bytes = data.get('storageUsedBytes', 0)
-                    elif 'usedCapacityBytes' in data:
-                        used_bytes = data.get('usedCapacityBytes', 0)
-                    elif 'objectDataUsedBytes' in data:
-                        # Object data usage is the primary metric
-                        used_bytes = data.get('objectDataUsedBytes', 0)
-                    elif 'usedCapacity' in data:
-                        used_bytes = data.get('usedCapacity', 0)
+                    # Try different possible field names for used capacity
+                    used_bytes = extract_field_with_fallbacks(data, [
+                        'storageUsedBytes',
+                        'usedCapacityBytes',
+                        'objectDataUsedBytes',
+                        'usedCapacity'
+                    ]) or 0
                     
                     # If we still don't have capacity, try alternative approach
                     if total_bytes == 0:
@@ -418,11 +455,11 @@ class DellDataDomainClient(StorageClient):
             
             data = response.json()
             
-            # Extract OS version from system info
+            # Extract OS version from system info using helper function
             os_version = None
             if 'dd_systems' in data and len(data['dd_systems']) > 0:
                 system = data['dd_systems'][0]
-                os_version = system.get('version') or system.get('os_version')
+                os_version = extract_field_with_fallbacks(system, ['version', 'os_version'])
             
             # Get capacity info
             capacity_response = requests.get(
