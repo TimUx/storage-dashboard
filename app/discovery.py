@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 # These are not actual nodes and should be filtered out
 SHELF_CONTROLLER_PATTERN = '.SC'
 
+# API configuration constants
+PURE_API_VERSION = '2.4'
+API_TIMEOUT = 10  # seconds
+
 
 def reverse_dns_lookup(ip_address):
     """
@@ -47,19 +51,21 @@ def reverse_dns_lookup(ip_address):
 
 def discover_pure_storage(ip_address, api_token, ssl_verify=False):
     """
-    Discover Pure Storage FlashArray details via API
+    Discover Pure Storage FlashArray details via REST API
     
     Returns dict with cluster info, nodes, partner clusters, etc.
     """
     try:
-        from pypureclient import flasharray
+        import requests
         
-        client = flasharray.Client(
-            target=ip_address,
-            api_token=api_token,
-            verify_ssl=ssl_verify,
-            timeout=10
-        )
+        # FlashArray REST API v2 headers
+        headers = {
+            'x-auth-token': api_token,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+        
+        base_url = f"https://{ip_address}"
         
         discovery_data = {
             'cluster_type': None,
@@ -72,48 +78,67 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         }
         
         # Get array info
-        arrays_response = client.get_arrays()
-        if isinstance(arrays_response, flasharray.ValidResponse):
-            array_items = list(getattr(arrays_response, 'items', []))
-            if array_items:
-                array = array_items[0]
-                
-                # Detect cluster type (HA is default for Pure)
-                discovery_data['cluster_type'] = 'ha'
+        # REST API v2: GET /api/2.x/arrays
+        arrays_response = requests.get(
+            f"{base_url}/api/{PURE_API_VERSION}/arrays",
+            headers=headers,
+            verify=ssl_verify,
+            timeout=API_TIMEOUT
+        )
+        
+        if arrays_response.status_code == 200:
+            # Detect cluster type (HA is default for Pure)
+            discovery_data['cluster_type'] = 'ha'
         
         # Get controllers (nodes)
+        # REST API v2: GET /api/2.x/controllers
         try:
-            controllers_response = client.get_controllers()
-            if isinstance(controllers_response, flasharray.ValidResponse):
-                controller_items = list(getattr(controllers_response, 'items', []))
+            controllers_response = requests.get(
+                f"{base_url}/api/{PURE_API_VERSION}/controllers",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=API_TIMEOUT
+            )
+            
+            if controllers_response.status_code == 200:
+                controllers_data = controllers_response.json()
+                controller_items = controllers_data.get('items', [])
                 
                 # Filter out shelf controllers (names containing .SC)
-                actual_nodes = [ctrl for ctrl in controller_items if SHELF_CONTROLLER_PATTERN not in getattr(ctrl, 'name', '')]
+                actual_nodes = [ctrl for ctrl in controller_items if SHELF_CONTROLLER_PATTERN not in ctrl.get('name', '')]
                 discovery_data['node_count'] = len(actual_nodes)
                 
                 for ctrl in actual_nodes:
-                    ctrl_name = getattr(ctrl, 'name', 'Unknown')
+                    ctrl_name = ctrl.get('name', 'Unknown')
                     node_info = {
                         'name': ctrl_name,
-                        'status': getattr(ctrl, 'status', 'unknown'),
-                        'mode': getattr(ctrl, 'mode', 'unknown'),
-                        'model': getattr(ctrl, 'model', 'unknown'),
-                        'version': getattr(ctrl, 'version', 'unknown'),
+                        'status': ctrl.get('status', 'unknown'),
+                        'mode': ctrl.get('mode', 'unknown'),
+                        'model': ctrl.get('model', 'unknown'),
+                        'version': ctrl.get('version', 'unknown'),
                         'ips': []
                     }
                     
                     # Try to get network interfaces for this controller
+                    # REST API v2: GET /api/2.x/network-interfaces?filter=services='management'
                     try:
-                        network_interfaces_response = client.get_network_interfaces(
-                            filter="services='management'"
+                        network_interfaces_response = requests.get(
+                            f"{base_url}/api/{PURE_API_VERSION}/network-interfaces",
+                            headers=headers,
+                            params={'filter': "services='management'"},
+                            verify=ssl_verify,
+                            timeout=API_TIMEOUT
                         )
-                        if isinstance(network_interfaces_response, flasharray.ValidResponse):
-                            interface_items = list(getattr(network_interfaces_response, 'items', []))
+                        
+                        if network_interfaces_response.status_code == 200:
+                            interfaces_data = network_interfaces_response.json()
+                            interface_items = interfaces_data.get('items', [])
+                            
                             for intf in interface_items:
                                 # Check if interface belongs to this controller
-                                intf_name = getattr(intf, 'name', '')
+                                intf_name = intf.get('name', '')
                                 if intf_name.startswith(ctrl_name):
-                                    intf_address = getattr(intf, 'address', None)
+                                    intf_address = intf.get('address', None)
                                     if intf_address:
                                         node_info['ips'].append(intf_address)
                                         # Add to all_ips list
@@ -130,11 +155,19 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
             logger.warning(f"Could not get controller info: {e}")
         
         # Try to detect ActiveCluster and get peer cluster info
+        # REST API v2: GET /api/2.x/pods
         try:
-            # ActiveCluster pods would be detected here
-            pods_response = client.get_pods()
-            if isinstance(pods_response, flasharray.ValidResponse):
-                pod_items = list(getattr(pods_response, 'items', []))
+            pods_response = requests.get(
+                f"{base_url}/api/{PURE_API_VERSION}/pods",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=API_TIMEOUT
+            )
+            
+            if pods_response.status_code == 200:
+                pods_data = pods_response.json()
+                pod_items = pods_data.get('items', [])
+                
                 if pod_items:
                     # If pods exist, might be ActiveCluster
                     discovery_data['cluster_type'] = 'active-cluster'
@@ -142,22 +175,31 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                     # Try to get pod array info to find peer cluster
                     for pod in pod_items:
                         try:
-                            pod_arrays_response = client.get_pods_arrays(pod_names=[getattr(pod, 'name', '')])
-                            if isinstance(pod_arrays_response, flasharray.ValidResponse):
-                                pod_array_items = list(getattr(pod_arrays_response, 'items', []))
+                            pod_name = pod.get('name', '')
+                            pod_arrays_response = requests.get(
+                                f"{base_url}/api/{PURE_API_VERSION}/pods/arrays",
+                                headers=headers,
+                                params={'pod_names': pod_name},
+                                verify=ssl_verify,
+                                timeout=API_TIMEOUT
+                            )
+                            
+                            if pod_arrays_response.status_code == 200:
+                                pod_arrays_data = pod_arrays_response.json()
+                                pod_array_items = pod_arrays_data.get('items', [])
+                                
                                 for pod_array in pod_array_items:
-                                    array_name = getattr(pod_array, 'name', None)
+                                    array_name = pod_array.get('name', None)
                                     # Store partner array name for matching later
                                     if array_name and discovery_data['partner_info'] is None:
                                         discovery_data['partner_info'] = {
                                             'name': array_name,
-                                            'status': getattr(pod_array, 'status', 'unknown')
+                                            'status': pod_array.get('status', 'unknown')
                                         }
                                         break
                         except Exception as pod_error:
                             logger.debug(f"Could not get pod array info: {pod_error}")
-                    
-        except:
+        except Exception:
             pass  # Not all arrays support pods
         
         # Deduplicate DNS names
@@ -176,20 +218,20 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
 
 def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
     """
-    Discover NetApp ONTAP cluster details via API
+    Discover NetApp ONTAP cluster details via REST API
     
     Returns dict with cluster info, nodes, MetroCluster partners, etc.
     """
     try:
-        from netapp_ontap import config, HostConnection
-        from netapp_ontap.resources import Cluster, Node, Aggregate
+        import requests
         
-        config.CONNECTION = HostConnection(
-            host=ip_address,
-            username=username,
-            password=password,
-            verify=ssl_verify
-        )
+        # ONTAP REST API uses basic authentication
+        auth = (username, password)
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+        base_url = f"https://{ip_address}"
         
         discovery_data = {
             'cluster_type': None,  # Will be set based on HA and MetroCluster detection
@@ -204,69 +246,105 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
         }
         
         # Get cluster info and check for HA and MetroCluster
+        # REST API: GET /api/cluster
         try:
-            cluster = Cluster()
-            cluster.get()
+            cluster_response = requests.get(
+                f"{base_url}/api/cluster",
+                auth=auth,
+                headers=headers,
+                verify=ssl_verify,
+                timeout=API_TIMEOUT
+            )
             
-            # Check for MetroCluster
-            if hasattr(cluster, 'metrocluster') and cluster.metrocluster:
-                discovery_data['metrocluster_enabled'] = True
-                discovery_data['site_count'] = 2
+            if cluster_response.status_code == 200:
+                cluster_data = cluster_response.json()
                 
-                # Try to get MetroCluster partner info
-                try:
-                    if hasattr(cluster.metrocluster, 'configuration_state'):
-                        mc_state = cluster.metrocluster.configuration_state
+                # Check for MetroCluster
+                metrocluster = cluster_data.get('metrocluster', {})
+                if metrocluster:
+                    discovery_data['metrocluster_enabled'] = True
+                    discovery_data['site_count'] = 2
                     
-                    # Try to get partner cluster information
-                    # Note: This would require MetroCluster specific API calls
-                    # For now, we mark that MetroCluster is enabled
-                except Exception as mc_error:
-                    logger.debug(f"Could not get MetroCluster details: {mc_error}")
+                    # Try to get MetroCluster configuration state
+                    try:
+                        mc_state = metrocluster.get('configuration_state', 'unknown')
+                        logger.debug(f"MetroCluster configuration state: {mc_state}")
+                    except Exception as mc_error:
+                        logger.debug(f"Could not get MetroCluster details: {mc_error}")
         except Exception as e:
             logger.warning(f"Could not get cluster info: {e}")
         
         # Get nodes
+        # REST API: GET /api/cluster/nodes
         try:
-            nodes = Node.get_collection()
-            node_list = list(nodes)
-            discovery_data['node_count'] = len(node_list)
+            nodes_response = requests.get(
+                f"{base_url}/api/cluster/nodes",
+                auth=auth,
+                headers=headers,
+                verify=ssl_verify,
+                timeout=API_TIMEOUT
+            )
             
-            # Determine HA based on node count (2+ nodes = HA)
-            if len(node_list) >= 2:
-                discovery_data['ha_enabled'] = True
-            else:
-                discovery_data['ha_enabled'] = False
-            
-            for node in node_list:
-                # Get full node details
-                try:
-                    node.get()
-                except:
-                    pass
+            if nodes_response.status_code == 200:
+                nodes_data = nodes_response.json()
+                node_list = nodes_data.get('records', [])
+                discovery_data['node_count'] = len(node_list)
                 
-                # Get management IPs
-                node_ips = []
-                if hasattr(node, 'management_interfaces'):
-                    for intf in node.management_interfaces:
-                        if hasattr(intf, 'ip') and hasattr(intf.ip, 'address'):
-                            node_ips.append(intf.ip.address)
-                            discovery_data['all_ips'].append(intf.ip.address)
+                # Determine HA based on node count (2+ nodes = HA)
+                if len(node_list) >= 2:
+                    discovery_data['ha_enabled'] = True
+                else:
+                    discovery_data['ha_enabled'] = False
+                
+                for node in node_list:
+                    # Get full node details if we only have basic info
+                    node_uuid = node.get('uuid', '')
+                    
+                    # Get management IPs
+                    node_ips = []
+                    
+                    # Try to get detailed node info including management interfaces
+                    try:
+                        node_detail_response = requests.get(
+                            f"{base_url}/api/cluster/nodes/{node_uuid}",
+                            auth=auth,
+                            headers=headers,
+                            params={'fields': 'management_interfaces'},
+                            verify=ssl_verify,
+                            timeout=API_TIMEOUT
+                        )
+                        
+                        if node_detail_response.status_code == 200:
+                            node_detail = node_detail_response.json()
                             
-                            # DNS lookup for each IP
-                            dns_names = reverse_dns_lookup(intf.ip.address)
-                            discovery_data['dns_names'].extend(dns_names)
-                
-                node_info = {
-                    'name': node.name if hasattr(node, 'name') else 'Unknown',
-                    'uuid': node.uuid if hasattr(node, 'uuid') else None,
-                    'status': getattr(node, 'state', 'unknown'),  # 'status' key for consistency with Pure Storage
-                    'model': getattr(node, 'model', 'unknown'),
-                    'serial': getattr(node, 'serial_number', 'unknown'),
-                    'version': getattr(node, 'version', {}).get('full', 'unknown') if hasattr(node, 'version') else 'unknown',
-                    'ips': node_ips
-                }
-                discovery_data['node_details'].append(node_info)
+                            management_interfaces = node_detail.get('management_interfaces', [])
+                            for intf in management_interfaces:
+                                ip_info = intf.get('ip', {})
+                                address = ip_info.get('address', None)
+                                if address:
+                                    node_ips.append(address)
+                                    discovery_data['all_ips'].append(address)
+                                    
+                                    # DNS lookup for each IP
+                                    dns_names = reverse_dns_lookup(address)
+                                    discovery_data['dns_names'].extend(dns_names)
+                    except Exception as detail_error:
+                        logger.debug(f"Could not get detailed node info: {detail_error}")
+                    
+                    # Extract version info
+                    version_info = node.get('version', {})
+                    version_full = version_info.get('full', 'unknown') if isinstance(version_info, dict) else 'unknown'
+                    
+                    node_info = {
+                        'name': node.get('name', 'Unknown'),
+                        'uuid': node_uuid,
+                        'status': node.get('state', 'unknown'),  # 'status' key for consistency
+                        'model': node.get('model', 'unknown'),
+                        'serial': node.get('serial_number', 'unknown'),
+                        'version': version_full,
+                        'ips': node_ips
+                    }
+                    discovery_data['node_details'].append(node_info)
         except Exception as e:
             logger.warning(f"Could not get node info: {e}")
         
@@ -330,7 +408,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                 f"{base_url}/api/v4/grid/sites",
                 headers=headers,
                 verify=ssl_verify,
-                timeout=10
+                timeout=API_TIMEOUT
             )
             
             if sites_response.status_code == 200:
@@ -358,7 +436,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                 f"{base_url}/api/v4/grid/nodes",
                 headers=headers,
                 verify=ssl_verify,
-                timeout=10
+                timeout=API_TIMEOUT
             )
             
             if nodes_response.status_code == 200:
@@ -419,7 +497,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                     f"{base_url}/api/v4/grid/health/topology",
                     headers=headers,
                     verify=ssl_verify,
-                    timeout=10
+                    timeout=API_TIMEOUT
                 )
                 
                 if topology_response.status_code == 200:

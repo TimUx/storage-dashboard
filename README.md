@@ -32,15 +32,14 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 
 ## Unterstützte Storage-Systeme
 
-### Mit offiziellen Python-Bibliotheken:
-- **Pure Storage Arrays** - Verwendet `py-pure-client` (offizielle Pure Storage SDK)
-- **NetApp ONTAP 9** - Verwendet `netapp-ontap` (offizielle NetApp SDK)
+Alle Storage-Systeme werden über ihre REST APIs angebunden:
 
-### Mit REST API (requests):
-- **NetApp StorageGRID 11** - REST API Integration
+- **Pure Storage FlashArray** - REST API v2 Integration
+- **NetApp ONTAP 9** - REST API Integration
+- **NetApp StorageGRID 11** - REST API v4 Integration
 - **Dell DataDomain** - REST API v1.0 Integration
 
-> **Hinweis:** Für StorageGRID und DataDomain sind keine offiziellen Python SDKs verfügbar. Das Dashboard verwendet direkte REST API Calls mit dem `requests` Modul.
+> **Hinweis:** Das Dashboard verwendet standardmäßige REST API Calls mit dem `requests` Modul für alle Hersteller.
 
 ## Systemanforderungen
 
