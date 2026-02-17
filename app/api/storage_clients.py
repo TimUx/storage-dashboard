@@ -413,6 +413,7 @@ class PureStorageClient(StorageClient):
             
             # Check for ActiveCluster configuration
             # REST API v2: GET /api/2.x/pods
+            # An array is ActiveCluster if at least one pod has arrays.length > 1
             is_active_cluster = False
             pods_info = []
             try:
@@ -427,17 +428,27 @@ class PureStorageClient(StorageClient):
                     pods_data = pods_response.json()
                     items = pods_data.get('items', [])
                     
-                    if items:
-                        is_active_cluster = True
-                        for pod in items:
-                            pod_info = {
-                                'name': pod.get('name'),
-                                'source': pod.get('source'),
-                                'arrays': []
-                            }
-                            pods_info.append(pod_info)
+                    for pod in items:
+                        # Get arrays for this pod
+                        pod_arrays = pod.get('arrays', [])
                         
-                        logger.info(f"ActiveCluster detected for {self.ip_address} with {len(pods_info)} pods")
+                        pod_info = {
+                            'name': pod.get('name'),
+                            'source': pod.get('source'),
+                            'arrays': [arr.get('name') for arr in pod_arrays] if pod_arrays else [],
+                            'stretch': pod.get('stretch', False)
+                        }
+                        pods_info.append(pod_info)
+                        
+                        # ActiveCluster detection: pod must have more than 1 array
+                        if len(pod_arrays) > 1:
+                            is_active_cluster = True
+                            logger.info(f"ActiveCluster detected: pod '{pod.get('name')}' has {len(pod_arrays)} arrays")
+                    
+                    if is_active_cluster:
+                        logger.info(f"ActiveCluster confirmed for {self.ip_address} with {len(pods_info)} pods")
+                    elif pods_info:
+                        logger.debug(f"Pods exist for {self.ip_address} but no ActiveCluster (all pods have single array)")
             except Exception as pods_error:
                 # Pods endpoint might not be available on all arrays
                 logger.debug(f"Could not check pods for {self.ip_address}: {pods_error}")

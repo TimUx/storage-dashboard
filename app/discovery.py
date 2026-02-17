@@ -156,6 +156,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         
         # Try to detect ActiveCluster and get peer cluster info
         # REST API v2: GET /api/2.x/pods
+        # An array is ActiveCluster if at least one pod has arrays.length > 1
         try:
             pods_response = requests.get(
                 f"{base_url}/api/{PURE_API_VERSION}/pods",
@@ -168,37 +169,24 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 pods_data = pods_response.json()
                 pod_items = pods_data.get('items', [])
                 
-                if pod_items:
-                    # If pods exist, might be ActiveCluster
-                    discovery_data['cluster_type'] = 'active-cluster'
+                # Check if any pod has multiple arrays (ActiveCluster criteria)
+                for pod in pod_items:
+                    pod_arrays = pod.get('arrays', [])
                     
-                    # Try to get pod array info to find peer cluster
-                    for pod in pod_items:
-                        try:
-                            pod_name = pod.get('name', '')
-                            pod_arrays_response = requests.get(
-                                f"{base_url}/api/{PURE_API_VERSION}/pods/arrays",
-                                headers=headers,
-                                params={'pod_names': pod_name},
-                                verify=ssl_verify,
-                                timeout=API_TIMEOUT
-                            )
-                            
-                            if pod_arrays_response.status_code == 200:
-                                pod_arrays_data = pod_arrays_response.json()
-                                pod_array_items = pod_arrays_data.get('items', [])
-                                
-                                for pod_array in pod_array_items:
-                                    array_name = pod_array.get('name', None)
-                                    # Store partner array name for matching later
-                                    if array_name and discovery_data['partner_info'] is None:
-                                        discovery_data['partner_info'] = {
-                                            'name': array_name,
-                                            'status': pod_array.get('status', 'unknown')
-                                        }
-                                        break
-                        except Exception as pod_error:
-                            logger.debug(f"Could not get pod array info: {pod_error}")
+                    # ActiveCluster is detected when a pod has more than 1 array
+                    if len(pod_arrays) > 1:
+                        discovery_data['cluster_type'] = 'active-cluster'
+                        logger.info(f"ActiveCluster detected: pod '{pod.get('name')}' has {len(pod_arrays)} arrays")
+                        
+                        # Store partner array information
+                        for pod_array in pod_arrays:
+                            array_name = pod_array.get('name', None)
+                            if array_name and discovery_data['partner_info'] is None:
+                                discovery_data['partner_info'] = {
+                                    'name': array_name,
+                                    'status': 'connected'
+                                }
+                        break
         except Exception:
             pass  # Not all arrays support pods
         
