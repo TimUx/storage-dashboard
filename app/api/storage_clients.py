@@ -884,72 +884,82 @@ class NetAppStorageGRIDClient(StorageClient):
             except Exception as sites_error:
                 logger.warning(f"Could not get StorageGRID sites for {self.ip_address}: {sites_error}")
             
-            # Get capacity info from storage usage API
+            # Get capacity info using metric-query API
+            # StorageGRID uses Prometheus-style metrics
             total_bytes = 0
             used_bytes = 0
             
             try:
-                # Try multiple endpoints for capacity information
-                # First try: /api/v4/grid/storage-usage
-                usage_response = requests.get(
-                    f"{self.base_url}/api/v4/grid/storage-usage",
+                # Query total space metric
+                # API: GET /api/v4/grid/metric-query?query=storagegrid_storage_utilization_total_space_bytes
+                total_metric_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/metric-query",
                     headers=headers,
+                    params={
+                        'query': 'storagegrid_storage_utilization_total_space_bytes',
+                        'timeout': '30s'
+                    },
                     verify=ssl_verify,
                     timeout=10
                 )
                 
-                if usage_response.status_code == 200:
-                    usage_data = usage_response.json()
-                    logger.info(f"StorageGRID usage response: {usage_data}")
+                if total_metric_response.status_code == 200:
+                    total_metric_data = total_metric_response.json()
                     
-                    # Parse storage usage data using helper function
-                    # StorageGRID API v4 returns data in 'data' object or at root level
-                    data = usage_data.get('data', usage_data)
+                    # Parse metric query response
+                    # Response format: {"data": {"resultType": "vector", "result": [{"metric": {...}, "value": [timestamp, "value"]}]}}
+                    data = total_metric_data.get('data', {})
+                    results = data.get('result', [])
                     
-                    # Try different possible field names for total capacity
-                    total_bytes = extract_field_with_fallbacks(data, [
-                        'storageTotalBytes', 
-                        'totalCapacityBytes', 
-                        'totalCapacity'
-                    ]) or 0
+                    # Sum up total space from all storage nodes
+                    for result in results:
+                        value_array = result.get('value', [])
+                        if len(value_array) >= 2:
+                            # value is [timestamp, "bytes_value"]
+                            try:
+                                node_total = int(value_array[1])
+                                total_bytes += node_total
+                            except (ValueError, TypeError) as e:
+                                logger.debug(f"Could not parse total space value: {value_array[1]}, error: {e}")
                     
-                    # Try different possible field names for used capacity
-                    used_bytes = extract_field_with_fallbacks(data, [
-                        'storageUsedBytes',
-                        'usedCapacityBytes',
-                        'objectDataUsedBytes',
-                        'usedCapacity'
-                    ]) or 0
+                    logger.info(f"StorageGRID total capacity from {len(results)} nodes: {total_bytes} bytes")
+                
+                # Query used data metric
+                # API: GET /api/v4/grid/metric-query?query=storagegrid_storage_utilization_data_bytes
+                used_metric_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/metric-query",
+                    headers=headers,
+                    params={
+                        'query': 'storagegrid_storage_utilization_data_bytes',
+                        'timeout': '30s'
+                    },
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if used_metric_response.status_code == 200:
+                    used_metric_data = used_metric_response.json()
                     
-                    # If we still don't have capacity, try alternative approach
-                    if total_bytes == 0:
-                        # Try getting capacity from storage nodes
-                        try:
-                            nodes_response = requests.get(
-                                f"{self.base_url}/api/v4/grid/storage-nodes",
-                                headers=headers,
-                                verify=ssl_verify,
-                                timeout=10
-                            )
-                            
-                            if nodes_response.status_code == 200:
-                                nodes_data = nodes_response.json()
-                                nodes = nodes_data.get('data', [])
-                                
-                                for node in nodes:
-                                    # Sum up capacity from all storage nodes
-                                    storage = node.get('storage', {})
-                                    total_bytes += storage.get('totalCapacity', 0) or 0
-                                    used_bytes += storage.get('usedCapacity', 0) or 0
-                        except Exception as nodes_error:
-                            logger.warning(f"Could not get StorageGRID nodes capacity: {nodes_error}")
+                    # Parse metric query response
+                    data = used_metric_data.get('data', {})
+                    results = data.get('result', [])
                     
-                    # Log for debugging
-                    logger.info(f"StorageGRID capacity: total={total_bytes} bytes, used={used_bytes} bytes")
+                    # Sum up used space from all storage nodes
+                    for result in results:
+                        value_array = result.get('value', [])
+                        if len(value_array) >= 2:
+                            # value is [timestamp, "bytes_value"]
+                            try:
+                                node_used = int(value_array[1])
+                                used_bytes += node_used
+                            except (ValueError, TypeError) as e:
+                                logger.debug(f"Could not parse used space value: {value_array[1]}, error: {e}")
+                    
+                    logger.info(f"StorageGRID used capacity from {len(results)} nodes: {used_bytes} bytes")
                         
             except Exception as usage_error:
                 # Log but don't fail if we can't get capacity
-                logger.warning(f"Could not get StorageGRID storage usage: {usage_error}")
+                logger.warning(f"Could not get StorageGRID storage metrics: {usage_error}")
             
             # Convert bytes to TB (1 TB = 1024^4 bytes)
             total_tb = total_bytes / (1024**4) if total_bytes > 0 else 0.0
