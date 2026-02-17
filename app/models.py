@@ -80,7 +80,7 @@ class StorageSystem(db.Model):
         if self.dns_names:
             try:
                 return json.loads(self.dns_names)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         return []
     
@@ -96,7 +96,7 @@ class StorageSystem(db.Model):
         if self.all_ips:
             try:
                 return json.loads(self.all_ips)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         return []
     
@@ -112,7 +112,7 @@ class StorageSystem(db.Model):
         if self.node_details:
             try:
                 return json.loads(self.node_details)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         return []
     
@@ -128,7 +128,7 @@ class StorageSystem(db.Model):
         if self.peer_connections:
             try:
                 return json.loads(self.peer_connections)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         return []
     
