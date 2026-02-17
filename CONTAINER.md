@@ -212,6 +212,11 @@ git pull
 podman-compose up -d --build
 # oder
 docker-compose up -d --build
+
+# Nach dem Update: Datenbank-Migrationen ausführen (wichtig!)
+podman exec -it storage-dashboard python cli.py migrate
+# oder
+docker exec -it storage-dashboard python cli.py migrate
 ```
 
 ## Erweiterte Konfiguration
@@ -358,6 +363,12 @@ podman run -it --rm --entrypoint /bin/bash storage-dashboard:latest
 ### Datenbankprobleme
 
 ```bash
+# Schema-Fehler (z.B. "no such column")
+# Führen Sie die Datenbank-Migrationen aus
+podman exec -it storage-dashboard python cli.py migrate
+# oder
+docker exec -it storage-dashboard python cli.py migrate
+
 # Datenbank neu initialisieren (ACHTUNG: Löscht alle Daten!)
 podman exec -it storage-dashboard python -c "from app import create_app, db; app = create_app(); app.app_context().push(); db.drop_all(); db.create_all()"
 ```

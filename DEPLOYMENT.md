@@ -171,6 +171,9 @@ git pull
 # Abhängigkeiten aktualisieren
 pip install -r requirements.txt --upgrade
 
+# Datenbank-Migrationen ausführen (wichtig nach Updates!)
+python cli.py migrate
+
 # Service neu starten (als root)
 exit
 sudo systemctl restart storage-dashboard
@@ -186,6 +189,9 @@ source venv/bin/activate
 
 # Dashboard anzeigen
 python cli.py dashboard
+
+# Datenbank-Migrationen ausführen
+python cli.py migrate
 
 # Systeme verwalten
 python cli.py admin list
@@ -210,7 +216,14 @@ python run.py
 ### Datenbankprobleme
 
 ```bash
-# Datenbank neu initialisieren
+# Schema-Fehler (z.B. "no such column")
+# Führen Sie die Datenbank-Migrationen aus
+sudo su - dashboard
+cd /opt/storage-dashboard
+source venv/bin/activate
+python cli.py migrate
+
+# Datenbank neu initialisieren (Achtung: löscht alle Daten!)
 sudo su - dashboard
 cd /opt/storage-dashboard
 source venv/bin/activate
