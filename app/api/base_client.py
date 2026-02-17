@@ -113,14 +113,14 @@ class StorageClient(ABC):
             response['metrocluster_nodes'] = metrocluster_nodes
         if metrocluster_dr_groups:
             response['metrocluster_dr_groups'] = metrocluster_dr_groups
-        if metrocluster_peers:
+        if metrocluster_peers is not None:
             response['metrocluster_peers'] = metrocluster_peers
         if site_count is not None:
             response['site_count'] = site_count
         if is_active_cluster is not None:
             response['is_active_cluster'] = is_active_cluster
-        if sites_info:
+        if sites_info is not None:
             response['sites_info'] = sites_info
-        if pods_info:
+        if pods_info is not None:
             response['pods_info'] = pods_info
         return response
