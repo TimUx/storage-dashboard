@@ -63,5 +63,17 @@ def create_app():
     
     with app.app_context():
         db.create_all()
+        
+        # Run database migrations
+        try:
+            from app.migrations import run_all_migrations
+            migrations_applied = run_all_migrations()
+            if migrations_applied:
+                app.logger.info(f"Applied {len(migrations_applied)} database migrations: {', '.join(migrations_applied)}")
+        except Exception as e:
+            app.logger.error(f"CRITICAL: Database migration failed: {e}")
+            app.logger.error("The application may not function correctly until migrations are applied successfully.")
+            app.logger.error("Please run 'python cli.py migrate' to apply migrations manually.")
+            # Don't fail app startup completely, but log critical error for monitoring
     
     return app
