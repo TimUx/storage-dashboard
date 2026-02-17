@@ -293,13 +293,15 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                         # Check if response contains error (no MetroCluster)
                         # or if records is empty (another indication of no MetroCluster)
                         if 'error' not in mc_data and ('records' not in mc_data or mc_data.get('records', [True])):
-                            configuration_state = mc_data.get('configuration_state')
+                            # Check local.configuration_state as per ONTAP API spec
+                            local_config = mc_data.get('local', {})
+                            configuration_state = local_config.get('configuration_state')
                             
                             # Only set MetroCluster enabled if state is "configured"
                             if configuration_state == 'configured':
                                 discovery_data['metrocluster_enabled'] = True
                                 discovery_data['site_count'] = 2
-                                logger.info(f"MetroCluster detected: {configuration_state}, mode: {mc_data.get('mode')}")
+                                logger.info(f"MetroCluster detected: {configuration_state}, type: {mc_data.get('configuration_type')}")
                             else:
                                 logger.debug(f"MetroCluster state: {configuration_state}")
                 except Exception as mc_error:
@@ -434,36 +436,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
             'Accept': 'application/json'
         }
         
-        # Get grid sites first
-        sites_count = 1
-        try:
-            sites_response = requests.get(
-                f"{base_url}/api/v4/grid/sites",
-                headers=headers,
-                verify=ssl_verify,
-                timeout=API_TIMEOUT
-            )
-            
-            if sites_response.status_code == 200:
-                sites_data = sites_response.json()
-                # Response format: {"data": [{"id": "...", "name": "..."}, ...]}
-                sites_list = sites_data.get('data', [])
-                if sites_list:
-                    sites_count = len(sites_list)
-                    discovery_data['site_count'] = sites_count
-                    
-                    # Determine cluster type based on site count
-                    if sites_count > 1:
-                        discovery_data['cluster_type'] = 'multi-site'
-                    else:
-                        discovery_data['cluster_type'] = 'single-site'
-                    
-                    logger.info(f"StorageGRID: Found {sites_count} sites")
-                    
-        except Exception as sites_error:
-            logger.warning(f"Could not get StorageGRID sites: {sites_error}")
-        
-        # Get grid nodes
+        # Get grid nodes - skip sites API as it doesn't exist
         # Use node-health API to get detailed node information including siteName
         site_names = set()  # Track unique site names for multi-site detection
         try:
