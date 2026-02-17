@@ -435,7 +435,7 @@ class PureStorageClient(StorageClient):
                         pod_info = {
                             'name': pod.get('name'),
                             'source': pod.get('source'),
-                            'arrays': [arr.get('name') for arr in pod_arrays] if pod_arrays else [],
+                            'arrays': [arr.get('name') for arr in pod_arrays],
                             'stretch': pod.get('stretch', False)
                         }
                         pods_info.append(pod_info)

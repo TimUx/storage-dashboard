@@ -178,15 +178,18 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                         discovery_data['cluster_type'] = 'active-cluster'
                         logger.info(f"ActiveCluster detected: pod '{pod.get('name')}' has {len(pod_arrays)} arrays")
                         
-                        # Store partner array information
+                        # Store partner array information (first array found)
+                        # Only one partner is stored for simplicity
                         for pod_array in pod_arrays:
                             array_name = pod_array.get('name', None)
                             if array_name and discovery_data['partner_info'] is None:
                                 discovery_data['partner_info'] = {
                                     'name': array_name,
-                                    'status': 'connected'
+                                    # Status might be available in array object, fallback to 'connected'
+                                    'status': pod_array.get('status', 'connected')
                                 }
-                        break
+                                break  # Only store first partner array
+                        break  # Exit pod loop after finding first ActiveCluster pod
         except Exception:
             pass  # Not all arrays support pods
         
