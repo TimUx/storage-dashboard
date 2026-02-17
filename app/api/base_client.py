@@ -1,16 +1,59 @@
 """Base storage client interface"""
 from abc import ABC, abstractmethod
+import socket
+import logging
+
+logger = logging.getLogger(__name__)
 
 class StorageClient(ABC):
     """Abstract base class for storage system clients"""
     
     def __init__(self, ip_address, port=443, username=None, password=None, token=None):
-        self.ip_address = ip_address
+        self.ip_address = ip_address  # Original configured address (may be IP or hostname)
         self.port = port
         self.username = username
         self.password = password
         self.token = token
-        self.base_url = f"https://{ip_address}:{port}"
+        
+        # Perform reverse DNS lookup if IP address is provided
+        # If a DNS name is found, use it for API calls (enables SSL verification)
+        self.resolved_address = self._resolve_address(ip_address)
+        
+        # Use resolved address for base_url (DNS name preferred over IP)
+        self.base_url = f"https://{self.resolved_address}:{port}"
+    
+    def _resolve_address(self, address):
+        """
+        Resolve IP address to DNS name via reverse lookup.
+        If address is already a hostname or reverse lookup fails, return original address.
+        
+        Args:
+            address: IP address or hostname
+            
+        Returns:
+            DNS name if reverse lookup succeeds, otherwise original address
+        """
+        from app.api.storage_clients import is_ip_address
+        
+        # If it's not an IP address, it's already a DNS name
+        if not is_ip_address(address):
+            logger.debug(f"Address {address} is already a DNS name")
+            return address
+        
+        # Try reverse DNS lookup for IP addresses
+        try:
+            hostname, aliases, _ = socket.gethostbyaddr(address)
+            if hostname:
+                logger.info(f"Resolved IP {address} to DNS name: {hostname}")
+                return hostname
+        except socket.herror:
+            logger.debug(f"No reverse DNS entry found for {address}")
+        except Exception as e:
+            logger.warning(f"Error during reverse DNS lookup for {address}: {e}")
+        
+        # Fall back to original IP address if resolution fails
+        logger.debug(f"Using IP address {address} (no DNS name found)")
+        return address
     
     @abstractmethod
     def get_health_status(self):

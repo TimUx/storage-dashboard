@@ -112,7 +112,7 @@ class PureStorageClient(StorageClient):
     def detect_api_version(self):
         """Detect the API version supported by the FlashArray"""
         try:
-            ssl_verify = get_ssl_verify(self.ip_address)
+            ssl_verify = get_ssl_verify(self.resolved_address)
             
             # Query api_version endpoint
             response = requests.get(
@@ -155,7 +155,7 @@ class PureStorageClient(StorageClient):
             Session token string or None if authentication fails
         """
         try:
-            ssl_verify = get_ssl_verify(self.ip_address)
+            ssl_verify = get_ssl_verify(self.resolved_address)
             
             # For API 2.x, we need to login with the API token to get a session token
             # POST /api/2.x/login with api_token in the request header (not JSON body)
@@ -199,7 +199,7 @@ class PureStorageClient(StorageClient):
             if not self.token:
                 return self._format_response(status='error', error='Kein API-Token konfiguriert. Bitte API-Token in den System-Einstellungen eingeben.')
             
-            ssl_verify = get_ssl_verify(self.ip_address)
+            ssl_verify = get_ssl_verify(self.resolved_address)
             
             # Detect API version dynamically
             api_version = self.detect_api_version()
@@ -303,7 +303,7 @@ class NetAppONTAPClient(StorageClient):
             if not self.username or not self.password:
                 return self._format_response(status='error', error='No credentials configured')
             
-            ssl_verify = get_ssl_verify(self.ip_address)
+            ssl_verify = get_ssl_verify(self.resolved_address)
             
             # ONTAP REST API uses basic authentication
             auth = (self.username, self.password)
@@ -432,7 +432,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 'Authorization': f'Bearer {self.token}',
                 'Accept': 'application/json'
             }
-            ssl_verify = get_ssl_verify(self.ip_address)
+            ssl_verify = get_ssl_verify(self.resolved_address)
             
             # Get grid health/topology to verify connectivity and get version info
             response = requests.get(
@@ -555,7 +555,7 @@ class DellDataDomainClient(StorageClient):
             if not auth:
                 return self._format_response(status='error', error='No credentials configured')
             
-            ssl_verify = get_ssl_verify(self.ip_address)
+            ssl_verify = get_ssl_verify(self.resolved_address)
             
             # Get system info
             response = requests.get(
