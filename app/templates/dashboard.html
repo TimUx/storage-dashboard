@@ -1000,8 +1000,9 @@ body.table-view .systems-table {
 
 <script>
 // Auto-refresh configuration
+const DEFAULT_REFRESH_INTERVAL = '45';  // Default refresh interval in seconds
 let autoRefreshCountdown = null;
-let refreshTimeSeconds = 45; // Default to 45 seconds (middle of 30-60 range)
+let refreshTimeSeconds = 45;
 let countdownSeconds = refreshTimeSeconds;
 
 // Initialize auto-refresh on page load
@@ -1011,7 +1012,7 @@ document.addEventListener('DOMContentLoaded', function() {
     applyFilters(); // Apply initial filters
     
     // Restore refresh interval preference
-    const savedInterval = localStorage.getItem('refresh-interval') || '45';
+    const savedInterval = localStorage.getItem('refresh-interval') || DEFAULT_REFRESH_INTERVAL;
     refreshTimeSeconds = parseInt(savedInterval, 10);
     document.getElementById('refresh-interval').value = savedInterval;
     

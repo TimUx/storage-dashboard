@@ -186,6 +186,9 @@ def rediscover_system(system_id):
 @login_required
 def rediscover_all_systems():
     """Re-run discovery for all storage systems"""
+    from flask import current_app
+    ssl_verify = current_app.config.get('SSL_VERIFY', False)
+    
     systems = StorageSystem.query.all()
     
     if not systems:
@@ -203,7 +206,7 @@ def rediscover_all_systems():
                 username=system.api_username,
                 password=system.api_password,
                 api_token=system.api_token,
-                ssl_verify=False
+                ssl_verify=ssl_verify
             )
             
             if 'error' not in discovery_result:
