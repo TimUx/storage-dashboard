@@ -557,12 +557,18 @@
                         {% endif %}
                     </div>
                     {% if node.status %}
-                    <span class="status-badge status-{{ 'online' if node.status in ['online', 'ready', 'ok'] else 'warning' }}">
+                    <span class="status-badge status-{{ 'online' if node.status in ['online', 'ready', 'ok', 'connected'] else 'warning' }}">
                         {{ node.status }}
                     </span>
                     {% endif %}
                 </div>
                 <div class="node-details">
+                    {% if node.type %}
+                    <div class="node-detail"><strong>Type:</strong> {{ node.type }}</div>
+                    {% endif %}
+                    {% if node.site %}
+                    <div class="node-detail"><strong>Site:</strong> {{ node.site }}</div>
+                    {% endif %}
                     {% if node.model %}
                     <div class="node-detail"><strong>Model:</strong> {{ node.model }}</div>
                     {% endif %}
@@ -577,6 +583,9 @@
                     {% endif %}
                     {% if node.uuid %}
                     <div class="node-detail"><strong>UUID:</strong> {{ node.uuid[:8] }}...</div>
+                    {% endif %}
+                    {% if node.id and not node.uuid %}
+                    <div class="node-detail"><strong>ID:</strong> {{ node.id }}</div>
                     {% endif %}
                 </div>
                 {% if node.ips %}
