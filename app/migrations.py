@@ -2,29 +2,63 @@
 import sqlite3
 import logging
 from app import db
+import re
 
 logger = logging.getLogger(__name__)
+
+# Allowed column names and types for validation (whitelist approach)
+ALLOWED_COLUMNS = {
+    'os_version': 'VARCHAR(100)',
+    'api_version': 'VARCHAR(50)',
+}
+
+
+def validate_identifier(identifier, allowed_pattern=r'^[a-zA-Z_][a-zA-Z0-9_]*$'):
+    """Validate SQL identifier to prevent SQL injection"""
+    if not re.match(allowed_pattern, identifier):
+        raise ValueError(f"Invalid SQL identifier: {identifier}")
+    return identifier
 
 
 def get_column_names(table_name):
     """Get existing column names for a table"""
+    validate_identifier(table_name)
     inspector = db.inspect(db.engine)
     columns = inspector.get_columns(table_name)
     return [col['name'] for col in columns]
 
 
 def add_column_if_not_exists(table_name, column_name, column_type, default=None):
-    """Add a column to a table if it doesn't exist"""
+    """Add a column to a table if it doesn't exist
+    
+    Args:
+        table_name: Table name (validated against SQL injection)
+        column_name: Column name (validated against SQL injection)
+        column_type: Column type (validated against whitelist)
+        default: Default value (not currently used to avoid injection risk)
+    """
+    # Validate table and column names
+    validate_identifier(table_name)
+    validate_identifier(column_name)
+    
+    # Check if column is in allowed list
+    if column_name not in ALLOWED_COLUMNS:
+        raise ValueError(f"Column {column_name} not in allowed migration list")
+    
+    # Use whitelisted column type
+    if ALLOWED_COLUMNS[column_name] != column_type:
+        logger.warning(f"Column type mismatch for {column_name}: expected {ALLOWED_COLUMNS[column_name]}, got {column_type}")
+        column_type = ALLOWED_COLUMNS[column_name]
+    
     existing_columns = get_column_names(table_name)
     
     if column_name in existing_columns:
         logger.info(f"Column {table_name}.{column_name} already exists, skipping.")
         return False
     
-    # Build ALTER TABLE statement
+    # Build ALTER TABLE statement using validated identifiers
+    # Note: SQLite doesn't support parameterized ALTER TABLE, so we use validated string formatting
     alter_stmt = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
-    if default is not None:
-        alter_stmt += f" DEFAULT {default}"
     
     logger.info(f"Adding column {table_name}.{column_name} ({column_type})")
     
