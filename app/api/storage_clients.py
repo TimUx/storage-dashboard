@@ -672,8 +672,10 @@ class NetAppONTAPClient(StorageClient):
                                     
                                     for node in records:
                                         node_cluster = node.get('cluster', {}).get('name')
+                                        node_data = node.get('node', {})
                                         node_info = {
-                                            'name': node.get('name'),
+                                            'name': node_data.get('name'),
+                                            'uuid': node_data.get('uuid'),
                                             'cluster': node_cluster,
                                             'is_local': node_cluster == cluster_name,  # Distinguish local vs remote
                                             'dr_group_id': node.get('dr_group_id'),
@@ -726,14 +728,14 @@ class NetAppONTAPClient(StorageClient):
                 logger.debug(f"Could not check MetroCluster status for {self.ip_address}: {mc_error}")
             
             # Get regular cluster nodes information (with model, serial number, etc.)
-            # REST API: GET /api/cluster/nodes?fields=name,state,model,serial_number,version
+            # REST API: GET /api/cluster/nodes?fields=uuid,name,state,model,serial_number,version,metrocluster.type,ha.enabled,management_interfaces.ip.address
             cluster_nodes = []
             try:
                 nodes_response = requests.get(
                     f"{self.base_url}/api/cluster/nodes",
                     auth=auth,
                     headers=headers,
-                    params={'fields': 'name,state,model,serial_number,version'},
+                    params={'fields': 'uuid,name,state,model,serial_number,version,metrocluster.type,ha.enabled,management_interfaces.ip.address'},
                     verify=ssl_verify,
                     timeout=10
                 )
@@ -747,13 +749,38 @@ class NetAppONTAPClient(StorageClient):
                         version_info = node.get('version', {})
                         version_full = version_info.get('full', 'unknown') if isinstance(version_info, dict) else 'unknown'
                         
+                        # Extract management IP addresses
+                        mgmt_ips = []
+                        mgmt_interfaces = node.get('management_interfaces', [])
+                        if isinstance(mgmt_interfaces, list):
+                            for iface in mgmt_interfaces:
+                                ip_info = iface.get('ip', {})
+                                if isinstance(ip_info, dict) and 'address' in ip_info:
+                                    mgmt_ips.append(ip_info['address'])
+                        
+                        # Extract MetroCluster type
+                        metrocluster_type = None
+                        metrocluster_info_node = node.get('metrocluster', {})
+                        if isinstance(metrocluster_info_node, dict):
+                            metrocluster_type = metrocluster_info_node.get('type')
+                        
+                        # Extract HA enabled status
+                        ha_enabled = None
+                        ha_info = node.get('ha', {})
+                        if isinstance(ha_info, dict):
+                            ha_enabled = ha_info.get('enabled')
+                        
                         node_info = {
                             'name': node.get('name', 'Unknown'),
+                            'uuid': node.get('uuid'),
                             'status': node.get('state', 'unknown'),
                             'model': node.get('model', 'unknown'),
                             'serial': node.get('serial_number', 'unknown'),
                             'version': version_full,
-                            'type': 'cluster-node'
+                            'type': 'cluster-node',
+                            'ips': mgmt_ips,
+                            'metrocluster_type': metrocluster_type,
+                            'ha_enabled': ha_enabled
                         }
                         cluster_nodes.append(node_info)
                     
@@ -773,6 +800,12 @@ class NetAppONTAPClient(StorageClient):
                             mc_node['serial'] = cluster_node.get('serial', 'unknown')
                             mc_node['version'] = cluster_node.get('version', 'unknown')
                             mc_node['status'] = cluster_node.get('status', 'unknown')
+                            mc_node['ips'] = cluster_node.get('ips', [])
+                            mc_node['metrocluster_type'] = cluster_node.get('metrocluster_type')
+                            mc_node['ha_enabled'] = cluster_node.get('ha_enabled')
+                            # Update UUID from cluster node if not already set
+                            if not mc_node.get('uuid'):
+                                mc_node['uuid'] = cluster_node.get('uuid')
                             break
             
             # Get aggregate space info
