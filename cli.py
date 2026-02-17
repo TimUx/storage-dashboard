@@ -5,6 +5,7 @@ import sys
 from app import create_app, db
 from app.models import StorageSystem, AdminUser, AppSettings
 from app.api import get_client
+from app.migrations import run_all_migrations
 from tabulate import tabulate
 
 
@@ -247,6 +248,23 @@ def admin_list_users():
         
         headers = ['ID', 'Benutzername', 'Aktiv', 'Letzter Login', 'Erstellt']
         click.echo(tabulate(table_data, headers=headers, tablefmt='grid'))
+
+
+@cli.command()
+def migrate():
+    """Run database migrations"""
+    app = create_app()
+    with app.app_context():
+        click.echo("Running database migrations...")
+        try:
+            migrations = run_all_migrations()
+            if migrations:
+                click.echo(f"✓ Applied {len(migrations)} migrations: {', '.join(migrations)}")
+            else:
+                click.echo("✓ Database schema is up to date, no migrations needed.")
+        except Exception as e:
+            click.echo(f"✗ Error running migrations: {e}", err=True)
+            sys.exit(1)
 
 
 if __name__ == '__main__':

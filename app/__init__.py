@@ -63,5 +63,13 @@ def create_app():
     
     with app.app_context():
         db.create_all()
+        
+        # Run database migrations
+        try:
+            from app.migrations import run_all_migrations
+            run_all_migrations()
+        except Exception as e:
+            app.logger.error(f"Error running migrations: {e}")
+            # Don't fail app startup if migrations fail
     
     return app
