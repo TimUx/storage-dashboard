@@ -30,9 +30,39 @@ body {
 }
 
 .container {
-    max-width: 1880px;
-    margin: 0 auto;
+    width: 100%;
+    margin: 0;
     padding: 0.75rem;
+}
+
+/* Combined Overview Card */
+.overview-card {
+    background: var(--bg-white);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
+    margin: 0.5rem 0 1rem 0;
+    overflow: hidden;
+    border-bottom: 4px solid;
+    border-image: linear-gradient(90deg, var(--itscare-blue) 0%, var(--itscare-blue) 33.33%, var(--itscare-green) 33.33%, var(--itscare-green) 66.66%, var(--itscare-red) 66.66%, var(--itscare-red) 100%) 1;
+}
+
+.overview-header {
+    padding: 1rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.overview-header h2 {
+    font-size: 1.5rem;
+    color: var(--itscare-blue);
+    margin: 0;
+    font-weight: 600;
+}
+
+.overview-content {
+    padding: 1rem 1.5rem;
 }
 
 .dashboard-header {
@@ -135,7 +165,7 @@ body {
 }
 
 .refresh-btn {
-    background: linear-gradient(135deg, var(--itscare-red) 0%, var(--itscare-red-dark) 100%);
+    background: var(--itscare-blue);
     color: white;
     border: none;
     padding: 0.5rem 1.25rem;
@@ -144,12 +174,13 @@ body {
     font-size: 0.9rem;
     font-weight: 500;
     transition: all 0.3s;
-    box-shadow: 0 2px 4px rgba(227, 6, 19, 0.2);
+    box-shadow: 0 2px 4px rgba(0, 102, 204, 0.2);
 }
 
 .refresh-btn:hover {
+    background: var(--itscare-blue-dark);
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(227, 6, 19, 0.3);
+    box-shadow: 0 4px 8px rgba(0, 102, 204, 0.3);
 }
 
 .vendor-section {
@@ -157,8 +188,8 @@ body {
 }
 
 .vendor-header {
-    background: linear-gradient(135deg, var(--itscare-blue) 0%, var(--itscare-blue-dark) 100%);
-    color: white;
+    background: white;
+    color: var(--itscare-blue);
     padding: 0.75rem 1.25rem;
     border-radius: 6px 6px 0 0;
     font-size: 1.05rem;
@@ -166,13 +197,16 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    box-shadow: 0 2px 4px rgba(0, 102, 204, 0.15);
+    box-shadow: 0 2px 4px rgba(0, 102, 204, 0.08);
+    border-bottom: 4px solid;
+    border-image: linear-gradient(90deg, var(--itscare-blue) 0%, var(--itscare-blue) 33.33%, var(--itscare-green) 33.33%, var(--itscare-green) 66.66%, var(--itscare-red) 66.66%, var(--itscare-red) 100%) 1;
 }
 
 .vendor-count {
     font-size: 0.85rem;
-    opacity: 0.9;
+    opacity: 0.7;
     font-weight: 400;
+    color: var(--text-medium);
 }
 
 /* Card View - Optimized for 25 systems on Full HD */
@@ -489,7 +523,19 @@ body.table-view .systems-table {
     color: var(--itscare-red);
 }
 
-/* Filter Bar */
+/* Filter Section within Overview Card */
+.filter-section {
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.filter-section h3 {
+    font-size: 1rem;
+    color: var(--itscare-blue);
+    margin: 0 0 0.75rem 0;
+    font-weight: 600;
+}
+
 .filter-bar {
     background: var(--bg-white);
     padding: 1rem 1.5rem;
@@ -563,6 +609,22 @@ body.table-view .systems-table {
     margin-top: 1.25rem;
 }
 
+.actions-section {
+    padding-top: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.actions-section h3 {
+    font-size: 1rem;
+    color: var(--itscare-blue);
+    margin: 0;
+    font-weight: 600;
+}
+
 .btn-reset:hover {
     background: var(--text-medium);
 }
@@ -617,68 +679,77 @@ body.table-view .systems-table {
 
 {% block content %}
 
-<!-- Filter Bar -->
-<div class="filter-bar">
-    <h3>🔍 Filter</h3>
-    <div class="filter-controls">
-        <div class="filter-group">
-            <label for="vendor-filter">Hersteller</label>
-            <select id="vendor-filter" onchange="applyFilters()">
-                <option value="">Alle</option>
-                <option value="pure">Pure Storage</option>
-                <option value="netapp-ontap">NetApp ONTAP</option>
-                <option value="netapp-storagegrid">NetApp StorageGRID</option>
-                <option value="dell-datadomain">Dell DataDomain</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="status-filter">Status</label>
-            <select id="status-filter" onchange="applyFilters()">
-                <option value="">Alle</option>
-                <option value="online">Healthy (Online)</option>
-                <option value="error">Unhealthy (Error)</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="cluster-filter">Cluster-Typ</label>
-            <select id="cluster-filter" onchange="applyFilters()">
-                <option value="">Alle</option>
-                <option value="ha">HA</option>
-                <option value="active-cluster">Active-Cluster</option>
-                <option value="metrocluster">MetroCluster</option>
-                <option value="local">Local</option>
-                <option value="multi-site">Multi-Site</option>
-                <option value="single-site">Single-Site</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="search-filter">Suche</label>
-            <input type="text" id="search-filter" placeholder="Name, IP, DNS..." oninput="applyFilters()">
-        </div>
-        <button class="btn-reset" onclick="resetFilters()">Zurücksetzen</button>
-        <div class="filter-results" id="filter-results"></div>
+<!-- Combined Overview Card with Filters and Actions -->
+<div class="overview-card">
+    <div class="overview-header">
+        <h2>Storage Systems Overview</h2>
     </div>
-</div>
-
-<div class="dashboard-header">
-    <h2>Storage Systems Overview</h2>
-    <div class="header-actions">
-        <div class="auto-refresh-control">
-            <label class="auto-refresh-label">
-                <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh()">
-                <span>Auto-Refresh</span>
-            </label>
-            <span class="refresh-timer" id="refresh-timer"></span>
+    
+    <div class="overview-content">
+        <!-- Filter Section -->
+        <div class="filter-section">
+            <h3>🔍 Filter</h3>
+            <div class="filter-controls">
+                <div class="filter-group">
+                    <label for="vendor-filter">Hersteller</label>
+                    <select id="vendor-filter" onchange="applyFilters()">
+                        <option value="">Alle</option>
+                        <option value="pure">Pure Storage</option>
+                        <option value="netapp-ontap">NetApp ONTAP</option>
+                        <option value="netapp-storagegrid">NetApp StorageGRID</option>
+                        <option value="dell-datadomain">Dell DataDomain</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="status-filter">Status</label>
+                    <select id="status-filter" onchange="applyFilters()">
+                        <option value="">Alle</option>
+                        <option value="online">Healthy (Online)</option>
+                        <option value="error">Unhealthy (Error)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="cluster-filter">Cluster-Typ</label>
+                    <select id="cluster-filter" onchange="applyFilters()">
+                        <option value="">Alle</option>
+                        <option value="ha">HA</option>
+                        <option value="active-cluster">Active-Cluster</option>
+                        <option value="metrocluster">MetroCluster</option>
+                        <option value="local">Local</option>
+                        <option value="multi-site">Multi-Site</option>
+                        <option value="single-site">Single-Site</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="search-filter">Suche</label>
+                    <input type="text" id="search-filter" placeholder="Name, IP, DNS..." oninput="applyFilters()">
+                </div>
+                <button class="btn-reset" onclick="resetFilters()">Zurücksetzen</button>
+                <div class="filter-results" id="filter-results"></div>
+            </div>
         </div>
-        <div class="view-toggle">
-            <button id="card-view-btn" class="active" onclick="switchView('card')">
-                <span>&#x25A0;&#x25A0;</span> Cards
-            </button>
-            <button id="table-view-btn" onclick="switchView('table')">
-                <span>☰</span> Table
-            </button>
+        
+        <!-- Actions Section -->
+        <div class="actions-section">
+            <div class="header-actions">
+                <div class="auto-refresh-control">
+                    <label class="auto-refresh-label">
+                        <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh()">
+                        <span>Auto-Refresh</span>
+                    </label>
+                    <span class="refresh-timer" id="refresh-timer"></span>
+                </div>
+                <div class="view-toggle">
+                    <button id="card-view-btn" class="active" onclick="switchView('card')">
+                        <span>&#x25A0;&#x25A0;</span> Cards
+                    </button>
+                    <button id="table-view-btn" onclick="switchView('table')">
+                        <span>☰</span> Table
+                    </button>
+                </div>
+                <button class="refresh-btn" onclick="manualRefresh()">&#x21bb; Aktualisieren</button>
+            </div>
         </div>
-        <button class="refresh-btn" onclick="manualRefresh()">&#x21bb; Aktualisieren</button>
     </div>
 </div>
 
