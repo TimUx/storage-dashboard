@@ -8,6 +8,17 @@ import ipaddress
 
 logger = logging.getLogger(__name__)
 
+# StorageGRID API health state constants
+# States that indicate a healthy grid/node
+STORAGEGRID_HEALTHY_GRID_STATES = {'healthy', 'ok', 'normal'}
+
+# Node states that indicate a healthy/connected node
+STORAGEGRID_HEALTHY_NODE_STATES = {'connected', 'online', 'ok', 'healthy'}
+
+# Alert states that are considered active/unresolved
+# Based on StorageGRID API v4 alert states
+STORAGEGRID_ACTIVE_ALERT_STATES = {'active', 'triggered', 'firing'}
+
 
 def is_ip_address(address):
     """Check if the given address is an IP address (IPv4 or IPv6)
@@ -658,7 +669,7 @@ class NetAppStorageGRIDClient(StorageClient):
                     
                     # Check overall health status
                     health_state = data.get('health', 'unknown')
-                    if health_state and health_state.lower() not in ['healthy', 'ok', 'normal']:
+                    if health_state and health_state.lower() not in STORAGEGRID_HEALTHY_GRID_STATES:
                         hardware_status = 'warning'
                         logger.warning(f"StorageGRID health issue for {self.ip_address}: {health_state}")
             except Exception as health_error:
@@ -706,7 +717,7 @@ class NetAppStorageGRIDClient(StorageClient):
                     alerts_data = alerts_response.json()
                     alerts_list = alerts_data.get('data', [])
                     # Count active/unresolved alerts
-                    alerts_count = sum(1 for alert in alerts_list if alert.get('state', '').lower() in ['active', 'triggered', 'firing'])
+                    alerts_count = sum(1 for alert in alerts_list if alert.get('state', '').lower() in STORAGEGRID_ACTIVE_ALERT_STATES)
                     
                     if alerts_count > 0:
                         logger.info(f"Found {alerts_count} active alerts for StorageGRID {self.ip_address}")
@@ -743,7 +754,7 @@ class NetAppStorageGRIDClient(StorageClient):
                         }
                         
                         # Check node health
-                        if node_state and node_state.lower() not in ['connected', 'online', 'ok', 'healthy']:
+                        if node_state and node_state.lower() not in STORAGEGRID_HEALTHY_NODE_STATES:
                             hardware_status = 'warning'
                             logger.warning(f"StorageGRID node {node_name} state: {node_state}")
                         
