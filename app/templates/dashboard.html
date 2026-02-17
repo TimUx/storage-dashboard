@@ -804,7 +804,7 @@ body.table-view .systems-table {
                  data-cluster-type="{{ system.cluster_type or '' }}"
                  data-name="{{ system.name }}"
                  data-ip="{{ system.ip_address }}"
-                 data-dns="{{ system.dns_names[0] if system.dns_names else '' }}">
+                 data-dns="{{ system.get_dns_names()[0] if system.get_dns_names() else '' }}">
                 <div class="system-header">
                     <div class="system-name">
                         <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" 
@@ -913,7 +913,7 @@ body.table-view .systems-table {
                         data-cluster-type="{{ system.cluster_type or '' }}"
                         data-name="{{ system.name }}"
                         data-ip="{{ system.ip_address }}"
-                        data-dns="{{ system.dns_names[0] if system.dns_names else '' }}">
+                        data-dns="{{ system.get_dns_names()[0] if system.get_dns_names() else '' }}">
                         <td>
                             <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" 
                                class="webui-link" title="Zur WebUI öffnen" style="font-weight: bold;">
