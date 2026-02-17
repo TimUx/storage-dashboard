@@ -1,5 +1,5 @@
 """API routes for programmatic access"""
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, current_app
 from app.models import StorageSystem
 from app.api import get_client
 from app.routes.main import fetch_system_status
@@ -20,13 +20,16 @@ def get_status():
     """Get status of all enabled systems"""
     systems = StorageSystem.query.filter_by(enabled=True).all()
     
+    # Get current app for passing to threads
+    app = current_app._get_current_object()
+    
     # Determine optimal number of workers based on system count
     max_workers = min(len(systems), 10) if systems else 1
     
     # Fetch status for all systems in parallel
     systems_status = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(fetch_system_status, system): system for system in systems}
+        futures = {executor.submit(fetch_system_status, system, app): system for system in systems}
         for future in as_completed(futures):
             try:
                 result = future.result()
@@ -48,5 +51,6 @@ def get_status():
 def get_system_status(system_id):
     """Get status of a specific system"""
     system = StorageSystem.query.get_or_404(system_id)
-    result = fetch_system_status(system)
+    app = current_app._get_current_object()
+    result = fetch_system_status(system, app)
     return jsonify(result)
