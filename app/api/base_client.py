@@ -33,16 +33,22 @@ class StorageClient(ABC):
         Returns:
             DNS name if reverse lookup succeeds, otherwise original address
         """
-        from app.api.storage_clients import is_ip_address
+        # Check if it's an IP address by trying to parse it
+        import ipaddress
+        try:
+            ipaddress.ip_address(address)
+            is_ip = True
+        except ValueError:
+            is_ip = False
         
         # If it's not an IP address, it's already a DNS name
-        if not is_ip_address(address):
+        if not is_ip:
             logger.debug(f"Address {address} is already a DNS name")
             return address
         
         # Try reverse DNS lookup for IP addresses
         try:
-            hostname, aliases, _ = socket.gethostbyaddr(address)
+            hostname, _, _ = socket.gethostbyaddr(address)
             if hostname:
                 logger.info(f"Resolved IP {address} to DNS name: {hostname}")
                 return hostname
