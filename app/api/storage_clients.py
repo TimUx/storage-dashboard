@@ -32,150 +32,149 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
 
 class PureStorageClient(StorageClient):
-    """Pure Storage FlashArray client using official py-pure-client library"""
+    """Pure Storage FlashArray client using REST API"""
     
     def get_health_status(self):
         try:
-            from pypureclient import flasharray
-            
             if not self.token:
                 return self._format_response(status='error', error='No API token configured')
             
             ssl_verify = get_ssl_verify()
             
-            # Create FlashArray client with timeout
-            client = flasharray.Client(
-                target=self.ip_address,
-                api_token=self.token,
-                verify_ssl=ssl_verify,
-                timeout=5  # 5 second timeout
+            # FlashArray REST API v2 headers
+            headers = {
+                'x-auth-token': self.token,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+            
+            # Get array info to verify connectivity
+            # REST API v2: GET /api/2.x/arrays
+            response = requests.get(
+                f"{self.base_url}/api/2.4/arrays",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=10
             )
             
-            # Get array info
-            arrays_response = client.get_arrays()
+            if response.status_code != 200:
+                return self._format_response(status='error', error=f'API error: {response.status_code}')
             
-            if isinstance(arrays_response, flasharray.ValidResponse):
-                # Get space/capacity info
-                space_response = client.get_arrays_space()
+            # Get space/capacity info
+            # REST API v2: GET /api/2.x/arrays/space
+            space_response = requests.get(
+                f"{self.base_url}/api/2.4/arrays/space",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            total_bytes = 0
+            used_bytes = 0
+            
+            if space_response.status_code == 200:
+                space_data = space_response.json()
                 
-                if isinstance(space_response, flasharray.ValidResponse):
-                    # Extract capacity data
-                    space_items = list(getattr(space_response, 'items', []))
+                # Parse space data from response
+                # Response format: {"items": [{"capacity": ..., "space": {"total_physical": ...}}]}
+                items = space_data.get('items', [])
+                if items and len(items) > 0:
+                    item = items[0]
                     
-                    if space_items and len(space_items) > 0:
-                        space_data = space_items[0]
-                        
-                        # Get capacity values (in bytes)
-                        capacity = getattr(space_data, 'capacity', 0) or 0
-                        total_physical = getattr(space_data, 'space', None)
-                        
-                        # Calculate used space
-                        if total_physical:
-                            total_bytes = capacity
-                            # space.total_physical is the used space
-                            used_bytes = getattr(total_physical, 'total_physical', 0) or 0
-                        else:
-                            total_bytes = capacity
-                            used_bytes = 0
-                        
-                        return self._format_response(
-                            status='online',
-                            hardware='ok',
-                            cluster='ok',
-                            alerts=0,
-                            total_tb=total_bytes / (1024**4),
-                            used_tb=used_bytes / (1024**4)
-                        )
-                    else:
-                        # No space data available, return with 0 capacity
-                        return self._format_response(
-                            status='online',
-                            hardware='ok',
-                            cluster='ok',
-                            alerts=0,
-                            total_tb=0,
-                            used_tb=0
-                        )
-                else:
-                    # Space query failed, but array is reachable
-                    return self._format_response(
-                        status='online',
-                        hardware='ok',
-                        cluster='ok',
-                        alerts=0,
-                        total_tb=0,
-                        used_tb=0
-                    )
-            else:
-                # Error response from API
-                error_msg = 'API error'
-                if hasattr(arrays_response, 'errors'):
-                    errors = arrays_response.errors
-                    if errors and len(errors) > 0:
-                        error_msg = str(errors[0])
-                return self._format_response(status='error', error=error_msg)
+                    # Get capacity (total available capacity in bytes)
+                    total_bytes = item.get('capacity', 0) or 0
+                    
+                    # Get used space (total_physical is the actual used space)
+                    space_info = item.get('space', {})
+                    used_bytes = space_info.get('total_physical', 0) or 0
+            
+            return self._format_response(
+                status='online',
+                hardware='ok',
+                cluster='ok',
+                alerts=0,
+                total_tb=total_bytes / (1024**4),
+                used_tb=used_bytes / (1024**4)
+            )
                 
         except Exception as e:
             return self._format_response(status='error', error=str(e))
 
 
 class NetAppONTAPClient(StorageClient):
-    """NetApp ONTAP 9 client using official netapp-ontap library"""
+    """NetApp ONTAP 9 client using REST API"""
     
     def get_health_status(self):
         try:
-            from netapp_ontap import config, HostConnection
-            from netapp_ontap.resources import Cluster, Aggregate
-            
             if not self.username or not self.password:
                 return self._format_response(status='error', error='No credentials configured')
             
             ssl_verify = get_ssl_verify()
             
-            # Create connection
-            conn = HostConnection(
-                self.ip_address,
-                username=self.username,
-                password=self.password,
-                verify=ssl_verify
-            )
+            # ONTAP REST API uses basic authentication
+            auth = (self.username, self.password)
             
-            # Set as current connection
-            config.CONNECTION = conn
+            headers = {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
             
             # Get cluster info to verify connectivity
+            # REST API: GET /api/cluster
             try:
-                cluster = Cluster()
-                cluster.get()
+                cluster_response = requests.get(
+                    f"{self.base_url}/api/cluster",
+                    auth=auth,
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
                 
-                cluster_name = getattr(cluster, 'name', 'unknown')
+                if cluster_response.status_code != 200:
+                    return self._format_response(
+                        status='error',
+                        error=f'Failed to connect to cluster: HTTP {cluster_response.status_code}'
+                    )
+                
+                cluster_data = cluster_response.json()
+                cluster_name = cluster_data.get('name', 'unknown')
             except Exception as cluster_error:
                 return self._format_response(
-                    status='error', 
+                    status='error',
                     error=f'Failed to connect to cluster: {str(cluster_error)}'
                 )
             
             # Get aggregate space info
+            # REST API: GET /api/storage/aggregates?fields=space
             total_bytes = 0
             used_bytes = 0
             
             try:
-                # Get all aggregates with space fields
-                aggregates = list(Aggregate.get_collection(fields='space'))
+                aggregates_response = requests.get(
+                    f"{self.base_url}/api/storage/aggregates",
+                    auth=auth,
+                    headers=headers,
+                    params={'fields': 'space'},
+                    verify=ssl_verify,
+                    timeout=10
+                )
                 
-                for aggr in aggregates:
-                    # Extract space information
-                    space = getattr(aggr, 'space', None)
-                    if space:
-                        block_storage = getattr(space, 'block_storage', None)
-                        if block_storage:
-                            # Convert Number objects to int (NetApp ONTAP library returns Number objects)
-                            size_val = getattr(block_storage, 'size', None)
-                            used_val = getattr(block_storage, 'used', None)
-                            size = int(size_val) if size_val is not None else 0
-                            used = int(used_val) if used_val is not None else 0
-                            total_bytes += size
-                            used_bytes += used
+                if aggregates_response.status_code == 200:
+                    aggregates_data = aggregates_response.json()
+                    
+                    # Parse aggregates from response
+                    # Response format: {"records": [{"space": {"block_storage": {"size": ..., "used": ...}}}]}
+                    records = aggregates_data.get('records', [])
+                    
+                    for aggr in records:
+                        space = aggr.get('space', {})
+                        block_storage = space.get('block_storage', {})
+                        
+                        size = block_storage.get('size', 0) or 0
+                        used = block_storage.get('used', 0) or 0
+                        
+                        total_bytes += size
+                        used_bytes += used
             except Exception as aggr_error:
                 # Log the error but continue with 0 capacity
                 logger.warning(f"Could not get aggregate space info for {self.ip_address}: {aggr_error}")
