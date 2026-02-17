@@ -476,9 +476,15 @@ class NetAppONTAPClient(StorageClient):
                     error=f'Failed to connect to cluster: {str(cluster_error)}'
                 )
             
-            # Check for MetroCluster configuration
+            # Check for MetroCluster configuration and get detailed information
             is_metrocluster = False
+            metrocluster_info = {}
+            metrocluster_nodes = []
+            metrocluster_dr_groups = []
+            
             try:
+                # Get MetroCluster configuration
+                # REST API: GET /api/cluster/metrocluster
                 metrocluster_response = requests.get(
                     f"{self.base_url}/api/cluster/metrocluster",
                     auth=auth,
@@ -494,6 +500,71 @@ class NetAppONTAPClient(StorageClient):
                     if configuration_state and configuration_state != 'not_configured':
                         is_metrocluster = True
                         logger.info(f"MetroCluster detected for {self.ip_address}: {configuration_state}")
+                        
+                        # Store MetroCluster configuration info
+                        metrocluster_info = {
+                            'configuration_state': configuration_state,
+                            'mode': metrocluster_data.get('mode'),
+                            'local_cluster_name': metrocluster_data.get('local', {}).get('cluster', {}).get('name'),
+                            'partner_cluster_name': metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
+                        }
+                        
+                        # Get MetroCluster nodes information
+                        # REST API: GET /api/cluster/metrocluster/nodes
+                        try:
+                            mc_nodes_response = requests.get(
+                                f"{self.base_url}/api/cluster/metrocluster/nodes",
+                                auth=auth,
+                                headers=headers,
+                                verify=ssl_verify,
+                                timeout=10
+                            )
+                            
+                            if mc_nodes_response.status_code == 200:
+                                mc_nodes_data = mc_nodes_response.json()
+                                records = mc_nodes_data.get('records', [])
+                                
+                                for node in records:
+                                    node_info = {
+                                        'name': node.get('name'),
+                                        'cluster': node.get('cluster', {}).get('name'),
+                                        'dr_group_id': node.get('dr_group_id'),
+                                        'dr_partner': node.get('dr_partner', {}).get('name'),
+                                        'ha_partner': node.get('ha_partner', {}).get('name'),
+                                        'type': 'metrocluster-node'
+                                    }
+                                    metrocluster_nodes.append(node_info)
+                                
+                                logger.info(f"Found {len(metrocluster_nodes)} MetroCluster nodes for {self.ip_address}")
+                        except Exception as mc_nodes_error:
+                            logger.warning(f"Could not get MetroCluster nodes for {self.ip_address}: {mc_nodes_error}")
+                        
+                        # Get MetroCluster DR groups information
+                        # REST API: GET /api/cluster/metrocluster/dr-groups
+                        try:
+                            dr_groups_response = requests.get(
+                                f"{self.base_url}/api/cluster/metrocluster/dr-groups",
+                                auth=auth,
+                                headers=headers,
+                                verify=ssl_verify,
+                                timeout=10
+                            )
+                            
+                            if dr_groups_response.status_code == 200:
+                                dr_groups_data = dr_groups_response.json()
+                                records = dr_groups_data.get('records', [])
+                                
+                                for dr_group in records:
+                                    dr_group_info = {
+                                        'id': dr_group.get('id'),
+                                        'local_nodes': [n.get('name') for n in dr_group.get('local', {}).get('nodes', [])],
+                                        'partner_nodes': [n.get('name') for n in dr_group.get('partner', {}).get('nodes', [])],
+                                    }
+                                    metrocluster_dr_groups.append(dr_group_info)
+                                
+                                logger.info(f"Found {len(metrocluster_dr_groups)} MetroCluster DR groups for {self.ip_address}")
+                        except Exception as dr_groups_error:
+                            logger.warning(f"Could not get MetroCluster DR groups for {self.ip_address}: {dr_groups_error}")
             except Exception as mc_error:
                 # MetroCluster endpoint might not be available if not configured
                 logger.debug(f"Could not check MetroCluster status for {self.ip_address}: {mc_error}")
@@ -541,7 +612,11 @@ class NetAppONTAPClient(StorageClient):
                 total_tb=total_bytes / (1024**4),
                 used_tb=used_bytes / (1024**4),
                 os_version=os_version,
-                is_metrocluster=is_metrocluster
+                is_metrocluster=is_metrocluster,
+                metrocluster_info=metrocluster_info if metrocluster_info else None,
+                metrocluster_nodes=metrocluster_nodes if metrocluster_nodes else None,
+                metrocluster_dr_groups=metrocluster_dr_groups if metrocluster_dr_groups else None,
+                controllers=metrocluster_nodes if metrocluster_nodes else None  # Store MC nodes as controllers for display
             )
         except Exception as e:
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))

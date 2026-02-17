@@ -81,7 +81,8 @@ class StorageClient(ABC):
     
     def _format_response(self, status='ok', hardware='ok', cluster='ok', alerts=0, 
                         total_tb=0.0, used_tb=0.0, error=None, os_version=None, api_version=None, 
-                        is_metrocluster=False, controllers=None, array_connections=None):
+                        is_metrocluster=False, controllers=None, array_connections=None,
+                        metrocluster_info=None, metrocluster_nodes=None, metrocluster_dr_groups=None):
         """Format standard response"""
         percent = (used_tb / total_tb * 100) if total_tb > 0 else 0
         response = {
@@ -104,4 +105,10 @@ class StorageClient(ABC):
             response['controllers'] = controllers
         if array_connections:
             response['array_connections'] = array_connections
+        if metrocluster_info:
+            response['metrocluster_info'] = metrocluster_info
+        if metrocluster_nodes:
+            response['metrocluster_nodes'] = metrocluster_nodes
+        if metrocluster_dr_groups:
+            response['metrocluster_dr_groups'] = metrocluster_dr_groups
         return response
