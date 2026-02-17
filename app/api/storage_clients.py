@@ -34,6 +34,9 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 class PureStorageClient(StorageClient):
     """Pure Storage FlashArray client using REST API"""
     
+    # FlashArray REST API version
+    API_VERSION = '2.4'
+    
     def get_health_status(self):
         try:
             if not self.token:
@@ -51,7 +54,7 @@ class PureStorageClient(StorageClient):
             # Get array info to verify connectivity
             # REST API v2: GET /api/2.x/arrays
             response = requests.get(
-                f"{self.base_url}/api/2.4/arrays",
+                f"{self.base_url}/api/{self.API_VERSION}/arrays",
                 headers=headers,
                 verify=ssl_verify,
                 timeout=10
@@ -63,7 +66,7 @@ class PureStorageClient(StorageClient):
             # Get space/capacity info
             # REST API v2: GET /api/2.x/arrays/space
             space_response = requests.get(
-                f"{self.base_url}/api/2.4/arrays/space",
+                f"{self.base_url}/api/{self.API_VERSION}/arrays/space",
                 headers=headers,
                 verify=ssl_verify,
                 timeout=10

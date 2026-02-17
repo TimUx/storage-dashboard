@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 # These are not actual nodes and should be filtered out
 SHELF_CONTROLLER_PATTERN = '.SC'
 
+# API configuration constants
+PURE_API_VERSION = '2.4'
+API_TIMEOUT = 10  # seconds
+
 
 def reverse_dns_lookup(ip_address):
     """
@@ -76,10 +80,10 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         # Get array info
         # REST API v2: GET /api/2.x/arrays
         arrays_response = requests.get(
-            f"{base_url}/api/2.4/arrays",
+            f"{base_url}/api/{PURE_API_VERSION}/arrays",
             headers=headers,
             verify=ssl_verify,
-            timeout=10
+            timeout=API_TIMEOUT
         )
         
         if arrays_response.status_code == 200:
@@ -90,10 +94,10 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         # REST API v2: GET /api/2.x/controllers
         try:
             controllers_response = requests.get(
-                f"{base_url}/api/2.4/controllers",
+                f"{base_url}/api/{PURE_API_VERSION}/controllers",
                 headers=headers,
                 verify=ssl_verify,
-                timeout=10
+                timeout=API_TIMEOUT
             )
             
             if controllers_response.status_code == 200:
@@ -119,11 +123,11 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                     # REST API v2: GET /api/2.x/network-interfaces?filter=services='management'
                     try:
                         network_interfaces_response = requests.get(
-                            f"{base_url}/api/2.4/network-interfaces",
+                            f"{base_url}/api/{PURE_API_VERSION}/network-interfaces",
                             headers=headers,
                             params={'filter': "services='management'"},
                             verify=ssl_verify,
-                            timeout=10
+                            timeout=API_TIMEOUT
                         )
                         
                         if network_interfaces_response.status_code == 200:
@@ -154,10 +158,10 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         # REST API v2: GET /api/2.x/pods
         try:
             pods_response = requests.get(
-                f"{base_url}/api/2.4/pods",
+                f"{base_url}/api/{PURE_API_VERSION}/pods",
                 headers=headers,
                 verify=ssl_verify,
-                timeout=10
+                timeout=API_TIMEOUT
             )
             
             if pods_response.status_code == 200:
@@ -173,11 +177,11 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                         try:
                             pod_name = pod.get('name', '')
                             pod_arrays_response = requests.get(
-                                f"{base_url}/api/2.4/pods/arrays",
+                                f"{base_url}/api/{PURE_API_VERSION}/pods/arrays",
                                 headers=headers,
                                 params={'pod_names': pod_name},
                                 verify=ssl_verify,
-                                timeout=10
+                                timeout=API_TIMEOUT
                             )
                             
                             if pod_arrays_response.status_code == 200:
@@ -195,7 +199,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                                         break
                         except Exception as pod_error:
                             logger.debug(f"Could not get pod array info: {pod_error}")
-        except:
+        except Exception:
             pass  # Not all arrays support pods
         
         # Deduplicate DNS names
@@ -249,7 +253,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                 auth=auth,
                 headers=headers,
                 verify=ssl_verify,
-                timeout=10
+                timeout=API_TIMEOUT
             )
             
             if cluster_response.status_code == 200:
@@ -278,7 +282,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                 auth=auth,
                 headers=headers,
                 verify=ssl_verify,
-                timeout=10
+                timeout=API_TIMEOUT
             )
             
             if nodes_response.status_code == 200:
@@ -307,7 +311,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                             headers=headers,
                             params={'fields': 'management_interfaces'},
                             verify=ssl_verify,
-                            timeout=10
+                            timeout=API_TIMEOUT
                         )
                         
                         if node_detail_response.status_code == 200:
@@ -404,7 +408,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                 f"{base_url}/api/v4/grid/sites",
                 headers=headers,
                 verify=ssl_verify,
-                timeout=10
+                timeout=API_TIMEOUT
             )
             
             if sites_response.status_code == 200:
@@ -432,7 +436,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                 f"{base_url}/api/v4/grid/nodes",
                 headers=headers,
                 verify=ssl_verify,
-                timeout=10
+                timeout=API_TIMEOUT
             )
             
             if nodes_response.status_code == 200:
@@ -493,7 +497,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                     f"{base_url}/api/v4/grid/health/topology",
                     headers=headers,
                     verify=ssl_verify,
-                    timeout=10
+                    timeout=API_TIMEOUT
                 )
                 
                 if topology_response.status_code == 200:
