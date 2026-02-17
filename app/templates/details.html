@@ -386,6 +386,16 @@
                 <span class="cluster-badge cluster-{{ system.cluster_type }}">{{ system.cluster_type }}</span>
             </div>
             {% endif %}
+            {% if system.os_version %}
+            <div class="detail-meta-item">
+                <strong>OS Version:</strong> {{ system.os_version }}
+            </div>
+            {% endif %}
+            {% if system.api_version %}
+            <div class="detail-meta-item">
+                <strong>API Version:</strong> {{ system.api_version }}
+            </div>
+            {% endif %}
             {% if system.last_discovery %}
             <div class="detail-meta-item">
                 <strong>Letztes Update:</strong> {{ system.last_discovery.strftime('%d.%m.%Y %H:%M') }}

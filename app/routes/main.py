@@ -19,6 +19,20 @@ def fetch_system_status(system):
             token=system.api_token
         )
         status = client.get_health_status()
+        
+        # Update OS version and API version if available in status
+        if 'os_version' in status and status['os_version']:
+            system.os_version = status['os_version']
+        if 'api_version' in status and status['api_version']:
+            system.api_version = status['api_version']
+        
+        # Update cluster type if MetroCluster is detected
+        if status.get('is_metrocluster') and system.cluster_type != 'metrocluster':
+            system.cluster_type = 'metrocluster'
+        
+        # Commit changes to database
+        db.session.commit()
+        
         return {
             'system': system.to_dict(),
             'status': status

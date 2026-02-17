@@ -29,6 +29,8 @@ class StorageSystem(db.Model):
     dns_names = db.Column(db.Text)  # JSON: ["hostname.domain.com", "alias.domain.com"]
     all_ips = db.Column(db.Text)  # JSON: ["192.168.1.1", "10.0.0.1"]
     node_details = db.Column(db.Text)  # JSON: [{name, ip, status, role, ...}]
+    os_version = db.Column(db.String(100))  # OS/firmware version of the storage system
+    api_version = db.Column(db.String(50))  # Detected API version
     
     # Partner cluster reference (for MetroCluster, Active-Cluster)
     partner_cluster_id = db.Column(db.Integer, db.ForeignKey('storage_systems.id', ondelete='SET NULL'))
@@ -135,6 +137,8 @@ class StorageSystem(db.Model):
             'all_ips': self.get_all_ips(),
             'node_details': self.get_node_details(),
             'partner_cluster_id': self.partner_cluster_id,
+            'os_version': self.os_version,
+            'api_version': self.api_version,
             'last_discovery': self.last_discovery.isoformat() if self.last_discovery else None,
             'has_credentials': bool(self.api_username or self.api_token),
             'created_at': self.created_at.isoformat() if self.created_at else None,
