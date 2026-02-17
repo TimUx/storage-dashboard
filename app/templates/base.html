@@ -56,9 +56,11 @@
         .navbar h1::before {
             {% if settings and settings.logo_filename %}
             content: '';
+            display: inline-block;
             height: 50px;
-            width: auto;
+            width: 200px;
             max-width: 200px;
+            margin-right: 0.75rem;
             background-image: url('{{ url_for('admin.settings_logo') }}');
             background-size: contain;
             background-repeat: no-repeat;

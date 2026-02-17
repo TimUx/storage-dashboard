@@ -187,24 +187,41 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
         )
         
         discovery_data = {
-            'cluster_type': 'local',
+            'cluster_type': None,  # Will be set based on HA and MetroCluster detection
             'node_count': 0,
             'site_count': 1,
             'dns_names': reverse_dns_lookup(ip_address),
             'all_ips': [ip_address],
             'node_details': [],
-            'partner_info': None
+            'partner_info': None,
+            'ha_enabled': False,
+            'metrocluster_enabled': False
         }
         
-        # Get cluster info
+        # Get cluster info and check for HA and MetroCluster
         try:
             cluster = Cluster()
             cluster.get()
             
+            # Check for HA (High Availability) - typically 2+ nodes
+            # HA is the default for ONTAP clusters with 2 or more nodes
+            discovery_data['ha_enabled'] = True  # Will be confirmed after node count
+            
             # Check for MetroCluster
             if hasattr(cluster, 'metrocluster') and cluster.metrocluster:
-                discovery_data['cluster_type'] = 'metrocluster'
+                discovery_data['metrocluster_enabled'] = True
                 discovery_data['site_count'] = 2
+                
+                # Try to get MetroCluster partner info
+                try:
+                    if hasattr(cluster.metrocluster, 'configuration_state'):
+                        mc_state = cluster.metrocluster.configuration_state
+                    
+                    # Try to get partner cluster information
+                    # Note: This would require MetroCluster specific API calls
+                    # For now, we mark that MetroCluster is enabled
+                except Exception as mc_error:
+                    logger.debug(f"Could not get MetroCluster details: {mc_error}")
         except Exception as e:
             logger.warning(f"Could not get cluster info: {e}")
         
@@ -214,7 +231,19 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
             node_list = list(nodes)
             discovery_data['node_count'] = len(node_list)
             
+            # Determine HA based on node count (2+ nodes = HA)
+            if len(node_list) >= 2:
+                discovery_data['ha_enabled'] = True
+            else:
+                discovery_data['ha_enabled'] = False
+            
             for node in node_list:
+                # Get full node details
+                try:
+                    node.get()
+                except:
+                    pass
+                
                 # Get management IPs
                 node_ips = []
                 if hasattr(node, 'management_interfaces'):
@@ -230,14 +259,26 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                 node_info = {
                     'name': node.name if hasattr(node, 'name') else 'Unknown',
                     'uuid': node.uuid if hasattr(node, 'uuid') else None,
-                    'state': getattr(node, 'state', 'unknown'),
+                    'status': getattr(node, 'state', 'unknown'),
                     'model': getattr(node, 'model', 'unknown'),
-                    'serial_number': getattr(node, 'serial_number', 'unknown'),
+                    'serial': getattr(node, 'serial_number', 'unknown'),
+                    'version': getattr(node, 'version', {}).get('full', 'unknown') if hasattr(node, 'version') else 'unknown',
                     'ips': node_ips
                 }
                 discovery_data['node_details'].append(node_info)
         except Exception as e:
             logger.warning(f"Could not get node info: {e}")
+        
+        # Determine cluster_type based on HA and MetroCluster status
+        if discovery_data['metrocluster_enabled'] and discovery_data['ha_enabled']:
+            # Both MetroCluster and HA - this is the case described in the requirement
+            discovery_data['cluster_type'] = 'metrocluster'  # MetroCluster takes precedence
+        elif discovery_data['metrocluster_enabled']:
+            discovery_data['cluster_type'] = 'metrocluster'
+        elif discovery_data['ha_enabled']:
+            discovery_data['cluster_type'] = 'ha'
+        else:
+            discovery_data['cluster_type'] = 'local'
         
         # Deduplicate DNS names and IPs
         discovery_data['dns_names'] = list(set(discovery_data['dns_names']))
