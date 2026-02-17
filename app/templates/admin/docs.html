@@ -151,29 +151,41 @@
     <h2>3. NetApp StorageGRID 11</h2>
     
     <div class="vendor-card">
-        <h4>S3 API-Token erstellen</h4>
-        <ol>
-            <li>Melden Sie sich am StorageGRID Management Interface an</li>
-            <li>Navigieren Sie zu <strong>Configuration → API Credentials</strong></li>
-            <li>Erstellen Sie neue API-Zugangsdaten</li>
-            <li>Kopieren Sie den Access Key und Secret Key</li>
-            <li>Verwenden Sie diese zur Token-Generierung über die Auth API</li>
-        </ol>
+        <h4>API-Token erstellen</h4>
         
-        <p><strong>Token-Generierung:</strong></p>
-        <pre><code>POST https://&lt;storagegrid-ip&gt;/api/v3/authorize
+        <p><strong>Schritt 1: Grid Manager öffnen</strong></p>
+        <ul>
+            <li>Öffnen Sie Ihren Browser und navigieren Sie zu:<br>
+                <code>https://&lt;storagegrid-ip-or-hostname&gt;</code></li>
+            <li>Beispiel: <code>https://storagegrid.example.com</code> oder <code>https://192.168.1.100</code></li>
+            <li>Melden Sie sich mit Ihren Zugangsdaten an</li>
+        </ul>
+        
+        <p><strong>Schritt 2: API-Token generieren</strong></p>
+        <ol>
+            <li>Nach dem Login navigieren Sie zu <strong>Help → API Documentation</strong></li>
+            <li>Alternativ können Sie den Token direkt über die Auth API erstellen:
+                <pre><code>POST https://&lt;storagegrid-ip&gt;/api/v3/authorize
 {
   "username": "root",
   "password": "your-password",
   "cookie": true,
   "csrfToken": true
 }</code></pre>
+            </li>
+            <li>Der Response enthält das Authorization Token im Header</li>
+            <li>Kopieren Sie den Bearer Token aus der Response</li>
+        </ol>
         
-        <p><strong>In der Dashboard-Konfiguration:</strong></p>
+        <p><strong>Schritt 3: Token im Dashboard konfigurieren</strong></p>
         <ul>
             <li>Tragen Sie den Bearer Token im Feld <code>API Token</code> ein</li>
             <li>Lassen Sie Benutzername und Passwort leer</li>
         </ul>
+        
+        <div class="note">
+            <strong>Hinweis:</strong> Der Token hat eine begrenzte Gültigkeitsdauer. Bei Authentifizierungsfehlern muss ein neuer Token generiert werden.
+        </div>
     </div>
     
     <h2>4. Dell DataDomain</h2>
