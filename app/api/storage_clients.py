@@ -1002,12 +1002,13 @@ class NetAppStorageGRIDClient(StorageClient):
                 logger.warning(f"Could not get StorageGRID version for {self.ip_address}: {version_error}")
             
             # Get alerts count
-            # API: GET /api/v4/grid/alerts
+            # API: GET /api/v4/grid/alerts?include=active
             alerts_count = 0
             try:
                 alerts_response = requests.get(
                     f"{self.base_url}/api/v4/grid/alerts",
                     headers=headers,
+                    params={'include': 'active'},
                     verify=ssl_verify,
                     timeout=10
                 )
@@ -1015,8 +1016,8 @@ class NetAppStorageGRIDClient(StorageClient):
                 if alerts_response.status_code == 200:
                     alerts_data = alerts_response.json()
                     alerts_list = alerts_data.get('data', [])
-                    # Count active/unresolved alerts
-                    alerts_count = sum(1 for alert in alerts_list if alert.get('state', '').lower() in STORAGEGRID_ACTIVE_ALERT_STATES)
+                    # API returns only active alerts with include=active parameter
+                    alerts_count = len(alerts_list)
                     
                     if alerts_count > 0:
                         logger.info(f"Found {alerts_count} active alerts for StorageGRID {self.ip_address}")
