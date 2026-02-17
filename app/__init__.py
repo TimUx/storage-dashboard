@@ -51,9 +51,13 @@ def create_app():
     @app.context_processor
     def inject_settings():
         """Make settings available to all templates"""
-        from app.models import AppSettings
-        settings = AppSettings.query.first()
-        return dict(settings=settings)
+        try:
+            from app.models import AppSettings
+            settings = AppSettings.query.first()
+            return dict(settings=settings)
+        except RuntimeError:
+            # Outside application context, return None for settings
+            return dict(settings=None)
     
     # Register blueprints
     from app.routes import main, admin, api
