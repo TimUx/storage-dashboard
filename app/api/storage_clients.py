@@ -74,19 +74,6 @@ class PureStorageClient(StorageClient):
     # FlashArray REST API version (will be detected dynamically)
     API_VERSION = '2.4'
     
-    def __init__(self, ip_address, port=443, username=None, password=None, token=None):
-        """Initialize Pure Storage client
-        
-        Args:
-            ip_address: IP address or hostname of the FlashArray
-            port: Port number (default: 443)
-            username: Not used for Pure Storage (uses token-based auth)
-            password: Not used for Pure Storage (uses token-based auth)
-            token: API token for authentication
-        """
-        super().__init__(ip_address, port, username, password, token)
-        self._session_token = None  # Cached session token for API 2.x
-    
     def detect_api_version(self):
         """Detect the API version supported by the FlashArray"""
         try:
@@ -116,6 +103,15 @@ class PureStorageClient(StorageClient):
     
     def authenticate(self, api_version):
         """Authenticate and get session token for API 2.x
+        
+        For Pure Storage FlashArray API 2.x, authentication requires:
+        1. POST to /api/2.x/login with api_token in JSON body
+        2. Receive x-auth-token in response header
+        3. Use x-auth-token for subsequent API calls
+        4. POST to /api/2.x/logout when done (handled in get_health_status)
+        
+        Note: Session tokens are not cached as each client instance performs
+        a complete login/query/logout cycle to minimize open sessions.
         
         Args:
             api_version: API version to use (e.g., '2.4', '2.26')
@@ -151,6 +147,14 @@ class PureStorageClient(StorageClient):
                     return session_token
                 else:
                     logger.warning(f"No x-auth-token in login response for {self.ip_address}")
+            elif response.status_code == 401:
+                # Invalid API token
+                logger.error(f"Authentication failed for {self.ip_address}: Invalid API token (401 Unauthorized)")
+                return None
+            elif response.status_code == 400:
+                # Bad request - possibly malformed token
+                logger.error(f"Authentication failed for {self.ip_address}: Bad request (400) - check API token format")
+                return None
             else:
                 logger.warning(f"Login failed for {self.ip_address}: HTTP {response.status_code}")
                 
@@ -162,7 +166,7 @@ class PureStorageClient(StorageClient):
     def get_health_status(self):
         try:
             if not self.token:
-                return self._format_response(status='error', error='No API token configured')
+                return self._format_response(status='error', error='Kein API-Token konfiguriert. Bitte API-Token in den System-Einstellungen eingeben.')
             
             ssl_verify = get_ssl_verify()
             
@@ -173,7 +177,10 @@ class PureStorageClient(StorageClient):
             session_token = self.authenticate(api_version)
             
             if not session_token:
-                return self._format_response(status='error', error='Authentication failed - could not obtain session token')
+                return self._format_response(
+                    status='error', 
+                    error=f'Authentifizierung fehlgeschlagen - Ungültiger API-Token oder Verbindungsfehler. API Version: {api_version}'
+                )
             
             # FlashArray REST API v2 headers with session token
             headers = {
