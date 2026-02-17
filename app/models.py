@@ -29,7 +29,7 @@ class StorageSystem(db.Model):
     dns_names = db.Column(db.Text)  # JSON: ["hostname.domain.com", "alias.domain.com"]
     all_ips = db.Column(db.Text)  # JSON: ["192.168.1.1", "10.0.0.1"]
     node_details = db.Column(db.Text)  # JSON: [{name, ip, status, role, ...}]
-    peer_connections = db.Column(db.Text)  # JSON: [{name, status, type, address, ...}] - for Pure Storage array-connections
+    peer_connections = db.Column(db.Text)  # JSON: [{name, status, type, address, ...}] - for Pure Storage array_connections
     metrocluster_info = db.Column(db.Text)  # JSON: {configuration_state, mode, local_cluster_name, partner_cluster_name}
     metrocluster_dr_groups = db.Column(db.Text)  # JSON: [{id, local_nodes, partner_nodes}]
     os_version = db.Column(db.String(100))  # OS/firmware version of the storage system

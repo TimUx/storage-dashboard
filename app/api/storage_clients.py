@@ -354,7 +354,7 @@ class PureStorageClient(StorageClient):
                     alerts_data = alerts_response.json()
                     # Count open alerts (those that are not closed)
                     items = alerts_data.get('items', [])
-                    alerts_count = len([a for a in items if a.get('state', '').lower() != 'closed'])
+                    alerts_count = sum(1 for a in items if a.get('state', '').lower() != 'closed')
                     
                     if alerts_count > 0:
                         logger.info(f"Found {alerts_count} open alerts for {self.ip_address}")
