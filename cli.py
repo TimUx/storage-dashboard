@@ -2,7 +2,6 @@
 """CLI interface for Storage Dashboard"""
 import click
 import sys
-import getpass
 from app import create_app, db
 from app.models import StorageSystem, AdminUser, AppSettings
 from app.api import get_client

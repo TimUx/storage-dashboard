@@ -549,7 +549,12 @@ def settings():
 
 @bp.route('/settings/logo')
 def settings_logo():
-    """Serve the custom logo"""
+    """Serve the custom logo
+    
+    Note: This endpoint is intentionally NOT protected by @login_required
+    because the logo is displayed in the public navbar and should be
+    accessible to all users viewing the application.
+    """
     app_settings = AppSettings.query.first()
     if app_settings and app_settings.logo_data:
         # Determine mimetype from filename
