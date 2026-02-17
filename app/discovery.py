@@ -298,9 +298,10 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
 
 def discover_storagegrid(ip_address, api_token, ssl_verify=False):
     """
-    Discover NetApp StorageGRID details via API
+    Discover NetApp StorageGRID details via API v4
     
     Returns dict with grid info, sites, nodes, etc.
+    Based on: https://webscalegmi.netapp.com/grid/apidocs.html
     """
     import requests
     
@@ -315,19 +316,157 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
             'partner_info': None
         }
         
-        # StorageGRID uses a different API structure
-        # Would need to authenticate and query grid topology
-        # This is a simplified version
-        
         base_url = f"https://{ip_address}"
         headers = {
             'Authorization': f'Bearer {api_token}',
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
         }
         
-        # Get grid topology (requires proper authentication flow)
-        # For now, return basic info
-        logger.info(f"StorageGRID discovery not fully implemented for {ip_address}")
+        # Get grid sites first
+        sites_count = 1
+        try:
+            sites_response = requests.get(
+                f"{base_url}/api/v4/grid/sites",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            if sites_response.status_code == 200:
+                sites_data = sites_response.json()
+                # Response format: {"data": [{"id": "...", "name": "..."}, ...]}
+                sites_list = sites_data.get('data', [])
+                if sites_list:
+                    sites_count = len(sites_list)
+                    discovery_data['site_count'] = sites_count
+                    
+                    # Determine cluster type based on site count
+                    if sites_count > 1:
+                        discovery_data['cluster_type'] = 'multi-site'
+                    else:
+                        discovery_data['cluster_type'] = 'single-site'
+                    
+                    logger.info(f"StorageGRID: Found {sites_count} sites")
+                    
+        except Exception as sites_error:
+            logger.warning(f"Could not get StorageGRID sites: {sites_error}")
+        
+        # Get grid nodes
+        try:
+            nodes_response = requests.get(
+                f"{base_url}/api/v4/grid/nodes",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            if nodes_response.status_code == 200:
+                nodes_data = nodes_response.json()
+                # Response format: {"data": [{node_details}, ...]}
+                nodes_list = nodes_data.get('data', [])
+                
+                all_nodes = []
+                for node in nodes_list:
+                    node_name = node.get('name', 'Unknown')
+                    node_id = node.get('id', '')
+                    node_type = node.get('type', 'unknown')
+                    node_state = node.get('state', 'unknown')
+                    node_site = node.get('site', 'Unknown Site')
+                    
+                    # Get node IPs if available
+                    node_ips = []
+                    if 'ips' in node:
+                        node_ips = node.get('ips', [])
+                    elif 'addresses' in node:
+                        # Alternative field name
+                        node_ips = node.get('addresses', [])
+                    
+                    node_info = {
+                        'name': node_name,
+                        'id': node_id,
+                        'site': node_site,
+                        'type': node_type,
+                        'status': node_state,
+                        'ips': node_ips
+                    }
+                    
+                    all_nodes.append(node_info)
+                    
+                    # Add IPs to discovery data
+                    for ip in node_ips:
+                        if ip and ip not in discovery_data['all_ips']:
+                            discovery_data['all_ips'].append(ip)
+                            # Try DNS lookup for each IP
+                            try:
+                                dns_names = reverse_dns_lookup(ip)
+                                discovery_data['dns_names'].extend(dns_names)
+                            except:
+                                pass
+                
+                discovery_data['node_count'] = len(all_nodes)
+                discovery_data['node_details'] = all_nodes
+                
+                logger.info(f"StorageGRID: Found {len(all_nodes)} nodes")
+                    
+        except Exception as nodes_error:
+            logger.warning(f"Could not get StorageGRID nodes: {nodes_error}")
+        
+        # Try to get topology as fallback if nodes endpoint didn't work
+        if discovery_data['node_count'] == 0:
+            try:
+                topology_response = requests.get(
+                    f"{base_url}/api/v4/grid/health/topology",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if topology_response.status_code == 200:
+                    topology_data = topology_response.json()
+                    
+                    # Parse hierarchical topology structure
+                    # Format: {"data": {"children": [sites], ...}}
+                    data = topology_data.get('data', {})
+                    sites = data.get('children', [])
+                    
+                    if sites and discovery_data['site_count'] == 1:
+                        discovery_data['site_count'] = len(sites)
+                        if len(sites) > 1:
+                            discovery_data['cluster_type'] = 'multi-site'
+                    
+                    # Parse nodes from topology
+                    all_nodes = []
+                    for site in sites:
+                        site_name = site.get('name', 'Unknown Site')
+                        nodes = site.get('children', [])
+                        
+                        for node in nodes:
+                            node_name = node.get('name', 'Unknown')
+                            node_id = node.get('id', '')
+                            node_state = node.get('state', 'unknown')
+                            
+                            node_info = {
+                                'name': node_name,
+                                'id': node_id,
+                                'site': site_name,
+                                'type': 'unknown',
+                                'status': node_state,
+                                'ips': []
+                            }
+                            
+                            all_nodes.append(node_info)
+                    
+                    if all_nodes:
+                        discovery_data['node_count'] = len(all_nodes)
+                        discovery_data['node_details'] = all_nodes
+                        
+            except Exception as topo_error:
+                logger.debug(f"Could not get StorageGRID topology: {topo_error}")
+        
+        # Deduplicate DNS names and IPs
+        discovery_data['dns_names'] = list(set(discovery_data['dns_names']))
+        discovery_data['all_ips'] = list(set(discovery_data['all_ips']))
         
         return discovery_data
         
