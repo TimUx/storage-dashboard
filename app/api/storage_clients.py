@@ -718,7 +718,7 @@ class NetAppONTAPClient(StorageClient):
                 metrocluster_info=metrocluster_info if metrocluster_info else None,
                 metrocluster_nodes=metrocluster_nodes if metrocluster_nodes else None,
                 metrocluster_dr_groups=metrocluster_dr_groups if metrocluster_dr_groups else None,
-                controllers=metrocluster_nodes if metrocluster_nodes else cluster_nodes  # Use MC nodes if available, otherwise regular cluster nodes
+                controllers=metrocluster_nodes if metrocluster_nodes else cluster_nodes  # Use MetroCluster nodes if available, otherwise regular cluster nodes
             )
         except Exception as e:
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
