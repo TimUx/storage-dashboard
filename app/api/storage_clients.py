@@ -164,8 +164,7 @@ class PureStorageClient(StorageClient):
                 f"{self.base_url}/api/{api_version}/login",
                 headers={
                     'api-token': self.token,
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
+                    'Accept': 'application/json'
                 },
                 verify=ssl_verify,
                 timeout=10
