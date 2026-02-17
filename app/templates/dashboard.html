@@ -852,7 +852,6 @@ body.table-view .systems-table {
                 </div>
                 {% endif %}
                 
-                {% if status.status == 'online' %}
                 <div class="metrics">
                     <div class="metric">
                         <span class="metric-label">Hardware:</span>
@@ -866,6 +865,7 @@ body.table-view .systems-table {
                             {{ status.cluster_status|upper }}
                         </span>
                     </div>
+                    {% if status.status == 'online' %}
                     <div class="metric">
                         <span class="metric-label">Alerts:</span>
                         <span class="metric-value {% if status.alerts > 0 %}metric-warning{% endif %}">
@@ -885,8 +885,8 @@ body.table-view .systems-table {
                     <div class="capacity-text">
                         {{ "%.1f"|format(status.capacity_percent) }}% belegt
                     </div>
+                    {% endif %}
                 </div>
-                {% endif %}
                 
                 {% if status.error %}
                 <div class="error-message">{{ status.error }}</div>
@@ -962,18 +962,14 @@ body.table-view .systems-table {
                             </span>
                         </td>
                         <td>
-                            {% if status.status == 'online' %}
                             <span class="metric-value metric-{{ status.hardware_status }}">
                                 {{ status.hardware_status|upper }}
                             </span>
-                            {% else %}-{% endif %}
                         </td>
                         <td>
-                            {% if status.status == 'online' %}
                             <span class="metric-value metric-{{ status.cluster_status }}">
                                 {{ status.cluster_status|upper }}
                             </span>
-                            {% else %}-{% endif %}
                         </td>
                         <td class="status-cell">
                             {% if status.status == 'online' %}
