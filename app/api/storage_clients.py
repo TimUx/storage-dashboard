@@ -942,6 +942,7 @@ class NetAppStorageGRIDClient(StorageClient):
             
             # Get grid health to verify connectivity
             # API: GET /api/v4/grid/health
+            # This endpoint returns counts of alarms, alerts, and nodes - no general health field exists
             hardware_status = 'ok'
             cluster_status = 'ok'
             try:
@@ -956,21 +957,16 @@ class NetAppStorageGRIDClient(StorageClient):
                     health_data = health_response.json()
                     data = health_data.get('data', {})
                     
-                    # Check overall health status
-                    # Only warn if there's an actual health issue, not for unknown/missing states
-                    if 'health' in data:
-                        health_state = data.get('health')
-                        if health_state and health_state.lower() not in STORAGEGRID_HEALTHY_GRID_STATES:
-                            # Check if it's truly an error state or just unknown
-                            if health_state.lower() != 'unknown':
-                                hardware_status = 'warning'
-                                logger.warning(f"StorageGRID health issue for {self.ip_address}: {health_state}")
-                            else:
-                                # Unknown state - log at debug level to avoid spam
-                                logger.debug(f"StorageGRID health state unknown for {self.ip_address}")
-                    else:
-                        # Health field not present in API response - this is normal for some API versions
-                        logger.debug(f"StorageGRID health field not present in API response for {self.ip_address}")
+                    # Parse grid health statistics for reference
+                    # The actual health status will be determined from alerts and node health
+                    alarms = data.get('alarms', {})
+                    grid_alerts = data.get('alerts', {})
+                    nodes = data.get('nodes', {})
+                    
+                    logger.debug(f"StorageGRID health stats for {self.ip_address}: "
+                               f"Alarms(critical={alarms.get('critical', 0)}, major={alarms.get('major', 0)}), "
+                               f"Alerts(critical={grid_alerts.get('critical', 0)}, major={grid_alerts.get('major', 0)}), "
+                               f"Nodes(connected={nodes.get('connected', 0)}, unknown={nodes.get('unknown', 0)})")
             except Exception as health_error:
                 logger.warning(f"Could not get StorageGRID health for {self.ip_address}: {health_error}")
             
@@ -1001,9 +997,12 @@ class NetAppStorageGRIDClient(StorageClient):
             except Exception as version_error:
                 logger.warning(f"Could not get StorageGRID version for {self.ip_address}: {version_error}")
             
-            # Get alerts count
+            # Get alerts count and severity
             # API: GET /api/v4/grid/alerts?include=active
             alerts_count = 0
+            critical_alerts = 0
+            major_alerts = 0
+            minor_alerts = 0
             try:
                 alerts_response = requests.get(
                     f"{self.base_url}/api/v4/grid/alerts",
@@ -1019,9 +1018,30 @@ class NetAppStorageGRIDClient(StorageClient):
                     # API returns only active alerts with include=active parameter
                     alerts_count = len(alerts_list)
                     
-                    if alerts_count > 0:
-                        logger.info(f"Found {alerts_count} active alerts for StorageGRID {self.ip_address}")
+                    # Count alerts by severity to determine health status
+                    for alert in alerts_list:
+                        severity = alert.get('severity', '').lower()
+                        if severity == 'critical':
+                            critical_alerts += 1
+                        elif severity == 'major':
+                            major_alerts += 1
+                        elif severity == 'minor':
+                            minor_alerts += 1
+                    
+                    # Determine hardware status based on alert severity
+                    if critical_alerts > 0:
+                        hardware_status = 'error'
+                        logger.warning(f"Found {critical_alerts} critical alerts for StorageGRID {self.ip_address}")
+                    elif major_alerts > 0:
                         hardware_status = 'warning'
+                        logger.warning(f"Found {major_alerts} major alerts for StorageGRID {self.ip_address}")
+                    elif minor_alerts > 0:
+                        # Minor alerts don't change status from 'ok', but log for info
+                        logger.info(f"Found {minor_alerts} minor alerts for StorageGRID {self.ip_address}")
+                    
+                    if alerts_count > 0:
+                        logger.info(f"Total active alerts for StorageGRID {self.ip_address}: {alerts_count} "
+                                  f"(critical={critical_alerts}, major={major_alerts}, minor={minor_alerts})")
             except Exception as alerts_error:
                 logger.warning(f"Could not get StorageGRID alerts for {self.ip_address}: {alerts_error}")
             
@@ -1045,6 +1065,7 @@ class NetAppStorageGRIDClient(StorageClient):
                         node_id = node.get('id', '')
                         node_name = node.get('name', 'Unknown')
                         node_state = node.get('state', 'unknown')
+                        node_severity = node.get('severity', 'normal')
                         node_type = node.get('type', 'unknown')
                         site_name = node.get('siteName')
                         site_id = node.get('siteId')
@@ -1057,7 +1078,8 @@ class NetAppStorageGRIDClient(StorageClient):
                             'name': node_name,
                             'id': node_id,
                             'type': node_type,
-                            'status': node_state
+                            'status': node_state,
+                            'severity': node_severity
                         }
                         
                         # Add site information if available
@@ -1066,10 +1088,23 @@ class NetAppStorageGRIDClient(StorageClient):
                         if site_id:
                             node_info['site_id'] = site_id
                         
-                        # Check node health
+                        # Check node health based on state and severity
+                        # State should be 'connected' and severity should be 'normal' for healthy nodes
                         if node_state and node_state.lower() not in STORAGEGRID_HEALTHY_NODE_STATES:
                             hardware_status = 'warning'
-                            logger.warning(f"StorageGRID node {node_name} state: {node_state}")
+                            logger.warning(f"StorageGRID node {node_name} unhealthy state: {node_state}")
+                        
+                        # Check node severity - anything other than 'normal' indicates an issue
+                        if node_severity and node_severity.lower() != 'normal':
+                            severity_level = node_severity.lower()
+                            if severity_level == 'critical':
+                                hardware_status = 'error'
+                                logger.warning(f"StorageGRID node {node_name} critical severity: {node_severity}")
+                            elif severity_level in ['major', 'minor']:
+                                # Only escalate to warning if not already error
+                                if hardware_status != 'error':
+                                    hardware_status = 'warning'
+                                logger.warning(f"StorageGRID node {node_name} {severity_level} severity: {node_severity}")
                         
                         nodes_info.append(node_info)
                     
