@@ -100,14 +100,14 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                     # Try to get network interfaces for this controller
                     try:
                         network_interfaces_response = client.get_network_interfaces(
-                            filter=f'services=\'management\''
+                            filter="services='management'"
                         )
                         if isinstance(network_interfaces_response, flasharray.ValidResponse):
                             interface_items = list(getattr(network_interfaces_response, 'items', []))
                             for intf in interface_items:
                                 # Check if interface belongs to this controller
                                 intf_name = getattr(intf, 'name', '')
-                                if ctrl_name in intf_name or intf_name.startswith(ctrl_name):
+                                if intf_name.startswith(ctrl_name):
                                     intf_address = getattr(intf, 'address', None)
                                     if intf_address:
                                         node_info['ips'].append(intf_address)

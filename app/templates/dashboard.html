@@ -100,6 +100,15 @@ body {
     border: 1px solid var(--border-light);
 }
 
+.auto-refresh-control select {
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: white;
+    color: var(--text-dark);
+}
+
 .auto-refresh-label {
     display: flex;
     align-items: center;
@@ -747,7 +756,7 @@ body.table-view .systems-table {
                             <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh()">
                             <span>Auto-Refresh</span>
                         </label>
-                        <select id="refresh-interval" onchange="changeRefreshInterval()" style="padding: 0.3rem 0.5rem; border: 1px solid var(--border-light); border-radius: 4px; font-size: 0.85rem; background: white; color: var(--text-dark);">
+                        <select id="refresh-interval" onchange="changeRefreshInterval()">
                             <option value="30">30s</option>
                             <option value="45" selected>45s</option>
                             <option value="60">60s</option>
@@ -1003,7 +1012,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Restore refresh interval preference
     const savedInterval = localStorage.getItem('refresh-interval') || '45';
-    refreshTimeSeconds = parseInt(savedInterval);
+    refreshTimeSeconds = parseInt(savedInterval, 10);
     document.getElementById('refresh-interval').value = savedInterval;
     
     // Restore auto-refresh preference
@@ -1018,7 +1027,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function changeRefreshInterval() {
-    const newInterval = parseInt(document.getElementById('refresh-interval').value);
+    const newInterval = parseInt(document.getElementById('refresh-interval').value, 10);
     refreshTimeSeconds = newInterval;
     localStorage.setItem('refresh-interval', newInterval);
     
