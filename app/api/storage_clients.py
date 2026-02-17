@@ -582,11 +582,12 @@ class NetAppONTAPClient(StorageClient):
                             logger.info(f"MetroCluster detected for {self.ip_address}: {configuration_state}")
                             
                             # Store MetroCluster configuration info
+                            local_cluster_from_mc = metrocluster_data.get('local', {}).get('cluster', {}).get('name')
                             metrocluster_info = {
                                 'configuration_state': configuration_state,
                                 'mode': metrocluster_data.get('mode'),  # 'ip' or 'fc'
                                 'uuid': metrocluster_data.get('uuid'),
-                                'local_cluster_name': metrocluster_data.get('local', {}).get('cluster', {}).get('name') or cluster_name,
+                                'local_cluster_name': local_cluster_from_mc if local_cluster_from_mc is not None else cluster_name,
                                 'partner_cluster_name': metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
                             }
                             

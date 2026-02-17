@@ -266,7 +266,8 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                         mc_data = mc_response.json()
                         
                         # Check if response contains error (no MetroCluster)
-                        if 'error' not in mc_data and 'records' not in mc_data or (mc_data.get('records', [True])):
+                        # or if records is empty (another indication of no MetroCluster)
+                        if 'error' not in mc_data and ('records' not in mc_data or mc_data.get('records', [True])):
                             configuration_state = mc_data.get('configuration_state')
                             
                             # Only set MetroCluster enabled if state is "configured"
