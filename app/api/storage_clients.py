@@ -981,13 +981,11 @@ class NetAppStorageGRIDClient(StorageClient):
             
             # Get alerts count
             # API: GET /api/v4/grid/alerts
-            # Filter for active alerts only to reduce response size
             alerts_count = 0
             try:
                 alerts_response = requests.get(
                     f"{self.base_url}/api/v4/grid/alerts",
                     headers=headers,
-                    params={'state': 'active'},  # Filter for active alerts
                     verify=ssl_verify,
                     timeout=10
                 )
@@ -995,8 +993,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 if alerts_response.status_code == 200:
                     alerts_data = alerts_response.json()
                     alerts_list = alerts_data.get('data', [])
-                    # All returned items should be active alerts (filtered by API)
-                    # Keep fallback filtering in case API doesn't support the filter
+                    # Count active/unresolved alerts
                     alerts_count = sum(1 for alert in alerts_list if alert.get('state', '').lower() in STORAGEGRID_ACTIVE_ALERT_STATES)
                     
                     if alerts_count > 0:
