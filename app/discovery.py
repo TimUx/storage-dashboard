@@ -156,6 +156,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         
         # Try to detect ActiveCluster and get peer cluster info
         # REST API v2: GET /api/2.x/pods
+        # An array is ActiveCluster if at least one pod has arrays.length > 1
         try:
             pods_response = requests.get(
                 f"{base_url}/api/{PURE_API_VERSION}/pods",
@@ -168,37 +169,27 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 pods_data = pods_response.json()
                 pod_items = pods_data.get('items', [])
                 
-                if pod_items:
-                    # If pods exist, might be ActiveCluster
-                    discovery_data['cluster_type'] = 'active-cluster'
+                # Check if any pod has multiple arrays (ActiveCluster criteria)
+                for pod in pod_items:
+                    pod_arrays = pod.get('arrays', [])
                     
-                    # Try to get pod array info to find peer cluster
-                    for pod in pod_items:
-                        try:
-                            pod_name = pod.get('name', '')
-                            pod_arrays_response = requests.get(
-                                f"{base_url}/api/{PURE_API_VERSION}/pods/arrays",
-                                headers=headers,
-                                params={'pod_names': pod_name},
-                                verify=ssl_verify,
-                                timeout=API_TIMEOUT
-                            )
-                            
-                            if pod_arrays_response.status_code == 200:
-                                pod_arrays_data = pod_arrays_response.json()
-                                pod_array_items = pod_arrays_data.get('items', [])
-                                
-                                for pod_array in pod_array_items:
-                                    array_name = pod_array.get('name', None)
-                                    # Store partner array name for matching later
-                                    if array_name and discovery_data['partner_info'] is None:
-                                        discovery_data['partner_info'] = {
-                                            'name': array_name,
-                                            'status': pod_array.get('status', 'unknown')
-                                        }
-                                        break
-                        except Exception as pod_error:
-                            logger.debug(f"Could not get pod array info: {pod_error}")
+                    # ActiveCluster is detected when a pod has more than 1 array
+                    if len(pod_arrays) > 1:
+                        discovery_data['cluster_type'] = 'active-cluster'
+                        logger.info(f"ActiveCluster detected: pod '{pod.get('name')}' has {len(pod_arrays)} arrays")
+                        
+                        # Store partner array information (first array found)
+                        # Only one partner is stored for simplicity
+                        for pod_array in pod_arrays:
+                            array_name = pod_array.get('name', None)
+                            if array_name and discovery_data['partner_info'] is None:
+                                discovery_data['partner_info'] = {
+                                    'name': array_name,
+                                    # Status might be available in array object, fallback to 'connected'
+                                    'status': pod_array.get('status', 'connected')
+                                }
+                                break  # Only store first partner array
+                        break  # Exit pod loop after finding first ActiveCluster pod
         except Exception:
             pass  # Not all arrays support pods
         
@@ -259,18 +250,35 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
             if cluster_response.status_code == 200:
                 cluster_data = cluster_response.json()
                 
-                # Check for MetroCluster
-                metrocluster = cluster_data.get('metrocluster', {})
-                if metrocluster:
-                    discovery_data['metrocluster_enabled'] = True
-                    discovery_data['site_count'] = 2
+                # Check for MetroCluster using dedicated endpoint
+                # REST API: GET /api/cluster/metrocluster
+                # Best practice: check configuration_state == "configured"
+                try:
+                    mc_response = requests.get(
+                        f"{base_url}/api/cluster/metrocluster",
+                        auth=auth,
+                        headers=headers,
+                        verify=ssl_verify,
+                        timeout=API_TIMEOUT
+                    )
                     
-                    # Try to get MetroCluster configuration state
-                    try:
-                        mc_state = metrocluster.get('configuration_state', 'unknown')
-                        logger.debug(f"MetroCluster configuration state: {mc_state}")
-                    except Exception as mc_error:
-                        logger.debug(f"Could not get MetroCluster details: {mc_error}")
+                    if mc_response.status_code == 200:
+                        mc_data = mc_response.json()
+                        
+                        # Check if response contains error (no MetroCluster)
+                        # or if records is empty (another indication of no MetroCluster)
+                        if 'error' not in mc_data and ('records' not in mc_data or mc_data.get('records', [True])):
+                            configuration_state = mc_data.get('configuration_state')
+                            
+                            # Only set MetroCluster enabled if state is "configured"
+                            if configuration_state == 'configured':
+                                discovery_data['metrocluster_enabled'] = True
+                                discovery_data['site_count'] = 2
+                                logger.info(f"MetroCluster detected: {configuration_state}, mode: {mc_data.get('mode')}")
+                            else:
+                                logger.debug(f"MetroCluster state: {configuration_state}")
+                except Exception as mc_error:
+                    logger.debug(f"Could not check MetroCluster: {mc_error}")
         except Exception as e:
             logger.warning(f"Could not get cluster info: {e}")
         

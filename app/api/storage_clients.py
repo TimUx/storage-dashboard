@@ -298,8 +298,16 @@ class PureStorageClient(StorageClient):
                     items = controllers_data.get('items', [])
                     
                     for ctrl in items:
+                        ctrl_name = ctrl.get('name', '')
+                        
+                        # Filter out shelf controllers (names containing .SC like SH9.SC0, SH9.SC1)
+                        # These are not actual controller nodes
+                        if '.SC' in ctrl_name:
+                            logger.debug(f"Skipping shelf controller: {ctrl_name}")
+                            continue
+                        
                         controller_info = {
-                            'name': ctrl.get('name'),
+                            'name': ctrl_name,
                             'status': ctrl.get('status'),
                             'mode': ctrl.get('mode'),
                             'model': ctrl.get('model'),
@@ -321,7 +329,7 @@ class PureStorageClient(StorageClient):
                         
                         controllers.append(controller_info)
                     
-                    logger.info(f"Found {len(controllers)} controllers for {self.ip_address}")
+                    logger.info(f"Found {len(controllers)} controllers for {self.ip_address} (shelf controllers filtered out)")
             except Exception as ctrl_error:
                 logger.warning(f"Could not get controllers for {self.ip_address}: {ctrl_error}")
             
@@ -403,6 +411,48 @@ class PureStorageClient(StorageClient):
             except Exception as conn_error:
                 logger.warning(f"Could not get array connections for {self.ip_address}: {conn_error}")
             
+            # Check for ActiveCluster configuration
+            # REST API v2: GET /api/2.x/pods
+            # An array is ActiveCluster if at least one pod has arrays.length > 1
+            is_active_cluster = False
+            pods_info = []
+            try:
+                pods_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/pods",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if pods_response.status_code == 200:
+                    pods_data = pods_response.json()
+                    items = pods_data.get('items', [])
+                    
+                    for pod in items:
+                        # Get arrays for this pod
+                        pod_arrays = pod.get('arrays', [])
+                        
+                        pod_info = {
+                            'name': pod.get('name'),
+                            'source': pod.get('source'),
+                            'arrays': [arr.get('name') for arr in pod_arrays],
+                            'stretch': pod.get('stretch', False)
+                        }
+                        pods_info.append(pod_info)
+                        
+                        # ActiveCluster detection: pod must have more than 1 array
+                        if len(pod_arrays) > 1:
+                            is_active_cluster = True
+                            logger.info(f"ActiveCluster detected: pod '{pod.get('name')}' has {len(pod_arrays)} arrays")
+                    
+                    if is_active_cluster:
+                        logger.info(f"ActiveCluster confirmed for {self.ip_address} with {len(pods_info)} pods")
+                    elif pods_info:
+                        logger.debug(f"Pods exist for {self.ip_address} but no ActiveCluster (all pods have single array)")
+            except Exception as pods_error:
+                # Pods endpoint might not be available on all arrays
+                logger.debug(f"Could not check pods for {self.ip_address}: {pods_error}")
+            
             # Logout to clean up the session
             try:
                 requests.post(
@@ -426,7 +476,9 @@ class PureStorageClient(StorageClient):
                 os_version=os_version,
                 api_version=api_version,
                 controllers=controllers,
-                array_connections=array_connections
+                array_connections=array_connections,
+                is_active_cluster=is_active_cluster,
+                pods_info=pods_info if pods_info else None
             )
                 
         except Exception as e:
@@ -488,10 +540,17 @@ class NetAppONTAPClient(StorageClient):
                 )
             
             # Check for MetroCluster configuration and get detailed information
+            # Best practice: combine multiple endpoints for complete picture
+            # 1. GET /api/cluster - local cluster info
+            # 2. GET /api/cluster/metrocluster - MetroCluster state
+            # 3. GET /api/cluster/peers - remote cluster info
+            # 4. GET /api/cluster/metrocluster/nodes - all nodes (local + remote)
+            # 5. GET /api/cluster/metrocluster/dr-groups - peer relationships
             is_metrocluster = False
             metrocluster_info = {}
             metrocluster_nodes = []
             metrocluster_dr_groups = []
+            metrocluster_peers = []
             
             try:
                 # Get MetroCluster configuration
@@ -506,79 +565,195 @@ class NetAppONTAPClient(StorageClient):
                 
                 if metrocluster_response.status_code == 200:
                     metrocluster_data = metrocluster_response.json()
-                    # Check if MetroCluster is configured
-                    configuration_state = metrocluster_data.get('configuration_state')
-                    if configuration_state and configuration_state != 'not_configured':
-                        is_metrocluster = True
-                        logger.info(f"MetroCluster detected for {self.ip_address}: {configuration_state}")
+                    
+                    # Check if response contains error (no MetroCluster configured)
+                    if 'error' in metrocluster_data:
+                        logger.debug(f"No MetroCluster configured for {self.ip_address}: {metrocluster_data.get('error', {}).get('message')}")
+                    # Check if records is empty (another way to indicate no MetroCluster)
+                    elif 'records' in metrocluster_data and not metrocluster_data['records']:
+                        logger.debug(f"No MetroCluster records for {self.ip_address}")
+                    else:
+                        # Check if MetroCluster is configured
+                        # Possible values: configured, not_configured, partial, degraded
+                        configuration_state = metrocluster_data.get('configuration_state')
                         
-                        # Store MetroCluster configuration info
-                        metrocluster_info = {
-                            'configuration_state': configuration_state,
-                            'mode': metrocluster_data.get('mode'),
-                            'local_cluster_name': metrocluster_data.get('local', {}).get('cluster', {}).get('name'),
-                            'partner_cluster_name': metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
-                        }
-                        
-                        # Get MetroCluster nodes information
-                        # REST API: GET /api/cluster/metrocluster/nodes
-                        try:
-                            mc_nodes_response = requests.get(
-                                f"{self.base_url}/api/cluster/metrocluster/nodes",
-                                auth=auth,
-                                headers=headers,
-                                verify=ssl_verify,
-                                timeout=10
-                            )
+                        if configuration_state == 'configured':
+                            is_metrocluster = True
+                            logger.info(f"MetroCluster detected for {self.ip_address}: {configuration_state}")
                             
-                            if mc_nodes_response.status_code == 200:
-                                mc_nodes_data = mc_nodes_response.json()
-                                records = mc_nodes_data.get('records', [])
-                                
-                                for node in records:
-                                    node_info = {
-                                        'name': node.get('name'),
-                                        'cluster': node.get('cluster', {}).get('name'),
-                                        'dr_group_id': node.get('dr_group_id'),
-                                        'dr_partner': node.get('dr_partner', {}).get('name'),
-                                        'ha_partner': node.get('ha_partner', {}).get('name'),
-                                        'type': 'metrocluster-node'
-                                    }
-                                    metrocluster_nodes.append(node_info)
-                                
-                                logger.info(f"Found {len(metrocluster_nodes)} MetroCluster nodes for {self.ip_address}")
-                        except Exception as mc_nodes_error:
-                            logger.warning(f"Could not get MetroCluster nodes for {self.ip_address}: {mc_nodes_error}")
-                        
-                        # Get MetroCluster DR groups information
-                        # REST API: GET /api/cluster/metrocluster/dr-groups
-                        try:
-                            dr_groups_response = requests.get(
-                                f"{self.base_url}/api/cluster/metrocluster/dr-groups",
-                                auth=auth,
-                                headers=headers,
-                                verify=ssl_verify,
-                                timeout=10
-                            )
+                            # Store MetroCluster configuration info
+                            local_cluster_from_mc = metrocluster_data.get('local', {}).get('cluster', {}).get('name')
+                            metrocluster_info = {
+                                'configuration_state': configuration_state,
+                                'mode': metrocluster_data.get('mode'),  # 'ip' or 'fc'
+                                'uuid': metrocluster_data.get('uuid'),
+                                'local_cluster_name': local_cluster_from_mc if local_cluster_from_mc is not None else cluster_name,
+                                'partner_cluster_name': metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
+                            }
                             
-                            if dr_groups_response.status_code == 200:
-                                dr_groups_data = dr_groups_response.json()
-                                records = dr_groups_data.get('records', [])
+                            # Extract nodes directly from metrocluster response if available
+                            nodes_in_response = metrocluster_data.get('nodes', [])
+                            if nodes_in_response:
+                                logger.debug(f"Found {len(nodes_in_response)} nodes in MetroCluster response")
+                            
+                            # Extract DR groups directly from metrocluster response if available
+                            dr_groups_in_response = metrocluster_data.get('dr_groups', [])
+                            if dr_groups_in_response:
+                                logger.debug(f"Found {len(dr_groups_in_response)} DR groups in MetroCluster response")
+                            
+                            # Get cluster peers to identify remote MetroCluster cluster
+                            # REST API: GET /api/cluster/peers
+                            try:
+                                peers_response = requests.get(
+                                    f"{self.base_url}/api/cluster/peers",
+                                    auth=auth,
+                                    headers=headers,
+                                    verify=ssl_verify,
+                                    timeout=10
+                                )
                                 
-                                for dr_group in records:
-                                    dr_group_info = {
-                                        'id': dr_group.get('id'),
-                                        'local_nodes': [n.get('name') for n in dr_group.get('local', {}).get('nodes', [])],
-                                        'partner_nodes': [n.get('name') for n in dr_group.get('partner', {}).get('nodes', [])],
-                                    }
-                                    metrocluster_dr_groups.append(dr_group_info)
+                                if peers_response.status_code == 200:
+                                    peers_data = peers_response.json()
+                                    records = peers_data.get('records', [])
+                                    
+                                    for peer in records:
+                                        peer_info = {
+                                            'name': peer.get('name'),
+                                            'uuid': peer.get('uuid'),
+                                            'location': peer.get('location'),
+                                            'state': peer.get('state'),  # 'available' = active
+                                            'health': peer.get('health'),  # 'healthy' = OK
+                                            'ip_addresses': peer.get('remote', {}).get('ip_addresses', [])
+                                        }
+                                        metrocluster_peers.append(peer_info)
+                                    
+                                    if metrocluster_peers:
+                                        logger.info(f"Found {len(metrocluster_peers)} MetroCluster peer cluster(s) for {self.ip_address}")
+                                        # Update partner cluster name from peer info if not set
+                                        if not metrocluster_info.get('partner_cluster_name') and metrocluster_peers:
+                                            metrocluster_info['partner_cluster_name'] = metrocluster_peers[0]['name']
+                            except Exception as peers_error:
+                                logger.warning(f"Could not get cluster peers for {self.ip_address}: {peers_error}")
+                            
+                            # Get MetroCluster nodes information (includes both local and remote nodes)
+                            # REST API: GET /api/cluster/metrocluster/nodes
+                            try:
+                                mc_nodes_response = requests.get(
+                                    f"{self.base_url}/api/cluster/metrocluster/nodes",
+                                    auth=auth,
+                                    headers=headers,
+                                    verify=ssl_verify,
+                                    timeout=10
+                                )
                                 
-                                logger.info(f"Found {len(metrocluster_dr_groups)} MetroCluster DR groups for {self.ip_address}")
-                        except Exception as dr_groups_error:
-                            logger.warning(f"Could not get MetroCluster DR groups for {self.ip_address}: {dr_groups_error}")
+                                if mc_nodes_response.status_code == 200:
+                                    mc_nodes_data = mc_nodes_response.json()
+                                    records = mc_nodes_data.get('records', [])
+                                    
+                                    for node in records:
+                                        node_cluster = node.get('cluster', {}).get('name')
+                                        node_info = {
+                                            'name': node.get('name'),
+                                            'cluster': node_cluster,
+                                            'is_local': node_cluster == cluster_name,  # Distinguish local vs remote
+                                            'dr_group_id': node.get('dr_group_id'),
+                                            'dr_partner': node.get('dr_partner', {}).get('name'),
+                                            'ha_partner': node.get('ha_partner', {}).get('name'),
+                                            'configuration_state': node.get('configuration_state'),
+                                            'type': 'metrocluster-node'
+                                        }
+                                        metrocluster_nodes.append(node_info)
+                                    
+                                    local_nodes = [n for n in metrocluster_nodes if n.get('is_local')]
+                                    remote_nodes = [n for n in metrocluster_nodes if not n.get('is_local')]
+                                    logger.info(f"Found {len(local_nodes)} local and {len(remote_nodes)} remote MetroCluster nodes for {self.ip_address}")
+                            except Exception as mc_nodes_error:
+                                logger.warning(f"Could not get MetroCluster nodes for {self.ip_address}: {mc_nodes_error}")
+                            
+                            # Get MetroCluster DR groups information (shows peer relationships)
+                            # REST API: GET /api/cluster/metrocluster/dr-groups
+                            try:
+                                dr_groups_response = requests.get(
+                                    f"{self.base_url}/api/cluster/metrocluster/dr-groups",
+                                    auth=auth,
+                                    headers=headers,
+                                    verify=ssl_verify,
+                                    timeout=10
+                                )
+                                
+                                if dr_groups_response.status_code == 200:
+                                    dr_groups_data = dr_groups_response.json()
+                                    records = dr_groups_data.get('records', [])
+                                    
+                                    for dr_group in records:
+                                        dr_group_info = {
+                                            'id': dr_group.get('id'),
+                                            'uuid': dr_group.get('uuid'),
+                                            'local_nodes': [n.get('name') for n in dr_group.get('local', {}).get('nodes', [])],
+                                            'partner_nodes': [n.get('name') for n in dr_group.get('partner', {}).get('nodes', [])],
+                                        }
+                                        metrocluster_dr_groups.append(dr_group_info)
+                                    
+                                    logger.info(f"Found {len(metrocluster_dr_groups)} MetroCluster DR groups for {self.ip_address}")
+                            except Exception as dr_groups_error:
+                                logger.warning(f"Could not get MetroCluster DR groups for {self.ip_address}: {dr_groups_error}")
+                        elif configuration_state in ['not_configured', 'partial', 'degraded']:
+                            logger.info(f"MetroCluster state for {self.ip_address}: {configuration_state}")
+                        else:
+                            logger.debug(f"Unknown MetroCluster state for {self.ip_address}: {configuration_state}")
             except Exception as mc_error:
                 # MetroCluster endpoint might not be available if not configured
                 logger.debug(f"Could not check MetroCluster status for {self.ip_address}: {mc_error}")
+            
+            # Get regular cluster nodes information (with model, serial number, etc.)
+            # REST API: GET /api/cluster/nodes?fields=name,state,model,serial_number,version
+            cluster_nodes = []
+            try:
+                nodes_response = requests.get(
+                    f"{self.base_url}/api/cluster/nodes",
+                    auth=auth,
+                    headers=headers,
+                    params={'fields': 'name,state,model,serial_number,version'},
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if nodes_response.status_code == 200:
+                    nodes_data = nodes_response.json()
+                    records = nodes_data.get('records', [])
+                    
+                    for node in records:
+                        # Extract version info
+                        version_info = node.get('version', {})
+                        version_full = version_info.get('full', 'unknown') if isinstance(version_info, dict) else 'unknown'
+                        
+                        node_info = {
+                            'name': node.get('name', 'Unknown'),
+                            'status': node.get('state', 'unknown'),
+                            'model': node.get('model', 'unknown'),
+                            'serial': node.get('serial_number', 'unknown'),
+                            'version': version_full,
+                            'type': 'cluster-node'
+                        }
+                        cluster_nodes.append(node_info)
+                    
+                    logger.info(f"Found {len(cluster_nodes)} cluster nodes for {self.ip_address}")
+            except Exception as nodes_error:
+                logger.warning(f"Could not get cluster nodes for {self.ip_address}: {nodes_error}")
+            
+            # Merge cluster node info with MetroCluster node info if both exist
+            # This enriches MetroCluster nodes with model/serial information
+            if metrocluster_nodes and cluster_nodes:
+                for mc_node in metrocluster_nodes:
+                    # Find corresponding cluster node
+                    for cluster_node in cluster_nodes:
+                        if mc_node['name'] == cluster_node['name']:
+                            # Merge the information
+                            mc_node['model'] = cluster_node.get('model', 'unknown')
+                            mc_node['serial'] = cluster_node.get('serial', 'unknown')
+                            mc_node['version'] = cluster_node.get('version', 'unknown')
+                            mc_node['status'] = cluster_node.get('status', 'unknown')
+                            break
             
             # Get aggregate space info
             # REST API: GET /api/storage/aggregates?fields=space
@@ -627,7 +802,8 @@ class NetAppONTAPClient(StorageClient):
                 metrocluster_info=metrocluster_info if metrocluster_info else None,
                 metrocluster_nodes=metrocluster_nodes if metrocluster_nodes else None,
                 metrocluster_dr_groups=metrocluster_dr_groups if metrocluster_dr_groups else None,
-                controllers=metrocluster_nodes if metrocluster_nodes else None  # Store MC nodes as controllers for display
+                metrocluster_peers=metrocluster_peers if metrocluster_peers else None,
+                controllers=metrocluster_nodes if metrocluster_nodes else cluster_nodes  # Use MetroCluster nodes if available, otherwise regular cluster nodes
             )
         except Exception as e:
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
@@ -764,72 +940,117 @@ class NetAppStorageGRIDClient(StorageClient):
             except Exception as node_health_error:
                 logger.warning(f"Could not get StorageGRID node health for {self.ip_address}: {node_health_error}")
             
-            # Get capacity info from storage usage API
-            total_bytes = 0
-            used_bytes = 0
-            
+            # Get grid sites information to determine if multi-site
+            # API: GET /api/v4/grid/sites
+            site_count = 1
+            sites_info = []
             try:
-                # Try multiple endpoints for capacity information
-                # First try: /api/v4/grid/storage-usage
-                usage_response = requests.get(
-                    f"{self.base_url}/api/v4/grid/storage-usage",
+                sites_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/sites",
                     headers=headers,
                     verify=ssl_verify,
                     timeout=10
                 )
                 
-                if usage_response.status_code == 200:
-                    usage_data = usage_response.json()
-                    logger.info(f"StorageGRID usage response: {usage_data}")
+                if sites_response.status_code == 200:
+                    sites_data = sites_response.json()
+                    sites_list = sites_data.get('data', [])
                     
-                    # Parse storage usage data using helper function
-                    # StorageGRID API v4 returns data in 'data' object or at root level
-                    data = usage_data.get('data', usage_data)
+                    if sites_list:
+                        site_count = len(sites_list)
+                        for site in sites_list:
+                            site_info = {
+                                'id': site.get('id'),
+                                'name': site.get('name', 'Unknown Site')
+                            }
+                            sites_info.append(site_info)
+                        
+                        logger.info(f"Found {site_count} sites in StorageGRID {self.ip_address}")
+            except Exception as sites_error:
+                logger.warning(f"Could not get StorageGRID sites for {self.ip_address}: {sites_error}")
+            
+            # Get capacity info using metric-query API
+            # StorageGRID uses Prometheus-style metrics
+            total_bytes = 0
+            used_bytes = 0
+            
+            try:
+                # Query total space metric
+                # API: GET /api/v4/grid/metric-query?query=storagegrid_storage_utilization_total_space_bytes
+                total_metric_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/metric-query",
+                    headers=headers,
+                    params={
+                        'query': 'storagegrid_storage_utilization_total_space_bytes',
+                        'timeout': '30s'
+                    },
+                    verify=ssl_verify,
+                    timeout=35  # Allow enough time for the API-level timeout (30s) plus network overhead
+                )
+                
+                if total_metric_response.status_code == 200:
+                    total_metric_data = total_metric_response.json()
                     
-                    # Try different possible field names for total capacity
-                    total_bytes = extract_field_with_fallbacks(data, [
-                        'storageTotalBytes', 
-                        'totalCapacityBytes', 
-                        'totalCapacity'
-                    ]) or 0
+                    # Parse metric query response
+                    # Response format: {"data": {"resultType": "vector", "result": [{"metric": {...}, "value": [timestamp, "value"]}]}}
+                    data = total_metric_data.get('data', {})
+                    results = data.get('result', [])
                     
-                    # Try different possible field names for used capacity
-                    used_bytes = extract_field_with_fallbacks(data, [
-                        'storageUsedBytes',
-                        'usedCapacityBytes',
-                        'objectDataUsedBytes',
-                        'usedCapacity'
-                    ]) or 0
+                    # Sum up total space from all storage nodes
+                    for result in results:
+                        value_array = result.get('value', [])
+                        if len(value_array) >= 2:
+                            # value is [timestamp, "bytes_value"]
+                            try:
+                                node_total = int(value_array[1])
+                                total_bytes += node_total
+                            except (ValueError, TypeError) as e:
+                                # Include node identifier for easier debugging
+                                metric_info = result.get('metric', {})
+                                node_id = metric_info.get('instance', metric_info.get('node_id', 'unknown'))
+                                logger.debug(f"Could not parse total space value for node {node_id}: {value_array[1]}, error: {e}")
                     
-                    # If we still don't have capacity, try alternative approach
-                    if total_bytes == 0:
-                        # Try getting capacity from storage nodes
-                        try:
-                            nodes_response = requests.get(
-                                f"{self.base_url}/api/v4/grid/storage-nodes",
-                                headers=headers,
-                                verify=ssl_verify,
-                                timeout=10
-                            )
-                            
-                            if nodes_response.status_code == 200:
-                                nodes_data = nodes_response.json()
-                                nodes = nodes_data.get('data', [])
-                                
-                                for node in nodes:
-                                    # Sum up capacity from all storage nodes
-                                    storage = node.get('storage', {})
-                                    total_bytes += storage.get('totalCapacity', 0) or 0
-                                    used_bytes += storage.get('usedCapacity', 0) or 0
-                        except Exception as nodes_error:
-                            logger.warning(f"Could not get StorageGRID nodes capacity: {nodes_error}")
+                    logger.info(f"StorageGRID total capacity from {len(results)} nodes: {total_bytes} bytes")
+                
+                # Query used data metric
+                # API: GET /api/v4/grid/metric-query?query=storagegrid_storage_utilization_data_bytes
+                used_metric_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/metric-query",
+                    headers=headers,
+                    params={
+                        'query': 'storagegrid_storage_utilization_data_bytes',
+                        'timeout': '30s'
+                    },
+                    verify=ssl_verify,
+                    timeout=35  # Allow enough time for the API-level timeout (30s) plus network overhead
+                )
+                
+                if used_metric_response.status_code == 200:
+                    used_metric_data = used_metric_response.json()
                     
-                    # Log for debugging
-                    logger.info(f"StorageGRID capacity: total={total_bytes} bytes, used={used_bytes} bytes")
+                    # Parse metric query response
+                    data = used_metric_data.get('data', {})
+                    results = data.get('result', [])
+                    
+                    # Sum up used space from all storage nodes
+                    for result in results:
+                        value_array = result.get('value', [])
+                        if len(value_array) >= 2:
+                            # value is [timestamp, "bytes_value"]
+                            try:
+                                node_used = int(value_array[1])
+                                used_bytes += node_used
+                            except (ValueError, TypeError) as e:
+                                # Include node identifier for easier debugging
+                                metric_info = result.get('metric', {})
+                                node_id = metric_info.get('instance', metric_info.get('node_id', 'unknown'))
+                                logger.debug(f"Could not parse used space value for node {node_id}: {value_array[1]}, error: {e}")
+                    
+                    logger.info(f"StorageGRID used capacity from {len(results)} nodes: {used_bytes} bytes")
                         
             except Exception as usage_error:
                 # Log but don't fail if we can't get capacity
-                logger.warning(f"Could not get StorageGRID storage usage: {usage_error}")
+                logger.warning(f"Could not get StorageGRID storage metrics: {usage_error}")
             
             # Convert bytes to TB (1 TB = 1024^4 bytes)
             total_tb = total_bytes / (1024**4) if total_bytes > 0 else 0.0
@@ -843,7 +1064,9 @@ class NetAppStorageGRIDClient(StorageClient):
                 total_tb=total_tb,
                 used_tb=used_tb,
                 os_version=os_version,
-                controllers=nodes_info if nodes_info else None
+                controllers=nodes_info if nodes_info else None,
+                site_count=site_count,
+                sites_info=sites_info if sites_info else None
             )
         except Exception as e:
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
