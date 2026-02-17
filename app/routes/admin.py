@@ -1,17 +1,58 @@
 """Admin routes for managing storage systems"""
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, session
+from flask_login import login_user, logout_user, login_required, current_user
 from app import db
-from app.models import StorageSystem, Certificate
+from app.models import StorageSystem, Certificate, AdminUser, AppSettings
 from app.discovery import auto_discover_system
 from datetime import datetime
 import logging
 import io
+import json
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 logger = logging.getLogger(__name__)
 
 
+# Authentication routes
+
+@bp.route('/login', methods=['GET', 'POST'])
+def login():
+    """Admin login page"""
+    if current_user.is_authenticated:
+        return redirect(url_for('admin.index'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        user = AdminUser.query.filter_by(username=username).first()
+        
+        if user and user.check_password(password) and user.is_active:
+            login_user(user)
+            user.last_login = datetime.utcnow()
+            db.session.commit()
+            
+            next_page = request.args.get('next')
+            if next_page and next_page.startswith('/admin'):
+                return redirect(next_page)
+            return redirect(url_for('admin.index'))
+        else:
+            flash('Ungültiger Benutzername oder Passwort', 'error')
+    
+    return render_template('admin/login.html')
+
+
+@bp.route('/logout')
+@login_required
+def logout():
+    """Logout admin user"""
+    logout_user()
+    flash('Sie wurden erfolgreich abgemeldet', 'success')
+    return redirect(url_for('admin.login'))
+
+
 @bp.route('/')
+@login_required
 def index():
     """Admin dashboard"""
     systems = StorageSystem.query.all()
@@ -19,6 +60,7 @@ def index():
 
 
 @bp.route('/systems/new', methods=['GET', 'POST'])
+@login_required
 def new_system():
     """Create new storage system with auto-discovery"""
     if request.method == 'POST':
@@ -74,6 +116,7 @@ def new_system():
 
 
 @bp.route('/systems/<int:system_id>/edit', methods=['GET', 'POST'])
+@login_required
 def edit_system(system_id):
     """Edit storage system"""
     system = StorageSystem.query.get_or_404(system_id)
@@ -99,6 +142,7 @@ def edit_system(system_id):
 
 
 @bp.route('/systems/<int:system_id>/rediscover', methods=['POST'])
+@login_required
 def rediscover_system(system_id):
     """Re-run discovery for a system"""
     system = StorageSystem.query.get_or_404(system_id)
@@ -139,6 +183,7 @@ def rediscover_system(system_id):
 
 
 @bp.route('/systems/<int:system_id>/delete', methods=['POST'])
+@login_required
 def delete_system(system_id):
     """Delete storage system"""
     try:
@@ -153,6 +198,7 @@ def delete_system(system_id):
 
 
 @bp.route('/docs')
+@login_required
 def docs():
     """API setup documentation"""
     return render_template('admin/docs.html')
@@ -161,6 +207,7 @@ def docs():
 # Certificate Management Routes
 
 @bp.route('/certificates')
+@login_required
 def certificates():
     """List all certificates"""
     certs = Certificate.query.all()
@@ -168,6 +215,7 @@ def certificates():
 
 
 @bp.route('/certificates/new', methods=['GET', 'POST'])
+@login_required
 def new_certificate():
     """Upload new certificate"""
     if request.method == 'POST':
@@ -230,6 +278,7 @@ def new_certificate():
 
 
 @bp.route('/certificates/<int:cert_id>/edit', methods=['GET', 'POST'])
+@login_required
 def edit_certificate(cert_id):
     """Edit certificate"""
     certificate = Certificate.query.get_or_404(cert_id)
@@ -275,6 +324,7 @@ def edit_certificate(cert_id):
 
 
 @bp.route('/certificates/<int:cert_id>/toggle', methods=['POST'])
+@login_required
 def toggle_certificate(cert_id):
     """Toggle certificate enabled status"""
     try:
@@ -292,6 +342,7 @@ def toggle_certificate(cert_id):
 
 
 @bp.route('/certificates/<int:cert_id>/download')
+@login_required
 def download_certificate(cert_id):
     """Download certificate as PEM file"""
     try:
@@ -316,6 +367,7 @@ def download_certificate(cert_id):
 
 
 @bp.route('/certificates/<int:cert_id>/delete', methods=['POST'])
+@login_required
 def delete_certificate(cert_id):
     """Delete certificate"""
     try:
@@ -329,3 +381,192 @@ def delete_certificate(cert_id):
         flash(f'Fehler beim Löschen: {str(e)}', 'error')
     
     return redirect(url_for('admin.certificates'))
+
+
+# Export/Import Routes
+
+@bp.route('/export')
+@login_required
+def export_systems():
+    """Export all storage systems as JSON"""
+    try:
+        systems = StorageSystem.query.all()
+        export_data = {
+            'version': '1.0',
+            'export_date': datetime.utcnow().isoformat(),
+            'systems': []
+        }
+        
+        for system in systems:
+            system_data = {
+                'name': system.name,
+                'vendor': system.vendor,
+                'ip_address': system.ip_address,
+                'port': system.port,
+                'api_username': system.api_username,  # Will be decrypted
+                'api_password': system.api_password,  # Will be decrypted
+                'api_token': system.api_token,  # Will be decrypted
+                'enabled': system.enabled,
+                'cluster_type': system.cluster_type,
+                'node_count': system.node_count,
+                'site_count': system.site_count,
+                'dns_names': system.get_dns_names(),
+                'all_ips': system.get_all_ips(),
+            }
+            export_data['systems'].append(system_data)
+        
+        # Create JSON file
+        json_data = json.dumps(export_data, indent=2)
+        json_bytes = json_data.encode('utf-8')
+        json_io = io.BytesIO(json_bytes)
+        
+        filename = f"storage_systems_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        return send_file(
+            json_io,
+            mimetype='application/json',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        logger.error(f'Error exporting systems: {e}', exc_info=True)
+        flash(f'Fehler beim Exportieren: {str(e)}', 'error')
+        return redirect(url_for('admin.index'))
+
+
+@bp.route('/import', methods=['GET', 'POST'])
+@login_required
+def import_systems():
+    """Import storage systems from JSON"""
+    if request.method == 'POST':
+        try:
+            if 'import_file' not in request.files:
+                flash('Keine Datei hochgeladen', 'error')
+                return redirect(url_for('admin.import_systems'))
+            
+            import_file = request.files['import_file']
+            if import_file.filename == '':
+                flash('Keine Datei ausgewählt', 'error')
+                return redirect(url_for('admin.import_systems'))
+            
+            # Read and parse JSON
+            try:
+                import_data = json.loads(import_file.read().decode('utf-8'))
+            except Exception as e:
+                flash(f'Ungültige JSON-Datei: {str(e)}', 'error')
+                return redirect(url_for('admin.import_systems'))
+            
+            # Validate structure
+            if 'systems' not in import_data:
+                flash('Ungültiges Dateiformat: "systems" nicht gefunden', 'error')
+                return redirect(url_for('admin.import_systems'))
+            
+            imported_count = 0
+            skipped_count = 0
+            
+            for system_data in import_data['systems']:
+                # Check if system already exists
+                existing = StorageSystem.query.filter_by(name=system_data['name']).first()
+                if existing:
+                    skipped_count += 1
+                    continue
+                
+                # Create new system
+                system = StorageSystem(
+                    name=system_data['name'],
+                    vendor=system_data['vendor'],
+                    ip_address=system_data['ip_address'],
+                    port=system_data.get('port', 443),
+                    api_username=system_data.get('api_username'),  # Will be encrypted
+                    api_password=system_data.get('api_password'),  # Will be encrypted
+                    api_token=system_data.get('api_token'),  # Will be encrypted
+                    enabled=system_data.get('enabled', True),
+                    cluster_type=system_data.get('cluster_type'),
+                    node_count=system_data.get('node_count'),
+                    site_count=system_data.get('site_count'),
+                )
+                
+                system.set_dns_names(system_data.get('dns_names', []))
+                system.set_all_ips(system_data.get('all_ips', []))
+                
+                db.session.add(system)
+                imported_count += 1
+            
+            db.session.commit()
+            
+            flash(f'Import erfolgreich: {imported_count} Systeme importiert, {skipped_count} übersprungen (bereits vorhanden)', 'success')
+            return redirect(url_for('admin.index'))
+            
+        except Exception as e:
+            logger.error(f'Error importing systems: {e}', exc_info=True)
+            flash(f'Fehler beim Importieren: {str(e)}', 'error')
+    
+    return render_template('admin/import.html')
+
+
+# Settings Routes
+
+@bp.route('/settings', methods=['GET', 'POST'])
+@login_required
+def settings():
+    """Application settings and customization"""
+    # Get or create settings
+    app_settings = AppSettings.query.first()
+    if not app_settings:
+        app_settings = AppSettings()
+        db.session.add(app_settings)
+        db.session.commit()
+    
+    if request.method == 'POST':
+        try:
+            # Update colors
+            app_settings.primary_color = request.form.get('primary_color', '#A70240')
+            app_settings.secondary_color = request.form.get('secondary_color', '#BED600')
+            app_settings.accent_color = request.form.get('accent_color', '#0098DB')
+            app_settings.company_name = request.form.get('company_name', 'Storage Dashboard')
+            
+            # Handle logo upload
+            if 'logo_file' in request.files:
+                logo_file = request.files['logo_file']
+                if logo_file.filename != '':
+                    # Validate file type
+                    if logo_file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.svg', '.gif')):
+                        app_settings.logo_filename = logo_file.filename
+                        app_settings.logo_data = logo_file.read()
+                    else:
+                        flash('Ungültiges Dateiformat. Nur PNG, JPG, SVG, GIF erlaubt.', 'warning')
+            
+            db.session.commit()
+            flash('Einstellungen gespeichert', 'success')
+            return redirect(url_for('admin.settings'))
+            
+        except Exception as e:
+            logger.error(f'Error saving settings: {e}', exc_info=True)
+            flash(f'Fehler beim Speichern: {str(e)}', 'error')
+    
+    return render_template('admin/settings.html', settings=app_settings)
+
+
+@bp.route('/settings/logo')
+def settings_logo():
+    """Serve the custom logo"""
+    app_settings = AppSettings.query.first()
+    if app_settings and app_settings.logo_data:
+        # Determine mimetype from filename
+        mimetype = 'image/png'
+        if app_settings.logo_filename:
+            if app_settings.logo_filename.lower().endswith('.svg'):
+                mimetype = 'image/svg+xml'
+            elif app_settings.logo_filename.lower().endswith(('.jpg', '.jpeg')):
+                mimetype = 'image/jpeg'
+            elif app_settings.logo_filename.lower().endswith('.gif'):
+                mimetype = 'image/gif'
+        
+        return send_file(
+            io.BytesIO(app_settings.logo_data),
+            mimetype=mimetype
+        )
+    
+    # Return 404 if no logo
+    return '', 404
+

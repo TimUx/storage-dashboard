@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Einstellungen - Storage Dashboard{% endblock %}
+
+{% block styles %}
+.settings-container {
+    max-width: 800px;
+    margin: 2rem auto;
+}
+
+.settings-section {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 2rem;
+}
+
+.settings-section h2 {
+    color: #2c3e50;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #f0f0f0;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.form-group input[type="text"],
+.form-group input[type="color"] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+}
+
+.form-group input[type="color"] {
+    height: 50px;
+    cursor: pointer;
+}
+
+.form-group input[type="file"] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px dashed #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #0098DB;
+}
+
+.color-preview {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.color-box {
+    flex: 1;
+    padding: 1rem;
+    border-radius: 6px;
+    text-align: center;
+    color: white;
+    font-weight: 600;
+}
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+    margin-right: 0.5rem;
+}
+
+.btn-primary {
+    background: #0098DB;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #007ab8;
+}
+
+.btn-secondary {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #7f8c8d;
+}
+
+.logo-preview {
+    max-width: 200px;
+    max-height: 100px;
+    margin-top: 1rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+
+.info-text {
+    font-size: 0.9rem;
+    color: #666;
+    margin-top: 0.5rem;
+}
+{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <h1>⚙️ Einstellungen</h1>
+    
+    <form method="POST" enctype="multipart/form-data">
+        <!-- Company Information -->
+        <div class="settings-section">
+            <h2>Firmeninformationen</h2>
+            
+            <div class="form-group">
+                <label for="company_name">Firmenname</label>
+                <input type="text" id="company_name" name="company_name" 
+                       value="{{ settings.company_name }}" required>
+                <p class="info-text">Wird im Titel der Anwendung angezeigt</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="logo_file">Firmenlogo</label>
+                <input type="file" id="logo_file" name="logo_file" 
+                       accept=".png,.jpg,.jpeg,.svg,.gif">
+                <p class="info-text">Erlaubte Formate: PNG, JPG, SVG, GIF</p>
+                {% if settings.logo_filename %}
+                    <p class="info-text">Aktuelles Logo: {{ settings.logo_filename }}</p>
+                    <img src="{{ url_for('admin.settings_logo') }}" alt="Logo" class="logo-preview">
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Color Scheme -->
+        <div class="settings-section">
+            <h2>Farbschema</h2>
+            
+            <div class="form-group">
+                <label for="primary_color">Primärfarbe (Rot)</label>
+                <input type="color" id="primary_color" name="primary_color" 
+                       value="{{ settings.primary_color }}">
+                <p class="info-text">Standard: #A70240</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="secondary_color">Sekundärfarbe (Gelb-Grün)</label>
+                <input type="color" id="secondary_color" name="secondary_color" 
+                       value="{{ settings.secondary_color }}">
+                <p class="info-text">Standard: #BED600</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="accent_color">Akzentfarbe (Blau)</label>
+                <input type="color" id="accent_color" name="accent_color" 
+                       value="{{ settings.accent_color }}">
+                <p class="info-text">Standard: #0098DB</p>
+            </div>
+            
+            <div class="color-preview">
+                <div class="color-box" style="background-color: {{ settings.primary_color }}">
+                    Primär
+                </div>
+                <div class="color-box" style="background-color: {{ settings.secondary_color }}; color: #333;">
+                    Sekundär
+                </div>
+                <div class="color-box" style="background-color: {{ settings.accent_color }}">
+                    Akzent
+                </div>
+            </div>
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Speichern</button>
+        <a href="/admin" class="btn btn-secondary">Zurück</a>
+    </form>
+</div>
+{% endblock %}

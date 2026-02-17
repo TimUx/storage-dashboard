@@ -1,6 +1,7 @@
 """Storage Dashboard Application"""
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager
 from dotenv import load_dotenv
 import os
 from datetime import datetime
@@ -8,6 +9,7 @@ from datetime import datetime
 load_dotenv()
 
 db = SQLAlchemy()
+login_manager = LoginManager()
 
 def create_app():
     app = Flask(__name__)
@@ -25,6 +27,15 @@ def create_app():
     app.config['SSL_VERIFY'] = os.getenv('SSL_VERIFY', 'false').lower() == 'true'
     
     db.init_app(app)
+    login_manager.init_app(app)
+    login_manager.login_view = 'admin.login'
+    login_manager.login_message = 'Bitte melden Sie sich an, um fortzufahren.'
+    
+    # User loader for Flask-Login
+    @login_manager.user_loader
+    def load_user(user_id):
+        from app.models import AdminUser
+        return AdminUser.query.get(int(user_id))
     
     # Register custom Jinja2 filters
     @app.template_filter('format_datetime')
@@ -35,6 +46,14 @@ def create_app():
         if isinstance(dt, datetime):
             return dt.strftime(format)
         return str(dt)
+    
+    # Context processor for settings
+    @app.context_processor
+    def inject_settings():
+        """Make settings available to all templates"""
+        from app.models import AppSettings
+        settings = AppSettings.query.first()
+        return dict(settings=settings)
     
     # Register blueprints
     from app.routes import main, admin, api
