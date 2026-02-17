@@ -1035,10 +1035,8 @@ class NetAppStorageGRIDClient(StorageClient):
                     elif major_alerts > 0:
                         hardware_status = 'warning'
                         logger.warning(f"Found {major_alerts} major alerts for StorageGRID {self.ip_address}")
-                    elif minor_alerts > 0:
-                        # Minor alerts don't change status from 'ok', but log for info
-                        logger.info(f"Found {minor_alerts} minor alerts for StorageGRID {self.ip_address}")
                     
+                    # Log alert summary (always shown for visibility)
                     if alerts_count > 0:
                         logger.info(f"Total active alerts for StorageGRID {self.ip_address}: {alerts_count} "
                                   f"(critical={critical_alerts}, major={major_alerts}, minor={minor_alerts})")
