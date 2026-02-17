@@ -140,7 +140,7 @@ class PureStorageClient(StorageClient):
         """Authenticate and get session token for API 2.x
         
         For Pure Storage FlashArray API 2.x, authentication requires:
-        1. POST to /api/2.x/login with api_token in request header
+        1. POST to /api/2.x/login with api_token in JSON request body
         2. Receive x-auth-token in response header
         3. Use x-auth-token for subsequent API calls
         4. POST to /api/2.x/logout when done (handled in get_health_status)
@@ -158,14 +158,15 @@ class PureStorageClient(StorageClient):
             ssl_verify = get_ssl_verify(self.resolved_address)
             
             # For API 2.x, we need to login with the API token to get a session token
-            # POST /api/2.x/login with api_token in the request header (not JSON body)
-            # This matches the Pure Storage Python SDK implementation
+            # POST /api/2.x/login with api_token in the JSON body
+            # This is the correct format for Pure Storage FlashArray API 2.x
             response = requests.post(
                 f"{self.base_url}/api/{api_version}/login",
                 headers={
-                    'api-token': self.token,
+                    'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
+                json={'api_token': self.token},
                 verify=ssl_verify,
                 timeout=10
             )
@@ -197,7 +198,7 @@ class PureStorageClient(StorageClient):
     def get_health_status(self):
         try:
             if not self.token:
-                return self._format_response(status='error', error='Kein API-Token konfiguriert. Bitte API-Token in den System-Einstellungen eingeben.')
+                return self._format_response(status='error', hardware='error', cluster='error', error='Kein API-Token konfiguriert. Bitte API-Token in den System-Einstellungen eingeben.')
             
             ssl_verify = get_ssl_verify(self.resolved_address)
             
@@ -209,7 +210,9 @@ class PureStorageClient(StorageClient):
             
             if not session_token:
                 return self._format_response(
-                    status='error', 
+                    status='error',
+                    hardware='error',
+                    cluster='error',
                     error=f'Authentifizierung fehlgeschlagen - Ungültiger API-Token oder Verbindungsfehler. API Version: {api_version}'
                 )
             
@@ -230,7 +233,7 @@ class PureStorageClient(StorageClient):
             )
             
             if response.status_code != 200:
-                return self._format_response(status='error', error=f'API error: {response.status_code}')
+                return self._format_response(status='error', hardware='error', cluster='error', error=f'API error: {response.status_code}')
             
             # Extract OS version from array info
             array_data = response.json()
@@ -292,7 +295,7 @@ class PureStorageClient(StorageClient):
             )
                 
         except Exception as e:
-            return self._format_response(status='error', error=str(e))
+            return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
 class NetAppONTAPClient(StorageClient):
@@ -301,7 +304,7 @@ class NetAppONTAPClient(StorageClient):
     def get_health_status(self):
         try:
             if not self.username or not self.password:
-                return self._format_response(status='error', error='No credentials configured')
+                return self._format_response(status='error', hardware='error', cluster='error', error='No credentials configured')
             
             ssl_verify = get_ssl_verify(self.resolved_address)
             
@@ -327,6 +330,8 @@ class NetAppONTAPClient(StorageClient):
                 if cluster_response.status_code != 200:
                     return self._format_response(
                         status='error',
+                        hardware='error',
+                        cluster='error',
                         error=f'Failed to connect to cluster: HTTP {cluster_response.status_code}'
                     )
                 
@@ -342,6 +347,8 @@ class NetAppONTAPClient(StorageClient):
             except Exception as cluster_error:
                 return self._format_response(
                     status='error',
+                    hardware='error',
+                    cluster='error',
                     error=f'Failed to connect to cluster: {str(cluster_error)}'
                 )
             
@@ -413,7 +420,7 @@ class NetAppONTAPClient(StorageClient):
                 is_metrocluster=is_metrocluster
             )
         except Exception as e:
-            return self._format_response(status='error', error=str(e))
+            return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
 class NetAppStorageGRIDClient(StorageClient):
@@ -426,7 +433,7 @@ class NetAppStorageGRIDClient(StorageClient):
         try:
             # StorageGRID REST API v4
             if not self.token:
-                return self._format_response(status='error', error='No API token configured')
+                return self._format_response(status='error', hardware='error', cluster='error', error='No API token configured')
             
             headers = {
                 'Authorization': f'Bearer {self.token}',
@@ -443,7 +450,7 @@ class NetAppStorageGRIDClient(StorageClient):
             )
             
             if response.status_code != 200:
-                return self._format_response(status='error', error=f'API error: {response.status_code}')
+                return self._format_response(status='error', hardware='error', cluster='error', error=f'API error: {response.status_code}')
             
             # Get product version from grid config
             os_version = None
@@ -542,7 +549,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 os_version=os_version
             )
         except Exception as e:
-            return self._format_response(status='error', error=str(e))
+            return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
 class DellDataDomainClient(StorageClient):
@@ -553,7 +560,7 @@ class DellDataDomainClient(StorageClient):
             # DataDomain REST API
             auth = (self.username, self.password) if self.username and self.password else None
             if not auth:
-                return self._format_response(status='error', error='No credentials configured')
+                return self._format_response(status='error', hardware='error', cluster='error', error='No credentials configured')
             
             ssl_verify = get_ssl_verify(self.resolved_address)
             
@@ -566,7 +573,7 @@ class DellDataDomainClient(StorageClient):
             )
             
             if response.status_code != 200:
-                return self._format_response(status='error', error=f'API error: {response.status_code}')
+                return self._format_response(status='error', hardware='error', cluster='error', error=f'API error: {response.status_code}')
             
             data = response.json()
             
@@ -603,7 +610,7 @@ class DellDataDomainClient(StorageClient):
                 os_version=os_version
             )
         except Exception as e:
-            return self._format_response(status='error', error=str(e))
+            return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
 def get_client(vendor, ip_address, port=443, username=None, password=None, token=None):
