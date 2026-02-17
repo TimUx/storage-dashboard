@@ -1,7 +1,7 @@
 """Encryption utilities for sensitive data"""
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 import base64
 import os
@@ -12,7 +12,7 @@ def get_encryption_key():
     secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
     
     # Derive a proper encryption key from SECRET_KEY using PBKDF2
-    kdf = PBKDF2(
+    kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=b'storage-dashboard-salt',  # Fixed salt for consistency
