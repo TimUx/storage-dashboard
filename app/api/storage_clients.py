@@ -540,10 +540,17 @@ class NetAppONTAPClient(StorageClient):
                 )
             
             # Check for MetroCluster configuration and get detailed information
+            # Best practice: combine multiple endpoints for complete picture
+            # 1. GET /api/cluster - local cluster info
+            # 2. GET /api/cluster/metrocluster - MetroCluster state
+            # 3. GET /api/cluster/peers - remote cluster info
+            # 4. GET /api/cluster/metrocluster/nodes - all nodes (local + remote)
+            # 5. GET /api/cluster/metrocluster/dr-groups - peer relationships
             is_metrocluster = False
             metrocluster_info = {}
             metrocluster_nodes = []
             metrocluster_dr_groups = []
+            metrocluster_peers = []
             
             try:
                 # Get MetroCluster configuration
@@ -558,76 +565,141 @@ class NetAppONTAPClient(StorageClient):
                 
                 if metrocluster_response.status_code == 200:
                     metrocluster_data = metrocluster_response.json()
-                    # Check if MetroCluster is configured
-                    configuration_state = metrocluster_data.get('configuration_state')
-                    if configuration_state and configuration_state != 'not_configured':
-                        is_metrocluster = True
-                        logger.info(f"MetroCluster detected for {self.ip_address}: {configuration_state}")
+                    
+                    # Check if response contains error (no MetroCluster configured)
+                    if 'error' in metrocluster_data:
+                        logger.debug(f"No MetroCluster configured for {self.ip_address}: {metrocluster_data.get('error', {}).get('message')}")
+                    # Check if records is empty (another way to indicate no MetroCluster)
+                    elif 'records' in metrocluster_data and not metrocluster_data['records']:
+                        logger.debug(f"No MetroCluster records for {self.ip_address}")
+                    else:
+                        # Check if MetroCluster is configured
+                        # Possible values: configured, not_configured, partial, degraded
+                        configuration_state = metrocluster_data.get('configuration_state')
                         
-                        # Store MetroCluster configuration info
-                        metrocluster_info = {
-                            'configuration_state': configuration_state,
-                            'mode': metrocluster_data.get('mode'),
-                            'local_cluster_name': metrocluster_data.get('local', {}).get('cluster', {}).get('name'),
-                            'partner_cluster_name': metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
-                        }
-                        
-                        # Get MetroCluster nodes information
-                        # REST API: GET /api/cluster/metrocluster/nodes
-                        try:
-                            mc_nodes_response = requests.get(
-                                f"{self.base_url}/api/cluster/metrocluster/nodes",
-                                auth=auth,
-                                headers=headers,
-                                verify=ssl_verify,
-                                timeout=10
-                            )
+                        if configuration_state == 'configured':
+                            is_metrocluster = True
+                            logger.info(f"MetroCluster detected for {self.ip_address}: {configuration_state}")
                             
-                            if mc_nodes_response.status_code == 200:
-                                mc_nodes_data = mc_nodes_response.json()
-                                records = mc_nodes_data.get('records', [])
-                                
-                                for node in records:
-                                    node_info = {
-                                        'name': node.get('name'),
-                                        'cluster': node.get('cluster', {}).get('name'),
-                                        'dr_group_id': node.get('dr_group_id'),
-                                        'dr_partner': node.get('dr_partner', {}).get('name'),
-                                        'ha_partner': node.get('ha_partner', {}).get('name'),
-                                        'type': 'metrocluster-node'
-                                    }
-                                    metrocluster_nodes.append(node_info)
-                                
-                                logger.info(f"Found {len(metrocluster_nodes)} MetroCluster nodes for {self.ip_address}")
-                        except Exception as mc_nodes_error:
-                            logger.warning(f"Could not get MetroCluster nodes for {self.ip_address}: {mc_nodes_error}")
-                        
-                        # Get MetroCluster DR groups information
-                        # REST API: GET /api/cluster/metrocluster/dr-groups
-                        try:
-                            dr_groups_response = requests.get(
-                                f"{self.base_url}/api/cluster/metrocluster/dr-groups",
-                                auth=auth,
-                                headers=headers,
-                                verify=ssl_verify,
-                                timeout=10
-                            )
+                            # Store MetroCluster configuration info
+                            metrocluster_info = {
+                                'configuration_state': configuration_state,
+                                'mode': metrocluster_data.get('mode'),  # 'ip' or 'fc'
+                                'uuid': metrocluster_data.get('uuid'),
+                                'local_cluster_name': metrocluster_data.get('local', {}).get('cluster', {}).get('name') or cluster_name,
+                                'partner_cluster_name': metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
+                            }
                             
-                            if dr_groups_response.status_code == 200:
-                                dr_groups_data = dr_groups_response.json()
-                                records = dr_groups_data.get('records', [])
+                            # Extract nodes directly from metrocluster response if available
+                            nodes_in_response = metrocluster_data.get('nodes', [])
+                            if nodes_in_response:
+                                logger.debug(f"Found {len(nodes_in_response)} nodes in MetroCluster response")
+                            
+                            # Extract DR groups directly from metrocluster response if available
+                            dr_groups_in_response = metrocluster_data.get('dr_groups', [])
+                            if dr_groups_in_response:
+                                logger.debug(f"Found {len(dr_groups_in_response)} DR groups in MetroCluster response")
+                            
+                            # Get cluster peers to identify remote MetroCluster cluster
+                            # REST API: GET /api/cluster/peers
+                            try:
+                                peers_response = requests.get(
+                                    f"{self.base_url}/api/cluster/peers",
+                                    auth=auth,
+                                    headers=headers,
+                                    verify=ssl_verify,
+                                    timeout=10
+                                )
                                 
-                                for dr_group in records:
-                                    dr_group_info = {
-                                        'id': dr_group.get('id'),
-                                        'local_nodes': [n.get('name') for n in dr_group.get('local', {}).get('nodes', [])],
-                                        'partner_nodes': [n.get('name') for n in dr_group.get('partner', {}).get('nodes', [])],
-                                    }
-                                    metrocluster_dr_groups.append(dr_group_info)
+                                if peers_response.status_code == 200:
+                                    peers_data = peers_response.json()
+                                    records = peers_data.get('records', [])
+                                    
+                                    for peer in records:
+                                        peer_info = {
+                                            'name': peer.get('name'),
+                                            'uuid': peer.get('uuid'),
+                                            'location': peer.get('location'),
+                                            'state': peer.get('state'),  # 'available' = active
+                                            'health': peer.get('health'),  # 'healthy' = OK
+                                            'ip_addresses': peer.get('remote', {}).get('ip_addresses', [])
+                                        }
+                                        metrocluster_peers.append(peer_info)
+                                    
+                                    if metrocluster_peers:
+                                        logger.info(f"Found {len(metrocluster_peers)} MetroCluster peer cluster(s) for {self.ip_address}")
+                                        # Update partner cluster name from peer info if not set
+                                        if not metrocluster_info.get('partner_cluster_name') and metrocluster_peers:
+                                            metrocluster_info['partner_cluster_name'] = metrocluster_peers[0]['name']
+                            except Exception as peers_error:
+                                logger.warning(f"Could not get cluster peers for {self.ip_address}: {peers_error}")
+                            
+                            # Get MetroCluster nodes information (includes both local and remote nodes)
+                            # REST API: GET /api/cluster/metrocluster/nodes
+                            try:
+                                mc_nodes_response = requests.get(
+                                    f"{self.base_url}/api/cluster/metrocluster/nodes",
+                                    auth=auth,
+                                    headers=headers,
+                                    verify=ssl_verify,
+                                    timeout=10
+                                )
                                 
-                                logger.info(f"Found {len(metrocluster_dr_groups)} MetroCluster DR groups for {self.ip_address}")
-                        except Exception as dr_groups_error:
-                            logger.warning(f"Could not get MetroCluster DR groups for {self.ip_address}: {dr_groups_error}")
+                                if mc_nodes_response.status_code == 200:
+                                    mc_nodes_data = mc_nodes_response.json()
+                                    records = mc_nodes_data.get('records', [])
+                                    
+                                    for node in records:
+                                        node_cluster = node.get('cluster', {}).get('name')
+                                        node_info = {
+                                            'name': node.get('name'),
+                                            'cluster': node_cluster,
+                                            'is_local': node_cluster == cluster_name,  # Distinguish local vs remote
+                                            'dr_group_id': node.get('dr_group_id'),
+                                            'dr_partner': node.get('dr_partner', {}).get('name'),
+                                            'ha_partner': node.get('ha_partner', {}).get('name'),
+                                            'configuration_state': node.get('configuration_state'),
+                                            'type': 'metrocluster-node'
+                                        }
+                                        metrocluster_nodes.append(node_info)
+                                    
+                                    local_nodes = [n for n in metrocluster_nodes if n.get('is_local')]
+                                    remote_nodes = [n for n in metrocluster_nodes if not n.get('is_local')]
+                                    logger.info(f"Found {len(local_nodes)} local and {len(remote_nodes)} remote MetroCluster nodes for {self.ip_address}")
+                            except Exception as mc_nodes_error:
+                                logger.warning(f"Could not get MetroCluster nodes for {self.ip_address}: {mc_nodes_error}")
+                            
+                            # Get MetroCluster DR groups information (shows peer relationships)
+                            # REST API: GET /api/cluster/metrocluster/dr-groups
+                            try:
+                                dr_groups_response = requests.get(
+                                    f"{self.base_url}/api/cluster/metrocluster/dr-groups",
+                                    auth=auth,
+                                    headers=headers,
+                                    verify=ssl_verify,
+                                    timeout=10
+                                )
+                                
+                                if dr_groups_response.status_code == 200:
+                                    dr_groups_data = dr_groups_response.json()
+                                    records = dr_groups_data.get('records', [])
+                                    
+                                    for dr_group in records:
+                                        dr_group_info = {
+                                            'id': dr_group.get('id'),
+                                            'uuid': dr_group.get('uuid'),
+                                            'local_nodes': [n.get('name') for n in dr_group.get('local', {}).get('nodes', [])],
+                                            'partner_nodes': [n.get('name') for n in dr_group.get('partner', {}).get('nodes', [])],
+                                        }
+                                        metrocluster_dr_groups.append(dr_group_info)
+                                    
+                                    logger.info(f"Found {len(metrocluster_dr_groups)} MetroCluster DR groups for {self.ip_address}")
+                            except Exception as dr_groups_error:
+                                logger.warning(f"Could not get MetroCluster DR groups for {self.ip_address}: {dr_groups_error}")
+                        elif configuration_state in ['not_configured', 'partial', 'degraded']:
+                            logger.info(f"MetroCluster state for {self.ip_address}: {configuration_state}")
+                        else:
+                            logger.debug(f"Unknown MetroCluster state for {self.ip_address}: {configuration_state}")
             except Exception as mc_error:
                 # MetroCluster endpoint might not be available if not configured
                 logger.debug(f"Could not check MetroCluster status for {self.ip_address}: {mc_error}")
@@ -729,6 +801,7 @@ class NetAppONTAPClient(StorageClient):
                 metrocluster_info=metrocluster_info if metrocluster_info else None,
                 metrocluster_nodes=metrocluster_nodes if metrocluster_nodes else None,
                 metrocluster_dr_groups=metrocluster_dr_groups if metrocluster_dr_groups else None,
+                metrocluster_peers=metrocluster_peers if metrocluster_peers else None,
                 controllers=metrocluster_nodes if metrocluster_nodes else cluster_nodes  # Use MetroCluster nodes if available, otherwise regular cluster nodes
             )
         except Exception as e:

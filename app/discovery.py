@@ -250,18 +250,34 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
             if cluster_response.status_code == 200:
                 cluster_data = cluster_response.json()
                 
-                # Check for MetroCluster
-                metrocluster = cluster_data.get('metrocluster', {})
-                if metrocluster:
-                    discovery_data['metrocluster_enabled'] = True
-                    discovery_data['site_count'] = 2
+                # Check for MetroCluster using dedicated endpoint
+                # REST API: GET /api/cluster/metrocluster
+                # Best practice: check configuration_state == "configured"
+                try:
+                    mc_response = requests.get(
+                        f"{base_url}/api/cluster/metrocluster",
+                        auth=auth,
+                        headers=headers,
+                        verify=ssl_verify,
+                        timeout=API_TIMEOUT
+                    )
                     
-                    # Try to get MetroCluster configuration state
-                    try:
-                        mc_state = metrocluster.get('configuration_state', 'unknown')
-                        logger.debug(f"MetroCluster configuration state: {mc_state}")
-                    except Exception as mc_error:
-                        logger.debug(f"Could not get MetroCluster details: {mc_error}")
+                    if mc_response.status_code == 200:
+                        mc_data = mc_response.json()
+                        
+                        # Check if response contains error (no MetroCluster)
+                        if 'error' not in mc_data and 'records' not in mc_data or (mc_data.get('records', [True])):
+                            configuration_state = mc_data.get('configuration_state')
+                            
+                            # Only set MetroCluster enabled if state is "configured"
+                            if configuration_state == 'configured':
+                                discovery_data['metrocluster_enabled'] = True
+                                discovery_data['site_count'] = 2
+                                logger.info(f"MetroCluster detected: {configuration_state}, mode: {mc_data.get('mode')}")
+                            else:
+                                logger.debug(f"MetroCluster state: {configuration_state}")
+                except Exception as mc_error:
+                    logger.debug(f"Could not check MetroCluster: {mc_error}")
         except Exception as e:
             logger.warning(f"Could not get cluster info: {e}")
         
