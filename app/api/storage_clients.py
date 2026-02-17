@@ -140,7 +140,7 @@ class PureStorageClient(StorageClient):
         """Authenticate and get session token for API 2.x
         
         For Pure Storage FlashArray API 2.x, authentication requires:
-        1. POST to /api/2.x/login with api_token in JSON request body
+        1. POST to /api/2.x/login with api-token in request header
         2. Receive x-auth-token in response header
         3. Use x-auth-token for subsequent API calls
         4. POST to /api/2.x/logout when done (handled in get_health_status)
@@ -158,15 +158,13 @@ class PureStorageClient(StorageClient):
             ssl_verify = get_ssl_verify(self.resolved_address)
             
             # For API 2.x, we need to login with the API token to get a session token
-            # POST /api/2.x/login with api_token in the JSON body
+            # POST /api/2.x/login with api-token in the request header
             # This is the correct format for Pure Storage FlashArray API 2.x
             response = requests.post(
                 f"{self.base_url}/api/{api_version}/login",
                 headers={
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
+                    'api-token': self.token
                 },
-                json={'api_token': self.token},
                 verify=ssl_verify,
                 timeout=10
             )
