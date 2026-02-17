@@ -207,8 +207,7 @@ body {
     justify-content: space-between;
     align-items: center;
     box-shadow: 0 2px 4px rgba(0, 102, 204, 0.08);
-    border-bottom: 4px solid;
-    border-image: linear-gradient(90deg, var(--itscare-blue) 0%, var(--itscare-blue) 33.33%, var(--itscare-green) 33.33%, var(--itscare-green) 66.66%, var(--itscare-red) 66.66%, var(--itscare-red) 100%) 1;
+    border-bottom: 4px solid var(--itscare-blue);
 }
 
 .vendor-count {
@@ -246,7 +245,7 @@ body {
     left: 0;
     width: 100%;
     height: 3px;
-    background: linear-gradient(90deg, var(--itscare-blue) 0%, var(--itscare-green) 50%, var(--itscare-red) 100%);
+    background: var(--itscare-blue);
     transform: scaleX(0);
     transition: transform 0.3s ease;
 }
@@ -464,10 +463,63 @@ body {
 
 .systems-table .status-cell {
     text-align: center;
+    width: 100px;
 }
 
 .systems-table .capacity-cell {
     min-width: 150px;
+    width: 150px;
+}
+
+/* Standardized column widths for consistent alignment */
+.systems-table th:nth-child(1),
+.systems-table td:nth-child(1) {
+    width: 180px; /* Name */
+}
+
+.systems-table th:nth-child(2),
+.systems-table td:nth-child(2) {
+    width: 110px; /* Cluster-Typ */
+}
+
+.systems-table th:nth-child(3),
+.systems-table td:nth-child(3) {
+    width: 140px; /* IP */
+}
+
+.systems-table th:nth-child(4),
+.systems-table td:nth-child(4) {
+    width: 120px; /* OS Version */
+}
+
+.systems-table th:nth-child(5),
+.systems-table td:nth-child(5) {
+    width: 100px; /* Status */
+}
+
+.systems-table th:nth-child(6),
+.systems-table td:nth-child(6) {
+    width: 90px; /* Hardware */
+}
+
+.systems-table th:nth-child(7),
+.systems-table td:nth-child(7) {
+    width: 100px; /* Cluster */
+}
+
+.systems-table th:nth-child(8),
+.systems-table td:nth-child(8) {
+    width: 100px; /* Alerts */
+}
+
+.systems-table th:nth-child(9),
+.systems-table td:nth-child(9) {
+    width: 150px; /* Kapazität */
+}
+
+.systems-table th:nth-child(10),
+.systems-table td:nth-child(10) {
+    width: 90px; /* Aktionen */
 }
 
 .error-message {
@@ -793,7 +845,9 @@ body.table-view .systems-table {
     <p>Fügen Sie Storage Systeme im <a href="/admin">Admin-Bereich</a> hinzu.</p>
 </div>
 {% else %}
-    {% for vendor, systems in grouped_systems.items() %}
+    {% for vendor in vendor_order %}
+    {% if vendor in grouped_systems %}
+    {% set systems = grouped_systems[vendor] %}
     <div class="vendor-section">
         <div class="vendor-header">
             <span>{{ vendor_names[vendor] }}</span>
@@ -1001,6 +1055,7 @@ body.table-view .systems-table {
             </table>
         </div>
     </div>
+    {% endif %}
     {% endfor %}
 {% endif %}
 

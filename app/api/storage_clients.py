@@ -1,5 +1,6 @@
 """API clients for different storage vendors"""
 from app.api.base_client import StorageClient
+from app.discovery import reverse_dns_lookup
 from flask import current_app
 import requests
 import warnings
@@ -364,6 +365,17 @@ class PureStorageClient(StorageClient):
             except Exception as net_error:
                 logger.warning(f"Could not get network interfaces for {self.ip_address}: {net_error}")
             
+            # Perform DNS reverse lookups for all management IPs
+            mgmt_ips_with_dns = []
+            for mgmt_ip in all_mgmt_ips:
+                dns_names = reverse_dns_lookup(mgmt_ip)
+                mgmt_ips_with_dns.append({
+                    'ip': mgmt_ip,
+                    'dns_names': dns_names
+                })
+                if dns_names:
+                    logger.info(f"DNS resolved for {mgmt_ip}: {dns_names}")
+            
             # Get hardware status
             # REST API v2: GET /api/2.x/hardware
             hardware_status = 'ok'
@@ -536,7 +548,7 @@ class PureStorageClient(StorageClient):
                 is_active_cluster=is_active_cluster,
                 site_count=site_count,
                 pods_info=pods_info if pods_info else None,
-                all_mgmt_ips=all_mgmt_ips if all_mgmt_ips else None
+                all_mgmt_ips=mgmt_ips_with_dns if mgmt_ips_with_dns else None
             )
                 
         except Exception as e:
