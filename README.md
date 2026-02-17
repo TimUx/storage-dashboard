@@ -22,7 +22,7 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 - **Auto-Refresh**: Automatische Aktualisierung des Dashboards alle 45 Sekunden (konfigurierbar)
 - **Multithreading**: Parallele Abfrage aller Systeme für schnelle Performance
 - **Modernes Design**: ITScare Corporate Design mit farbigen Accents und modernen UI-Elementen
-- **CLI Interface**: Zugriff auf Dashboard-Daten über die Kommandozeile
+- **CLI Interface**: Zugriff auf Dashboard-Daten über die Kommandozeile (lokal und remote)
 - **Admin-Bereich**: Verwaltung von Storage-Systemen mit Namen, IPs und API-Credentials
 - **API-Abfrage**: Automatische Abfrage von Health-Status über Hersteller-APIs
 - **Status-Übersicht**: Hardware-Status, Cluster-Status, Alerts und Kapazität
@@ -151,6 +151,11 @@ gunicorn -w 4 -b 0.0.0.0:5000 run:app
 
 ### CLI verwenden
 
+Es gibt zwei CLI-Varianten:
+
+#### 1. Lokale CLI (cli.py)
+Für die Verwendung im Container oder mit direktem Datenbankzugriff:
+
 **Dashboard anzeigen:**
 
 ```bash
@@ -173,6 +178,43 @@ python cli.py admin disable <ID>
 # System löschen
 python cli.py admin remove <ID>
 ```
+
+#### 2. Remote CLI (remote-cli.py)
+Für den Zugriff von außerhalb des Containers oder von Remote-Systemen via HTTP API:
+
+**Dashboard anzeigen:**
+
+```bash
+# Lokal (Standard: http://localhost:5000)
+python remote-cli.py dashboard
+
+# Remote-System
+python remote-cli.py --url http://dashboard.example.com:5000 dashboard
+
+# Mit Umgebungsvariable
+export DASHBOARD_URL=http://dashboard.example.com:5000
+python remote-cli.py dashboard
+```
+
+**Weitere Befehle:**
+
+```bash
+# Alle Systeme auflisten
+python remote-cli.py systems
+
+# Detaillierter Status eines Systems
+python remote-cli.py status <ID>
+
+# Daten exportieren (JSON oder Tabelle)
+python remote-cli.py export --format json
+python remote-cli.py export --format table
+
+# Verbindung testen
+python remote-cli.py version
+```
+
+**Wichtig:** Der Remote CLI benötigt nur die Python-Pakete `click`, `requests` und `tabulate`. 
+Er kann auf jedem System verwendet werden, das Netzwerkzugriff zum Dashboard hat.
 
 ## Web-Interface
 

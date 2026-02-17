@@ -98,6 +98,50 @@ docker run -d \
 http://localhost:5000
 ```
 
+## Remote CLI Verwendung
+
+Das Dashboard bietet eine Remote CLI für den Zugriff von außerhalb des Containers:
+
+### Von außerhalb des Containers zugreifen
+
+**Ohne Installation im Container:**
+```bash
+# Erstellen Sie eine Kopie der Remote CLI
+curl -o remote-cli.py https://raw.githubusercontent.com/TimUx/storage-dashboard/main/remote-cli.py
+chmod +x remote-cli.py
+
+# Installieren Sie die Abhängigkeiten
+pip3 install click requests tabulate
+
+# Verwenden Sie die CLI
+python3 remote-cli.py --url http://localhost:5000 dashboard
+python3 remote-cli.py --url http://localhost:5000 systems
+```
+
+**Mit Container exec:**
+```bash
+# Podman
+podman exec storage-dashboard python /app/remote-cli.py dashboard
+
+# Docker
+docker exec storage-dashboard python /app/remote-cli.py dashboard
+```
+
+### Von einem Remote-System zugreifen
+
+```bash
+# Setzen Sie die Dashboard-URL als Umgebungsvariable
+export DASHBOARD_URL=http://dashboard-server.example.com:5000
+
+# Verwenden Sie die Remote CLI
+python3 remote-cli.py dashboard
+python3 remote-cli.py systems
+python3 remote-cli.py status 1
+python3 remote-cli.py export --format json
+```
+
+**Weitere Informationen:** Siehe [REMOTE_CLI.md](REMOTE_CLI.md) für detaillierte Anleitung.
+
 ## Container-Verwaltung
 
 ### Status prüfen
