@@ -14,6 +14,9 @@ SHELF_CONTROLLER_PATTERN = '.SC'
 PURE_API_VERSION = '2.4'
 API_TIMEOUT = 10  # seconds
 
+# StorageGRID constants
+UNKNOWN_SITE = 'Unknown Site'
+
 
 def reverse_dns_lookup(ip_address):
     """
@@ -73,7 +76,11 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 versions = data.get('version', [])
                 if versions:
                     # Use the latest version (usually last in the list)
-                    api_version = versions[-1] if isinstance(versions, list) else versions
+                    if isinstance(versions, list):
+                        api_version = versions[-1]
+                    elif isinstance(versions, str):
+                        api_version = versions
+                    # If versions is not a list or string, keep default
                     logger.info(f"Detected Pure Storage API version: {api_version}")
         except Exception as e:
             logger.warning(f"Could not detect API version for {ip_address}, using default {PURE_API_VERSION}: {e}")
@@ -478,11 +485,11 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                     node_id = node.get('id', '')
                     node_type = node.get('type', 'unknown')
                     node_state = node.get('state', 'unknown')
-                    site_name = node.get('siteName', 'Unknown Site')
+                    site_name = node.get('siteName', UNKNOWN_SITE)
                     site_id = node.get('siteId')
                     
                     # Track unique site names
-                    if site_name and site_name != 'Unknown Site':
+                    if site_name and site_name != UNKNOWN_SITE:
                         site_names.add(site_name)
                     
                     node_info = {
@@ -565,7 +572,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                         node_id = node.get('id', '')
                         node_type = node.get('type', 'unknown')
                         node_state = node.get('state', 'unknown')
-                        node_site = node.get('site', 'Unknown Site')
+                        node_site = node.get('site', UNKNOWN_SITE)
                         
                         # Try to determine node type from service IDs if type is unknown
                         if node_type == 'unknown' and node_id in service_ids_map:
@@ -643,7 +650,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                         node_info = {
                             'name': node_name,
                             'id': node_id,
-                            'site': 'Unknown Site',
+                            'site': UNKNOWN_SITE,
                             'type': node_type,
                             'status': node_state,
                             'ips': []
@@ -684,7 +691,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                         # Parse nodes from topology
                         all_nodes = []
                         for site in sites:
-                            site_name = site.get('name', 'Unknown Site')
+                            site_name = site.get('name', UNKNOWN_SITE)
                             nodes = site.get('children', [])
                             
                             for node in nodes:

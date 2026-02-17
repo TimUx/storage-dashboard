@@ -255,7 +255,7 @@ class PureStorageClient(StorageClient):
                 raw_version = item.get('os') or item.get('version')
                 if raw_version:
                     # Extract numeric version from string like "Purity//FA 6.5.10"
-                    # Split by spaces and find the part that looks like a version number
+                    # Use regex to find version number pattern (X.X.X)
                     version_match = re.search(r'(\d+\.\d+\.\d+)', raw_version)
                     if version_match:
                         os_version = version_match.group(1)
@@ -596,13 +596,18 @@ class NetAppONTAPClient(StorageClient):
                             local_cluster_from_mc = metrocluster_data.get('local', {}).get('cluster', {}).get('name')
                             configuration_type = metrocluster_data.get('configuration_type')
                             
+                            # Get partner cluster name from remote or partner field
+                            remote_cluster = metrocluster_data.get('remote', {}).get('cluster', {})
+                            partner_cluster = metrocluster_data.get('partner', {}).get('cluster', {})
+                            partner_cluster_name = remote_cluster.get('name') or partner_cluster.get('name')
+                            
                             metrocluster_info = {
                                 'configuration_state': configuration_state,
                                 'mode': metrocluster_data.get('mode'),  # 'ip' or 'fc' (legacy field)
                                 'configuration_type': configuration_type,  # 'ip_fabric' or 'fabric'
                                 'uuid': metrocluster_data.get('uuid'),
                                 'local_cluster_name': local_cluster_from_mc if local_cluster_from_mc is not None else cluster_name,
-                                'partner_cluster_name': metrocluster_data.get('remote', {}).get('cluster', {}).get('name') or metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
+                                'partner_cluster_name': partner_cluster_name,
                             }
                             
                             # Extract nodes directly from metrocluster response if available
