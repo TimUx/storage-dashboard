@@ -625,6 +625,9 @@
                     {% if node.type %}
                     <div class="node-detail"><strong>Type:</strong> {{ node.type }}</div>
                     {% endif %}
+                    {% if node.cluster %}
+                    <div class="node-detail"><strong>Cluster:</strong> {{ node.cluster }}</div>
+                    {% endif %}
                     {% if node.site %}
                     <div class="node-detail"><strong>Site:</strong> {{ node.site }}</div>
                     {% endif %}
@@ -639,6 +642,12 @@
                     {% endif %}
                     {% if node.serial %}
                     <div class="node-detail"><strong>Serial:</strong> {{ node.serial }}</div>
+                    {% endif %}
+                    {% if node.metrocluster_type %}
+                    <div class="node-detail"><strong>MetroCluster Type:</strong> {{ node.metrocluster_type }}</div>
+                    {% endif %}
+                    {% if node.ha_enabled is not none %}
+                    <div class="node-detail"><strong>HA:</strong> {{ 'Enabled' if node.ha_enabled else 'Disabled' }}</div>
                     {% endif %}
                     {% if node.uuid %}
                     <div class="node-detail"><strong>UUID:</strong> {{ node.uuid[:8] }}...</div>

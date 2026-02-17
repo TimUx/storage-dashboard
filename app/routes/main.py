@@ -63,6 +63,22 @@ def fetch_system_status(system, app):
             if 'array_connections' in status and status['array_connections']:
                 system.set_peer_connections(status['array_connections'])
             
+            # Update all management IPs if available (for Pure Storage)
+            if 'all_mgmt_ips' in status and status['all_mgmt_ips']:
+                # Merge with existing IPs
+                all_ips = set(system.get_all_ips() or [])
+                all_ips.add(system.ip_address)
+                all_ips.update(status['all_mgmt_ips'])
+                system.set_all_ips(list(all_ips))
+            
+            # Update site count if available
+            if 'site_count' in status and status['site_count'] is not None:
+                system.site_count = status['site_count']
+            
+            # Update cluster type based on ActiveCluster detection (for Pure Storage)
+            if status.get('is_active_cluster') and system.cluster_type != 'active-cluster':
+                system.cluster_type = 'active-cluster'
+            
             # Commit changes to database
             db.session.commit()
             
