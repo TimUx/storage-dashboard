@@ -29,3 +29,6 @@ instance/
 *.swo
 *~
 .DS_Store
+
+venv/
+env/

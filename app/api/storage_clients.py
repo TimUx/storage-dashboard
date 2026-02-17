@@ -957,10 +957,20 @@ class NetAppStorageGRIDClient(StorageClient):
                     data = health_data.get('data', {})
                     
                     # Check overall health status
-                    health_state = data.get('health', 'unknown')
-                    if health_state and health_state.lower() not in STORAGEGRID_HEALTHY_GRID_STATES:
-                        hardware_status = 'warning'
-                        logger.warning(f"StorageGRID health issue for {self.ip_address}: {health_state}")
+                    # Only warn if there's an actual health issue, not for unknown/missing states
+                    if 'health' in data:
+                        health_state = data.get('health')
+                        if health_state and health_state.lower() not in STORAGEGRID_HEALTHY_GRID_STATES:
+                            # Check if it's truly an error state or just unknown
+                            if health_state.lower() != 'unknown':
+                                hardware_status = 'warning'
+                                logger.warning(f"StorageGRID health issue for {self.ip_address}: {health_state}")
+                            else:
+                                # Unknown state - log at debug level to avoid spam
+                                logger.debug(f"StorageGRID health state unknown for {self.ip_address}")
+                    else:
+                        # Health field not present in API response - this is normal for some API versions
+                        logger.debug(f"StorageGRID health field not present in API response for {self.ip_address}")
             except Exception as health_error:
                 logger.warning(f"Could not get StorageGRID health for {self.ip_address}: {health_error}")
             
