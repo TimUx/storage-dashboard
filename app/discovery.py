@@ -444,6 +444,34 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                 # Response format: {"data": [{node_details}, ...]}
                 nodes_list = nodes_data.get('data', [])
                 
+                # Also try to get service IDs to determine node types more accurately
+                service_ids_map = {}
+                try:
+                    service_ids_response = requests.get(
+                        f"{base_url}/api/v4/grid/service-ids",
+                        headers=headers,
+                        verify=ssl_verify,
+                        timeout=API_TIMEOUT
+                    )
+                    
+                    if service_ids_response.status_code == 200:
+                        service_ids_data = service_ids_response.json()
+                        services = service_ids_data.get('data', [])
+                        
+                        # Map node IDs to their primary service types
+                        for service in services:
+                            node_id = service.get('nodeId')
+                            service_type = service.get('type', '')
+                            
+                            if node_id:
+                                if node_id not in service_ids_map:
+                                    service_ids_map[node_id] = []
+                                service_ids_map[node_id].append(service_type)
+                        
+                        logger.info(f"StorageGRID: Collected service IDs for {len(service_ids_map)} nodes")
+                except Exception as service_error:
+                    logger.debug(f"Could not get StorageGRID service IDs: {service_error}")
+                
                 all_nodes = []
                 for node in nodes_list:
                     node_name = node.get('name', 'Unknown')
@@ -451,6 +479,19 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                     node_type = node.get('type', 'unknown')
                     node_state = node.get('state', 'unknown')
                     node_site = node.get('site', 'Unknown Site')
+                    
+                    # Try to determine node type from service IDs if type is unknown
+                    if node_type == 'unknown' and node_id in service_ids_map:
+                        services = service_ids_map[node_id]
+                        # Determine type based on services running on the node
+                        if 'ADC' in services or 'LDR' in services:
+                            node_type = 'Storage Node'
+                        elif 'CMN' in services or 'NMS' in services:
+                            node_type = 'Admin Node'
+                        elif 'CLB' in services or 'nginx' in services:
+                            node_type = 'Gateway Node'
+                        elif 'ARC' in services:
+                            node_type = 'Archive Node'
                     
                     # Get node IPs if available
                     node_ips = []
@@ -492,55 +533,95 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
         
         # Try to get topology as fallback if nodes endpoint didn't work
         if discovery_data['node_count'] == 0:
+            # First try node-health endpoint
             try:
-                topology_response = requests.get(
-                    f"{base_url}/api/v4/grid/health/topology",
+                node_health_response = requests.get(
+                    f"{base_url}/api/v4/grid/node-health",
                     headers=headers,
                     verify=ssl_verify,
                     timeout=API_TIMEOUT
                 )
                 
-                if topology_response.status_code == 200:
-                    topology_data = topology_response.json()
+                if node_health_response.status_code == 200:
+                    node_health_data = node_health_response.json()
+                    nodes_list = node_health_data.get('data', [])
                     
-                    # Parse hierarchical topology structure
-                    # Format: {"data": {"children": [sites], ...}}
-                    data = topology_data.get('data', {})
-                    sites = data.get('children', [])
-                    
-                    if sites and discovery_data['site_count'] == 1:
-                        discovery_data['site_count'] = len(sites)
-                        if len(sites) > 1:
-                            discovery_data['cluster_type'] = 'multi-site'
-                    
-                    # Parse nodes from topology
                     all_nodes = []
-                    for site in sites:
-                        site_name = site.get('name', 'Unknown Site')
-                        nodes = site.get('children', [])
+                    for node in nodes_list:
+                        node_name = node.get('name', 'Unknown')
+                        node_id = node.get('id', '')
+                        node_type = node.get('type', 'unknown')
+                        node_state = node.get('state', 'unknown')
                         
-                        for node in nodes:
-                            node_name = node.get('name', 'Unknown')
-                            node_id = node.get('id', '')
-                            node_state = node.get('state', 'unknown')
-                            
-                            node_info = {
-                                'name': node_name,
-                                'id': node_id,
-                                'site': site_name,
-                                'type': 'unknown',
-                                'status': node_state,
-                                'ips': []
-                            }
-                            
-                            all_nodes.append(node_info)
+                        node_info = {
+                            'name': node_name,
+                            'id': node_id,
+                            'site': 'Unknown Site',
+                            'type': node_type,
+                            'status': node_state,
+                            'ips': []
+                        }
+                        
+                        all_nodes.append(node_info)
                     
                     if all_nodes:
                         discovery_data['node_count'] = len(all_nodes)
                         discovery_data['node_details'] = all_nodes
+                        logger.info(f"StorageGRID: Found {len(all_nodes)} nodes from node-health endpoint")
+            except Exception as node_health_error:
+                logger.debug(f"Could not get StorageGRID node-health: {node_health_error}")
+            
+            # If still no nodes, try topology endpoint as final fallback
+            if discovery_data['node_count'] == 0:
+                try:
+                    topology_response = requests.get(
+                        f"{base_url}/api/v4/grid/health/topology",
+                        headers=headers,
+                        verify=ssl_verify,
+                        timeout=API_TIMEOUT
+                    )
+                    
+                    if topology_response.status_code == 200:
+                        topology_data = topology_response.json()
                         
-            except Exception as topo_error:
-                logger.debug(f"Could not get StorageGRID topology: {topo_error}")
+                        # Parse hierarchical topology structure
+                        # Format: {"data": {"children": [sites], ...}}
+                        data = topology_data.get('data', {})
+                        sites = data.get('children', [])
+                        
+                        if sites and discovery_data['site_count'] == 1:
+                            discovery_data['site_count'] = len(sites)
+                            if len(sites) > 1:
+                                discovery_data['cluster_type'] = 'multi-site'
+                        
+                        # Parse nodes from topology
+                        all_nodes = []
+                        for site in sites:
+                            site_name = site.get('name', 'Unknown Site')
+                            nodes = site.get('children', [])
+                            
+                            for node in nodes:
+                                node_name = node.get('name', 'Unknown')
+                                node_id = node.get('id', '')
+                                node_state = node.get('state', 'unknown')
+                                
+                                node_info = {
+                                    'name': node_name,
+                                    'id': node_id,
+                                    'site': site_name,
+                                    'type': 'unknown',
+                                    'status': node_state,
+                                    'ips': []
+                                }
+                                
+                                all_nodes.append(node_info)
+                        
+                        if all_nodes:
+                            discovery_data['node_count'] = len(all_nodes)
+                            discovery_data['node_details'] = all_nodes
+                            
+                except Exception as topo_error:
+                    logger.debug(f"Could not get StorageGRID topology: {topo_error}")
         
         # Deduplicate DNS names and IPs
         discovery_data['dns_names'] = list(set(discovery_data['dns_names']))

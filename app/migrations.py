@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 ALLOWED_COLUMNS = {
     'os_version': 'VARCHAR(100)',
     'api_version': 'VARCHAR(50)',
+    'peer_connections': 'TEXT',
+    'metrocluster_info': 'TEXT',
+    'metrocluster_dr_groups': 'TEXT',
 }
 
 
@@ -84,6 +87,18 @@ def migrate_storage_systems_table():
     # Add api_version column if missing
     if add_column_if_not_exists('storage_systems', 'api_version', 'VARCHAR(50)'):
         migrations_applied.append('api_version')
+    
+    # Add peer_connections column if missing
+    if add_column_if_not_exists('storage_systems', 'peer_connections', 'TEXT'):
+        migrations_applied.append('peer_connections')
+    
+    # Add metrocluster_info column if missing
+    if add_column_if_not_exists('storage_systems', 'metrocluster_info', 'TEXT'):
+        migrations_applied.append('metrocluster_info')
+    
+    # Add metrocluster_dr_groups column if missing
+    if add_column_if_not_exists('storage_systems', 'metrocluster_dr_groups', 'TEXT'):
+        migrations_applied.append('metrocluster_dr_groups')
     
     return migrations_applied
 

@@ -29,6 +29,9 @@ class StorageSystem(db.Model):
     dns_names = db.Column(db.Text)  # JSON: ["hostname.domain.com", "alias.domain.com"]
     all_ips = db.Column(db.Text)  # JSON: ["192.168.1.1", "10.0.0.1"]
     node_details = db.Column(db.Text)  # JSON: [{name, ip, status, role, ...}]
+    peer_connections = db.Column(db.Text)  # JSON: [{name, status, type, address, ...}] - for Pure Storage array_connections
+    metrocluster_info = db.Column(db.Text)  # JSON: {configuration_state, mode, local_cluster_name, partner_cluster_name}
+    metrocluster_dr_groups = db.Column(db.Text)  # JSON: [{id, local_nodes, partner_nodes}]
     os_version = db.Column(db.String(100))  # OS/firmware version of the storage system
     api_version = db.Column(db.String(50))  # Detected API version
     
@@ -79,7 +82,7 @@ class StorageSystem(db.Model):
         if self.dns_names:
             try:
                 return json.loads(self.dns_names)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         return []
     
@@ -95,7 +98,7 @@ class StorageSystem(db.Model):
         if self.all_ips:
             try:
                 return json.loads(self.all_ips)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         return []
     
@@ -111,7 +114,7 @@ class StorageSystem(db.Model):
         if self.node_details:
             try:
                 return json.loads(self.node_details)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         return []
     
@@ -121,6 +124,54 @@ class StorageSystem(db.Model):
             self.node_details = json.dumps(details)
         else:
             self.node_details = None
+    
+    def get_peer_connections(self):
+        """Get peer connections as list"""
+        if self.peer_connections:
+            try:
+                return json.loads(self.peer_connections)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return []
+        return []
+    
+    def set_peer_connections(self, connections):
+        """Set peer connections from list"""
+        if connections:
+            self.peer_connections = json.dumps(connections)
+        else:
+            self.peer_connections = None
+    
+    def get_metrocluster_info(self):
+        """Get MetroCluster info as dict"""
+        if self.metrocluster_info:
+            try:
+                return json.loads(self.metrocluster_info)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return {}
+        return {}
+    
+    def set_metrocluster_info(self, info):
+        """Set MetroCluster info from dict"""
+        if info:
+            self.metrocluster_info = json.dumps(info)
+        else:
+            self.metrocluster_info = None
+    
+    def get_metrocluster_dr_groups(self):
+        """Get MetroCluster DR groups as list"""
+        if self.metrocluster_dr_groups:
+            try:
+                return json.loads(self.metrocluster_dr_groups)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return []
+        return []
+    
+    def set_metrocluster_dr_groups(self, groups):
+        """Set MetroCluster DR groups from list"""
+        if groups:
+            self.metrocluster_dr_groups = json.dumps(groups)
+        else:
+            self.metrocluster_dr_groups = None
     
     def to_dict(self):
         return {
@@ -136,6 +187,9 @@ class StorageSystem(db.Model):
             'dns_names': self.get_dns_names(),
             'all_ips': self.get_all_ips(),
             'node_details': self.get_node_details(),
+            'peer_connections': self.get_peer_connections(),
+            'metrocluster_info': self.get_metrocluster_info(),
+            'metrocluster_dr_groups': self.get_metrocluster_dr_groups(),
             'partner_cluster_id': self.partner_cluster_id,
             'os_version': self.os_version,
             'api_version': self.api_version,

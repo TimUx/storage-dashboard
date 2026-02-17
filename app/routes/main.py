@@ -41,6 +41,28 @@ def fetch_system_status(system, app):
             if status.get('is_metrocluster') and system.cluster_type != 'metrocluster':
                 system.cluster_type = 'metrocluster'
             
+            # Update MetroCluster information (for NetApp ONTAP)
+            if 'metrocluster_info' in status and status['metrocluster_info']:
+                system.set_metrocluster_info(status['metrocluster_info'])
+            
+            if 'metrocluster_dr_groups' in status and status['metrocluster_dr_groups']:
+                system.set_metrocluster_dr_groups(status['metrocluster_dr_groups'])
+            
+            # Update node details from controllers data (for Pure Storage) or MetroCluster nodes (for NetApp)
+            if 'controllers' in status and status['controllers']:
+                system.set_node_details(status['controllers'])
+                # Also extract all IPs from controllers
+                all_ips = set()
+                all_ips.add(system.ip_address)
+                for ctrl in status['controllers']:
+                    if 'ips' in ctrl:
+                        all_ips.update(ctrl['ips'])
+                system.set_all_ips(list(all_ips))
+            
+            # Update peer connections from array_connections data (for Pure Storage)
+            if 'array_connections' in status and status['array_connections']:
+                system.set_peer_connections(status['array_connections'])
+            
             # Commit changes to database
             db.session.commit()
             

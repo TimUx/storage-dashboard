@@ -8,6 +8,17 @@ import ipaddress
 
 logger = logging.getLogger(__name__)
 
+# StorageGRID API health state constants
+# States that indicate a healthy grid/node
+STORAGEGRID_HEALTHY_GRID_STATES = {'healthy', 'ok', 'normal'}
+
+# Node states that indicate a healthy/connected node
+STORAGEGRID_HEALTHY_NODE_STATES = {'connected', 'online', 'ok', 'healthy'}
+
+# Alert states that are considered active/unresolved
+# Based on StorageGRID API v4 alert states
+STORAGEGRID_ACTIVE_ALERT_STATES = {'active', 'triggered', 'firing'}
+
 
 def is_ip_address(address):
     """Check if the given address is an IP address (IPv4 or IPv6)
@@ -236,9 +247,12 @@ class PureStorageClient(StorageClient):
             # Extract OS version from array info
             array_data = response.json()
             os_version = None
+            array_name = None
             if 'items' in array_data and len(array_data['items']) > 0:
                 item = array_data['items'][0]
+                # Get full version with Purity/FA prefix
                 os_version = item.get('os') or item.get('version')
+                array_name = item.get('name')
             
             # Get space/capacity info
             # REST API v2: GET /api/2.x/arrays/space
@@ -268,6 +282,127 @@ class PureStorageClient(StorageClient):
                     space_info = item.get('space', {})
                     used_bytes = space_info.get('total_physical', 0) or 0
             
+            # Get controllers/nodes information
+            # REST API v2: GET /api/2.x/controllers
+            controllers = []
+            try:
+                controllers_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/controllers",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if controllers_response.status_code == 200:
+                    controllers_data = controllers_response.json()
+                    items = controllers_data.get('items', [])
+                    
+                    for ctrl in items:
+                        controller_info = {
+                            'name': ctrl.get('name'),
+                            'status': ctrl.get('status'),
+                            'mode': ctrl.get('mode'),
+                            'model': ctrl.get('model'),
+                            'version': ctrl.get('version'),
+                            'type': 'controller'
+                        }
+                        
+                        # Collect all IPs from the controller
+                        ips = []
+                        if ctrl.get('ip'):
+                            ips.append(ctrl.get('ip'))
+                        if ctrl.get('mgmt_ip'):
+                            ips.append(ctrl.get('mgmt_ip'))
+                        if ctrl.get('replication_ip'):
+                            ips.append(ctrl.get('replication_ip'))
+                        
+                        if ips:
+                            controller_info['ips'] = ips
+                        
+                        controllers.append(controller_info)
+                    
+                    logger.info(f"Found {len(controllers)} controllers for {self.ip_address}")
+            except Exception as ctrl_error:
+                logger.warning(f"Could not get controllers for {self.ip_address}: {ctrl_error}")
+            
+            # Get hardware status
+            # REST API v2: GET /api/2.x/hardware
+            hardware_status = 'ok'
+            try:
+                hardware_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/hardware",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if hardware_response.status_code == 200:
+                    hardware_data = hardware_response.json()
+                    items = hardware_data.get('items', [])
+                    
+                    # Check if any hardware component is not OK
+                    for hw in items:
+                        status = hw.get('status', '').lower()
+                        if status not in ['ok', 'healthy', 'normal', '']:
+                            hardware_status = 'warning'
+                            logger.warning(f"Hardware issue on {self.ip_address}: {hw.get('name')} is {status}")
+                            break
+            except Exception as hw_error:
+                logger.warning(f"Could not get hardware status for {self.ip_address}: {hw_error}")
+            
+            # Get alerts
+            # REST API v2: GET /api/2.x/alerts
+            alerts_count = 0
+            try:
+                alerts_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/alerts",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if alerts_response.status_code == 200:
+                    alerts_data = alerts_response.json()
+                    # Count open alerts (those that are not closed)
+                    items = alerts_data.get('items', [])
+                    alerts_count = sum(1 for a in items if a.get('state', '').lower() != 'closed')
+                    
+                    if alerts_count > 0:
+                        logger.info(f"Found {alerts_count} open alerts for {self.ip_address}")
+            except Exception as alerts_error:
+                logger.warning(f"Could not get alerts for {self.ip_address}: {alerts_error}")
+            
+            # Get array connections (peers)
+            # REST API v2: GET /api/2.x/array-connections
+            array_connections = []
+            try:
+                connections_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/array-connections",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if connections_response.status_code == 200:
+                    connections_data = connections_response.json()
+                    items = connections_data.get('items', [])
+                    
+                    for conn in items:
+                        connection_info = {
+                            'name': conn.get('name'),
+                            'status': conn.get('status'),
+                            'type': conn.get('type'),
+                            'management_address': conn.get('management_address'),
+                            'replication_address': conn.get('replication_address'),
+                            'version': conn.get('version')
+                        }
+                        array_connections.append(connection_info)
+                    
+                    if array_connections:
+                        logger.info(f"Found {len(array_connections)} array connections for {self.ip_address}")
+            except Exception as conn_error:
+                logger.warning(f"Could not get array connections for {self.ip_address}: {conn_error}")
+            
             # Logout to clean up the session
             try:
                 requests.post(
@@ -283,13 +418,15 @@ class PureStorageClient(StorageClient):
             
             return self._format_response(
                 status='online',
-                hardware='ok',
+                hardware=hardware_status,
                 cluster='ok',
-                alerts=0,
+                alerts=alerts_count,
                 total_tb=total_bytes / (1024**4),
                 used_tb=used_bytes / (1024**4),
                 os_version=os_version,
-                api_version=api_version
+                api_version=api_version,
+                controllers=controllers,
+                array_connections=array_connections
             )
                 
         except Exception as e:
@@ -350,9 +487,15 @@ class NetAppONTAPClient(StorageClient):
                     error=f'Failed to connect to cluster: {str(cluster_error)}'
                 )
             
-            # Check for MetroCluster configuration
+            # Check for MetroCluster configuration and get detailed information
             is_metrocluster = False
+            metrocluster_info = {}
+            metrocluster_nodes = []
+            metrocluster_dr_groups = []
+            
             try:
+                # Get MetroCluster configuration
+                # REST API: GET /api/cluster/metrocluster
                 metrocluster_response = requests.get(
                     f"{self.base_url}/api/cluster/metrocluster",
                     auth=auth,
@@ -368,6 +511,71 @@ class NetAppONTAPClient(StorageClient):
                     if configuration_state and configuration_state != 'not_configured':
                         is_metrocluster = True
                         logger.info(f"MetroCluster detected for {self.ip_address}: {configuration_state}")
+                        
+                        # Store MetroCluster configuration info
+                        metrocluster_info = {
+                            'configuration_state': configuration_state,
+                            'mode': metrocluster_data.get('mode'),
+                            'local_cluster_name': metrocluster_data.get('local', {}).get('cluster', {}).get('name'),
+                            'partner_cluster_name': metrocluster_data.get('partner', {}).get('cluster', {}).get('name'),
+                        }
+                        
+                        # Get MetroCluster nodes information
+                        # REST API: GET /api/cluster/metrocluster/nodes
+                        try:
+                            mc_nodes_response = requests.get(
+                                f"{self.base_url}/api/cluster/metrocluster/nodes",
+                                auth=auth,
+                                headers=headers,
+                                verify=ssl_verify,
+                                timeout=10
+                            )
+                            
+                            if mc_nodes_response.status_code == 200:
+                                mc_nodes_data = mc_nodes_response.json()
+                                records = mc_nodes_data.get('records', [])
+                                
+                                for node in records:
+                                    node_info = {
+                                        'name': node.get('name'),
+                                        'cluster': node.get('cluster', {}).get('name'),
+                                        'dr_group_id': node.get('dr_group_id'),
+                                        'dr_partner': node.get('dr_partner', {}).get('name'),
+                                        'ha_partner': node.get('ha_partner', {}).get('name'),
+                                        'type': 'metrocluster-node'
+                                    }
+                                    metrocluster_nodes.append(node_info)
+                                
+                                logger.info(f"Found {len(metrocluster_nodes)} MetroCluster nodes for {self.ip_address}")
+                        except Exception as mc_nodes_error:
+                            logger.warning(f"Could not get MetroCluster nodes for {self.ip_address}: {mc_nodes_error}")
+                        
+                        # Get MetroCluster DR groups information
+                        # REST API: GET /api/cluster/metrocluster/dr-groups
+                        try:
+                            dr_groups_response = requests.get(
+                                f"{self.base_url}/api/cluster/metrocluster/dr-groups",
+                                auth=auth,
+                                headers=headers,
+                                verify=ssl_verify,
+                                timeout=10
+                            )
+                            
+                            if dr_groups_response.status_code == 200:
+                                dr_groups_data = dr_groups_response.json()
+                                records = dr_groups_data.get('records', [])
+                                
+                                for dr_group in records:
+                                    dr_group_info = {
+                                        'id': dr_group.get('id'),
+                                        'local_nodes': [n.get('name') for n in dr_group.get('local', {}).get('nodes', [])],
+                                        'partner_nodes': [n.get('name') for n in dr_group.get('partner', {}).get('nodes', [])],
+                                    }
+                                    metrocluster_dr_groups.append(dr_group_info)
+                                
+                                logger.info(f"Found {len(metrocluster_dr_groups)} MetroCluster DR groups for {self.ip_address}")
+                        except Exception as dr_groups_error:
+                            logger.warning(f"Could not get MetroCluster DR groups for {self.ip_address}: {dr_groups_error}")
             except Exception as mc_error:
                 # MetroCluster endpoint might not be available if not configured
                 logger.debug(f"Could not check MetroCluster status for {self.ip_address}: {mc_error}")
@@ -415,7 +623,11 @@ class NetAppONTAPClient(StorageClient):
                 total_tb=total_bytes / (1024**4),
                 used_tb=used_bytes / (1024**4),
                 os_version=os_version,
-                is_metrocluster=is_metrocluster
+                is_metrocluster=is_metrocluster,
+                metrocluster_info=metrocluster_info if metrocluster_info else None,
+                metrocluster_nodes=metrocluster_nodes if metrocluster_nodes else None,
+                metrocluster_dr_groups=metrocluster_dr_groups if metrocluster_dr_groups else None,
+                controllers=metrocluster_nodes if metrocluster_nodes else None  # Store MC nodes as controllers for display
             )
         except Exception as e:
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
@@ -439,7 +651,31 @@ class NetAppStorageGRIDClient(StorageClient):
             }
             ssl_verify = get_ssl_verify(self.resolved_address)
             
-            # Get grid health/topology to verify connectivity and get version info
+            # Get grid health to verify connectivity
+            # API: GET /api/v4/grid/health
+            hardware_status = 'ok'
+            cluster_status = 'ok'
+            try:
+                health_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/health",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if health_response.status_code == 200:
+                    health_data = health_response.json()
+                    data = health_data.get('data', {})
+                    
+                    # Check overall health status
+                    health_state = data.get('health', 'unknown')
+                    if health_state and health_state.lower() not in STORAGEGRID_HEALTHY_GRID_STATES:
+                        hardware_status = 'warning'
+                        logger.warning(f"StorageGRID health issue for {self.ip_address}: {health_state}")
+            except Exception as health_error:
+                logger.warning(f"Could not get StorageGRID health for {self.ip_address}: {health_error}")
+            
+            # Get grid topology to verify connectivity and get version info
             response = requests.get(
                 f"{self.base_url}/api/v4/grid/health/topology",
                 headers=headers,
@@ -465,6 +701,68 @@ class NetAppStorageGRIDClient(StorageClient):
                     os_version = extract_field_with_fallbacks(version_data, ['data.productVersion', 'productVersion'])
             except Exception as version_error:
                 logger.warning(f"Could not get StorageGRID version for {self.ip_address}: {version_error}")
+            
+            # Get alerts count
+            # API: GET /api/v4/grid/alerts
+            alerts_count = 0
+            try:
+                alerts_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/alerts",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if alerts_response.status_code == 200:
+                    alerts_data = alerts_response.json()
+                    alerts_list = alerts_data.get('data', [])
+                    # Count active/unresolved alerts
+                    alerts_count = sum(1 for alert in alerts_list if alert.get('state', '').lower() in STORAGEGRID_ACTIVE_ALERT_STATES)
+                    
+                    if alerts_count > 0:
+                        logger.info(f"Found {alerts_count} active alerts for StorageGRID {self.ip_address}")
+                        hardware_status = 'warning'
+            except Exception as alerts_error:
+                logger.warning(f"Could not get StorageGRID alerts for {self.ip_address}: {alerts_error}")
+            
+            # Get node health information
+            # API: GET /api/v4/grid/node-health
+            nodes_info = []
+            try:
+                node_health_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/node-health",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if node_health_response.status_code == 200:
+                    node_health_data = node_health_response.json()
+                    nodes_list = node_health_data.get('data', [])
+                    
+                    for node in nodes_list:
+                        node_id = node.get('id', '')
+                        node_name = node.get('name', 'Unknown')
+                        node_state = node.get('state', 'unknown')
+                        node_type = node.get('type', 'unknown')
+                        
+                        node_info = {
+                            'name': node_name,
+                            'id': node_id,
+                            'type': node_type,
+                            'status': node_state
+                        }
+                        
+                        # Check node health
+                        if node_state and node_state.lower() not in STORAGEGRID_HEALTHY_NODE_STATES:
+                            hardware_status = 'warning'
+                            logger.warning(f"StorageGRID node {node_name} state: {node_state}")
+                        
+                        nodes_info.append(node_info)
+                    
+                    logger.info(f"Found {len(nodes_info)} nodes in StorageGRID {self.ip_address}")
+            except Exception as node_health_error:
+                logger.warning(f"Could not get StorageGRID node health for {self.ip_address}: {node_health_error}")
             
             # Get capacity info from storage usage API
             total_bytes = 0
@@ -539,12 +837,13 @@ class NetAppStorageGRIDClient(StorageClient):
             
             return self._format_response(
                 status='online',
-                hardware='ok',
-                cluster='ok',
-                alerts=0,
+                hardware=hardware_status,
+                cluster=cluster_status,
+                alerts=alerts_count,
                 total_tb=total_tb,
                 used_tb=used_tb,
-                os_version=os_version
+                os_version=os_version,
+                controllers=nodes_info if nodes_info else None
             )
         except Exception as e:
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
