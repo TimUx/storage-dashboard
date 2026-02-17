@@ -371,16 +371,22 @@ Im Admin-Bereich:
 - **Benutzername:** Leer lassen
 - **Passwort:** Leer lassen
 
-#### Verwendete Python-Bibliothek
+#### REST API Details
 
-```python
-# py-pure-client (offizielle Pure Storage SDK)
-from pypureclient import flasharray
 ```
+Pure Storage FlashArray REST API v2.4
+Endpoint: https://<array-ip>/api/2.4/
+Authentication: x-auth-token header
+```
+
+**Verwendete API-Endpunkte:**
+- `GET /api/2.4/arrays` - Array-Informationen
+- `GET /api/2.4/arrays/space` - Kapazitätsinformationen
+- `GET /api/2.4/controllers` - Controller-/Node-Informationen (für Discovery)
 
 **Referenz:**
 - [Pure Storage REST API 2.x Documentation](https://support.purestorage.com/FlashArray/PurityFA/REST_API)
-- [py-pure-client GitHub](https://github.com/PureStorage-OpenConnect/py-pure-client)
+- [Pure Storage REST API Swagger Reference](https://code.purestorage.com/swagger/)
 
 #### Benötigte Berechtigungen
 
@@ -436,17 +442,22 @@ Im Admin-Bereich:
 - **Passwort:** Das gesetzte Passwort
 - **API Token:** Leer lassen
 
-#### Verwendete Python-Bibliothek
+#### REST API Details
 
-```python
-# netapp-ontap (offizielle NetApp SDK)
-from netapp_ontap import HostConnection
-from netapp_ontap.resources import Cluster, Aggregate, Volume
 ```
+NetApp ONTAP REST API
+Endpoint: https://<cluster-ip>/api/
+Authentication: Basic Auth (username:password)
+```
+
+**Verwendete API-Endpunkte:**
+- `GET /api/cluster` - Cluster-Informationen
+- `GET /api/storage/aggregates?fields=space` - Aggregate-Kapazität
+- `GET /api/cluster/nodes` - Node-Informationen (für Discovery)
 
 **Referenz:**
 - [ONTAP REST API Documentation](https://docs.netapp.com/us-en/ontap-automation/)
-- [NetApp Python Client Library](https://pypi.org/project/netapp-ontap/)
+- [ONTAP REST API 9.16.1 Swagger](https://docs.netapp.com/us-en/ontap-restapi-9161/ontap/swagger-ui/index.html)
 
 #### Benötigte Berechtigungen
 
