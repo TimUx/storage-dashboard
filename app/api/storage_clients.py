@@ -169,8 +169,11 @@ class NetAppONTAPClient(StorageClient):
                     if space:
                         block_storage = getattr(space, 'block_storage', None)
                         if block_storage:
-                            size = getattr(block_storage, 'size', 0) or 0
-                            used = getattr(block_storage, 'used', 0) or 0
+                            # Convert Number objects to int (NetApp ONTAP library returns Number objects)
+                            size_val = getattr(block_storage, 'size', None)
+                            used_val = getattr(block_storage, 'used', None)
+                            size = int(size_val) if size_val is not None else 0
+                            used = int(used_val) if used_val is not None else 0
                             total_bytes += size
                             used_bytes += used
             except Exception as aggr_error:
