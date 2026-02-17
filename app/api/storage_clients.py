@@ -672,10 +672,10 @@ class NetAppONTAPClient(StorageClient):
                                     
                                     for node in records:
                                         node_cluster = node.get('cluster', {}).get('name')
-                                        node_data = node.get('node', {})
+                                        node_details = node.get('node', {})
                                         node_info = {
-                                            'name': node_data.get('name'),
-                                            'uuid': node_data.get('uuid'),
+                                            'name': node_details.get('name'),
+                                            'uuid': node_details.get('uuid'),
                                             'cluster': node_cluster,
                                             'is_local': node_cluster == cluster_name,  # Distinguish local vs remote
                                             'dr_group_id': node.get('dr_group_id'),
