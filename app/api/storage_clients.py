@@ -900,7 +900,7 @@ class NetAppStorageGRIDClient(StorageClient):
                         'timeout': '30s'
                     },
                     verify=ssl_verify,
-                    timeout=10
+                    timeout=35  # Allow enough time for the API-level timeout (30s) plus network overhead
                 )
                 
                 if total_metric_response.status_code == 200:
@@ -920,7 +920,10 @@ class NetAppStorageGRIDClient(StorageClient):
                                 node_total = int(value_array[1])
                                 total_bytes += node_total
                             except (ValueError, TypeError) as e:
-                                logger.debug(f"Could not parse total space value: {value_array[1]}, error: {e}")
+                                # Include node identifier for easier debugging
+                                metric_info = result.get('metric', {})
+                                node_id = metric_info.get('instance', metric_info.get('node_id', 'unknown'))
+                                logger.debug(f"Could not parse total space value for node {node_id}: {value_array[1]}, error: {e}")
                     
                     logger.info(f"StorageGRID total capacity from {len(results)} nodes: {total_bytes} bytes")
                 
@@ -934,7 +937,7 @@ class NetAppStorageGRIDClient(StorageClient):
                         'timeout': '30s'
                     },
                     verify=ssl_verify,
-                    timeout=10
+                    timeout=35  # Allow enough time for the API-level timeout (30s) plus network overhead
                 )
                 
                 if used_metric_response.status_code == 200:
@@ -953,7 +956,10 @@ class NetAppStorageGRIDClient(StorageClient):
                                 node_used = int(value_array[1])
                                 used_bytes += node_used
                             except (ValueError, TypeError) as e:
-                                logger.debug(f"Could not parse used space value: {value_array[1]}, error: {e}")
+                                # Include node identifier for easier debugging
+                                metric_info = result.get('metric', {})
+                                node_id = metric_info.get('instance', metric_info.get('node_id', 'unknown'))
+                                logger.debug(f"Could not parse used space value for node {node_id}: {value_array[1]}, error: {e}")
                     
                     logger.info(f"StorageGRID used capacity from {len(results)} nodes: {used_bytes} bytes")
                         
