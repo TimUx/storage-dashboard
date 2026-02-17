@@ -34,8 +34,35 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 class PureStorageClient(StorageClient):
     """Pure Storage FlashArray client using REST API"""
     
-    # FlashArray REST API version
+    # FlashArray REST API version (will be detected dynamically)
     API_VERSION = '2.4'
+    
+    def detect_api_version(self):
+        """Detect the API version supported by the FlashArray"""
+        try:
+            ssl_verify = get_ssl_verify()
+            
+            # Query api_version endpoint
+            response = requests.get(
+                f"{self.base_url}/api/api_version",
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Get the latest supported version
+                versions = data.get('version', [])
+                if versions:
+                    # Return the latest version (usually last in the list)
+                    latest_version = versions[-1] if isinstance(versions, list) else versions
+                    logger.info(f"Detected Pure Storage API version: {latest_version}")
+                    return latest_version
+        except Exception as e:
+            logger.warning(f"Could not detect API version for {self.ip_address}: {e}")
+        
+        # Return default version if detection fails
+        return self.API_VERSION
     
     def get_health_status(self):
         try:
@@ -44,6 +71,9 @@ class PureStorageClient(StorageClient):
             
             ssl_verify = get_ssl_verify()
             
+            # Detect API version dynamically
+            api_version = self.detect_api_version()
+            
             # FlashArray REST API v2 headers
             headers = {
                 'x-auth-token': self.token,
@@ -51,10 +81,10 @@ class PureStorageClient(StorageClient):
                 'Content-Type': 'application/json'
             }
             
-            # Get array info to verify connectivity
+            # Get array info to verify connectivity and get OS version
             # REST API v2: GET /api/2.x/arrays
             response = requests.get(
-                f"{self.base_url}/api/{self.API_VERSION}/arrays",
+                f"{self.base_url}/api/{api_version}/arrays",
                 headers=headers,
                 verify=ssl_verify,
                 timeout=10
@@ -63,10 +93,17 @@ class PureStorageClient(StorageClient):
             if response.status_code != 200:
                 return self._format_response(status='error', error=f'API error: {response.status_code}')
             
+            # Extract OS version from array info
+            array_data = response.json()
+            os_version = None
+            if 'items' in array_data and len(array_data['items']) > 0:
+                item = array_data['items'][0]
+                os_version = item.get('os') or item.get('version')
+            
             # Get space/capacity info
             # REST API v2: GET /api/2.x/arrays/space
             space_response = requests.get(
-                f"{self.base_url}/api/{self.API_VERSION}/arrays/space",
+                f"{self.base_url}/api/{api_version}/arrays/space",
                 headers=headers,
                 verify=ssl_verify,
                 timeout=10
@@ -97,7 +134,9 @@ class PureStorageClient(StorageClient):
                 cluster='ok',
                 alerts=0,
                 total_tb=total_bytes / (1024**4),
-                used_tb=used_bytes / (1024**4)
+                used_tb=used_bytes / (1024**4),
+                os_version=os_version,
+                api_version=api_version
             )
                 
         except Exception as e:
@@ -141,11 +180,35 @@ class NetAppONTAPClient(StorageClient):
                 
                 cluster_data = cluster_response.json()
                 cluster_name = cluster_data.get('name', 'unknown')
+                os_version = cluster_data.get('version', {}).get('full') or cluster_data.get('version', {}).get('generation')
+                
             except Exception as cluster_error:
                 return self._format_response(
                     status='error',
                     error=f'Failed to connect to cluster: {str(cluster_error)}'
                 )
+            
+            # Check for MetroCluster configuration
+            is_metrocluster = False
+            try:
+                metrocluster_response = requests.get(
+                    f"{self.base_url}/api/cluster/metrocluster",
+                    auth=auth,
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if metrocluster_response.status_code == 200:
+                    metrocluster_data = metrocluster_response.json()
+                    # Check if MetroCluster is configured
+                    configuration_state = metrocluster_data.get('configuration_state')
+                    if configuration_state and configuration_state != 'not_configured':
+                        is_metrocluster = True
+                        logger.info(f"MetroCluster detected for {self.ip_address}: {configuration_state}")
+            except Exception as mc_error:
+                # MetroCluster endpoint might not be available if not configured
+                logger.debug(f"Could not check MetroCluster status for {self.ip_address}: {mc_error}")
             
             # Get aggregate space info
             # REST API: GET /api/storage/aggregates?fields=space
@@ -188,7 +251,9 @@ class NetAppONTAPClient(StorageClient):
                 cluster='ok',
                 alerts=0,
                 total_tb=total_bytes / (1024**4),
-                used_tb=used_bytes / (1024**4)
+                used_tb=used_bytes / (1024**4),
+                os_version=os_version,
+                is_metrocluster=is_metrocluster
             )
         except Exception as e:
             return self._format_response(status='error', error=str(e))
@@ -212,7 +277,7 @@ class NetAppStorageGRIDClient(StorageClient):
             }
             ssl_verify = get_ssl_verify()
             
-            # Get grid health/topology to verify connectivity
+            # Get grid health/topology to verify connectivity and get version info
             response = requests.get(
                 f"{self.base_url}/api/v4/grid/health/topology",
                 headers=headers,
@@ -223,12 +288,29 @@ class NetAppStorageGRIDClient(StorageClient):
             if response.status_code != 200:
                 return self._format_response(status='error', error=f'API error: {response.status_code}')
             
+            # Get product version from grid config
+            os_version = None
+            try:
+                version_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/config/product-version",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if version_response.status_code == 200:
+                    version_data = version_response.json()
+                    os_version = version_data.get('data', {}).get('productVersion') or version_data.get('productVersion')
+            except Exception as version_error:
+                logger.warning(f"Could not get StorageGRID version for {self.ip_address}: {version_error}")
+            
             # Get capacity info from storage usage API
             total_bytes = 0
             used_bytes = 0
             
             try:
-                # Get storage usage metrics
+                # Try multiple endpoints for capacity information
+                # First try: /api/v4/grid/storage-usage
                 usage_response = requests.get(
                     f"{self.base_url}/api/v4/grid/storage-usage",
                     headers=headers,
@@ -238,6 +320,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 
                 if usage_response.status_code == 200:
                     usage_data = usage_response.json()
+                    logger.info(f"StorageGRID usage response: {usage_data}")
                     
                     # Parse storage usage data
                     # StorageGRID API v4 returns data in 'data' object
@@ -263,15 +346,34 @@ class NetAppStorageGRIDClient(StorageClient):
                     elif 'usedCapacity' in data:
                         used_bytes = data.get('usedCapacity', 0)
                     
+                    # If we still don't have capacity, try alternative approach
+                    if total_bytes == 0:
+                        # Try getting capacity from storage nodes
+                        try:
+                            nodes_response = requests.get(
+                                f"{self.base_url}/api/v4/grid/storage-nodes",
+                                headers=headers,
+                                verify=ssl_verify,
+                                timeout=10
+                            )
+                            
+                            if nodes_response.status_code == 200:
+                                nodes_data = nodes_response.json()
+                                nodes = nodes_data.get('data', [])
+                                
+                                for node in nodes:
+                                    # Sum up capacity from all storage nodes
+                                    storage = node.get('storage', {})
+                                    total_bytes += storage.get('totalCapacity', 0) or 0
+                                    used_bytes += storage.get('usedCapacity', 0) or 0
+                        except Exception as nodes_error:
+                            logger.warning(f"Could not get StorageGRID nodes capacity: {nodes_error}")
+                    
                     # Log for debugging
-                    import logging
-                    logger = logging.getLogger(__name__)
                     logger.info(f"StorageGRID capacity: total={total_bytes} bytes, used={used_bytes} bytes")
                         
             except Exception as usage_error:
                 # Log but don't fail if we can't get capacity
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.warning(f"Could not get StorageGRID storage usage: {usage_error}")
             
             # Convert bytes to TB (1 TB = 1024^4 bytes)
@@ -284,7 +386,8 @@ class NetAppStorageGRIDClient(StorageClient):
                 cluster='ok',
                 alerts=0,
                 total_tb=total_tb,
-                used_tb=used_tb
+                used_tb=used_tb,
+                os_version=os_version
             )
         except Exception as e:
             return self._format_response(status='error', error=str(e))
@@ -315,6 +418,12 @@ class DellDataDomainClient(StorageClient):
             
             data = response.json()
             
+            # Extract OS version from system info
+            os_version = None
+            if 'dd_systems' in data and len(data['dd_systems']) > 0:
+                system = data['dd_systems'][0]
+                os_version = system.get('version') or system.get('os_version')
+            
             # Get capacity info
             capacity_response = requests.get(
                 f"{self.base_url}/rest/v1.0/dd-systems/0/file-systems",
@@ -338,7 +447,8 @@ class DellDataDomainClient(StorageClient):
                 cluster='ok',
                 alerts=0,
                 total_tb=total_bytes / (1024**4),
-                used_tb=used_bytes / (1024**4)
+                used_tb=used_bytes / (1024**4),
+                os_version=os_version
             )
         except Exception as e:
             return self._format_response(status='error', error=str(e))
