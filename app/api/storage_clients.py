@@ -236,9 +236,12 @@ class PureStorageClient(StorageClient):
             # Extract OS version from array info
             array_data = response.json()
             os_version = None
+            array_name = None
             if 'items' in array_data and len(array_data['items']) > 0:
                 item = array_data['items'][0]
+                # Get full version with Purity/FA prefix
                 os_version = item.get('os') or item.get('version')
+                array_name = item.get('name')
             
             # Get space/capacity info
             # REST API v2: GET /api/2.x/arrays/space
@@ -268,6 +271,127 @@ class PureStorageClient(StorageClient):
                     space_info = item.get('space', {})
                     used_bytes = space_info.get('total_physical', 0) or 0
             
+            # Get controllers/nodes information
+            # REST API v2: GET /api/2.x/controllers
+            controllers = []
+            try:
+                controllers_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/controllers",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if controllers_response.status_code == 200:
+                    controllers_data = controllers_response.json()
+                    items = controllers_data.get('items', [])
+                    
+                    for ctrl in items:
+                        controller_info = {
+                            'name': ctrl.get('name'),
+                            'status': ctrl.get('status'),
+                            'mode': ctrl.get('mode'),
+                            'model': ctrl.get('model'),
+                            'version': ctrl.get('version'),
+                            'type': 'controller'
+                        }
+                        
+                        # Collect all IPs from the controller
+                        ips = []
+                        if ctrl.get('ip'):
+                            ips.append(ctrl.get('ip'))
+                        if ctrl.get('mgmt_ip'):
+                            ips.append(ctrl.get('mgmt_ip'))
+                        if ctrl.get('replication_ip'):
+                            ips.append(ctrl.get('replication_ip'))
+                        
+                        if ips:
+                            controller_info['ips'] = ips
+                        
+                        controllers.append(controller_info)
+                    
+                    logger.info(f"Found {len(controllers)} controllers for {self.ip_address}")
+            except Exception as ctrl_error:
+                logger.warning(f"Could not get controllers for {self.ip_address}: {ctrl_error}")
+            
+            # Get hardware status
+            # REST API v2: GET /api/2.x/hardware
+            hardware_status = 'ok'
+            try:
+                hardware_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/hardware",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if hardware_response.status_code == 200:
+                    hardware_data = hardware_response.json()
+                    items = hardware_data.get('items', [])
+                    
+                    # Check if any hardware component is not OK
+                    for hw in items:
+                        status = hw.get('status', '').lower()
+                        if status not in ['ok', 'healthy', 'normal', '']:
+                            hardware_status = 'warning'
+                            logger.warning(f"Hardware issue on {self.ip_address}: {hw.get('name')} is {status}")
+                            break
+            except Exception as hw_error:
+                logger.warning(f"Could not get hardware status for {self.ip_address}: {hw_error}")
+            
+            # Get alerts
+            # REST API v2: GET /api/2.x/alerts
+            alerts_count = 0
+            try:
+                alerts_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/alerts",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if alerts_response.status_code == 200:
+                    alerts_data = alerts_response.json()
+                    # Count open alerts (those that are not closed)
+                    items = alerts_data.get('items', [])
+                    alerts_count = len([a for a in items if a.get('state', '').lower() != 'closed'])
+                    
+                    if alerts_count > 0:
+                        logger.info(f"Found {alerts_count} open alerts for {self.ip_address}")
+            except Exception as alerts_error:
+                logger.warning(f"Could not get alerts for {self.ip_address}: {alerts_error}")
+            
+            # Get array connections (peers)
+            # REST API v2: GET /api/2.x/array-connections
+            array_connections = []
+            try:
+                connections_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/array-connections",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if connections_response.status_code == 200:
+                    connections_data = connections_response.json()
+                    items = connections_data.get('items', [])
+                    
+                    for conn in items:
+                        connection_info = {
+                            'name': conn.get('name'),
+                            'status': conn.get('status'),
+                            'type': conn.get('type'),
+                            'management_address': conn.get('management_address'),
+                            'replication_address': conn.get('replication_address'),
+                            'version': conn.get('version')
+                        }
+                        array_connections.append(connection_info)
+                    
+                    if array_connections:
+                        logger.info(f"Found {len(array_connections)} array connections for {self.ip_address}")
+            except Exception as conn_error:
+                logger.warning(f"Could not get array connections for {self.ip_address}: {conn_error}")
+            
             # Logout to clean up the session
             try:
                 requests.post(
@@ -283,13 +407,15 @@ class PureStorageClient(StorageClient):
             
             return self._format_response(
                 status='online',
-                hardware='ok',
+                hardware=hardware_status,
                 cluster='ok',
-                alerts=0,
+                alerts=alerts_count,
                 total_tb=total_bytes / (1024**4),
                 used_tb=used_bytes / (1024**4),
                 os_version=os_version,
-                api_version=api_version
+                api_version=api_version,
+                controllers=controllers,
+                array_connections=array_connections
             )
                 
         except Exception as e:

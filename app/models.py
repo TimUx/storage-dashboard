@@ -29,6 +29,7 @@ class StorageSystem(db.Model):
     dns_names = db.Column(db.Text)  # JSON: ["hostname.domain.com", "alias.domain.com"]
     all_ips = db.Column(db.Text)  # JSON: ["192.168.1.1", "10.0.0.1"]
     node_details = db.Column(db.Text)  # JSON: [{name, ip, status, role, ...}]
+    peer_connections = db.Column(db.Text)  # JSON: [{name, status, type, address, ...}] - for Pure Storage array-connections
     os_version = db.Column(db.String(100))  # OS/firmware version of the storage system
     api_version = db.Column(db.String(50))  # Detected API version
     
@@ -122,6 +123,22 @@ class StorageSystem(db.Model):
         else:
             self.node_details = None
     
+    def get_peer_connections(self):
+        """Get peer connections as list"""
+        if self.peer_connections:
+            try:
+                return json.loads(self.peer_connections)
+            except:
+                return []
+        return []
+    
+    def set_peer_connections(self, connections):
+        """Set peer connections from list"""
+        if connections:
+            self.peer_connections = json.dumps(connections)
+        else:
+            self.peer_connections = None
+    
     def to_dict(self):
         return {
             'id': self.id,
@@ -136,6 +153,7 @@ class StorageSystem(db.Model):
             'dns_names': self.get_dns_names(),
             'all_ips': self.get_all_ips(),
             'node_details': self.get_node_details(),
+            'peer_connections': self.get_peer_connections(),
             'partner_cluster_id': self.partner_cluster_id,
             'os_version': self.os_version,
             'api_version': self.api_version,

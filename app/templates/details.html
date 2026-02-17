@@ -615,5 +615,49 @@
         Verwenden Sie den "Neu Erkennen" Button, um die Informationen zu aktualisieren.
     </div>
     {% endif %}
+
+    <!-- Peer Connections / Array Connections -->
+    {% if system.get_peer_connections() %}
+    <div class="detail-card" style="grid-column: 1 / -1;">
+        <h2>🔗 Peer-Verbindungen / Array-Verbindungen ({{ system.get_peer_connections()|length }})</h2>
+        <ul class="node-list">
+            {% for peer in system.get_peer_connections() %}
+            <li class="node-item">
+                <div class="node-header">
+                    <div class="node-name">
+                        {% if peer.management_address %}
+                        <a href="https://{{ peer.management_address }}" target="_blank" rel="noopener noreferrer" 
+                           title="Zur WebUI des Peer-Arrays">
+                            {{ peer.name }} ↗
+                        </a>
+                        {% else %}
+                        {{ peer.name }}
+                        {% endif %}
+                    </div>
+                    {% if peer.status %}
+                    <span class="status-badge status-{{ 'online' if peer.status in ['online', 'connected', 'ok'] else 'warning' }}">
+                        {{ peer.status }}
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="node-details">
+                    {% if peer.type %}
+                    <div class="node-detail"><strong>Type:</strong> {{ peer.type }}</div>
+                    {% endif %}
+                    {% if peer.version %}
+                    <div class="node-detail"><strong>Version:</strong> {{ peer.version }}</div>
+                    {% endif %}
+                    {% if peer.management_address %}
+                    <div class="node-detail"><strong>Management:</strong> <span class="ip-badge">{{ peer.management_address }}</span></div>
+                    {% endif %}
+                    {% if peer.replication_address %}
+                    <div class="node-detail"><strong>Replication:</strong> <span class="ip-badge">{{ peer.replication_address }}</span></div>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
