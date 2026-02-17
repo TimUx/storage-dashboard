@@ -17,6 +17,8 @@ def fetch_system_status(system, app):
     with app.app_context():
         try:
             # Refresh the system object in this thread's context
+            # Using load=False to prevent an unnecessary SELECT query since
+            # we already have all the data we need from the original object
             system = db.session.merge(system, load=False)
             
             client = get_client(

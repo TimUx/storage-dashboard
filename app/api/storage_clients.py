@@ -244,9 +244,10 @@ class PureStorageClient(StorageClient):
                     verify=ssl_verify,
                     timeout=5
                 )
-            except Exception:
-                # Logout errors are not critical
-                pass
+                logger.debug(f"Logged out from Pure Storage {self.ip_address}")
+            except Exception as logout_error:
+                # Logout errors are not critical, but log for debugging
+                logger.debug(f"Logout failed for {self.ip_address}: {logout_error}")
             
             return self._format_response(
                 status='online',
