@@ -69,7 +69,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         # Get array info
         arrays_response = client.get_arrays()
         if isinstance(arrays_response, flasharray.ValidResponse):
-            array_items = getattr(arrays_response, 'items', [])
+            array_items = list(getattr(arrays_response, 'items', []))
             if array_items:
                 array = array_items[0]
                 
@@ -80,7 +80,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
         try:
             controllers_response = client.get_controllers()
             if isinstance(controllers_response, flasharray.ValidResponse):
-                controller_items = getattr(controllers_response, 'items', [])
+                controller_items = list(getattr(controllers_response, 'items', []))
                 discovery_data['node_count'] = len(controller_items)
                 
                 for ctrl in controller_items:
@@ -100,7 +100,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
             # ActiveCluster pods would be detected here
             pods_response = client.get_pods()
             if isinstance(pods_response, flasharray.ValidResponse):
-                pod_items = getattr(pods_response, 'items', [])
+                pod_items = list(getattr(pods_response, 'items', []))
                 if pod_items:
                     # If pods exist, might be ActiveCluster
                     discovery_data['cluster_type'] = 'active-cluster'

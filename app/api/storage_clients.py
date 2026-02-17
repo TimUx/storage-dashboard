@@ -57,7 +57,7 @@ class PureStorageClient(StorageClient):
                 
                 if isinstance(space_response, flasharray.ValidResponse):
                     # Extract capacity data
-                    space_items = getattr(space_response, 'items', [])
+                    space_items = list(getattr(space_response, 'items', []))
                     
                     if space_items and len(space_items) > 0:
                         space_data = space_items[0]
