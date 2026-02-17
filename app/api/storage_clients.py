@@ -5,6 +5,7 @@ import requests
 import warnings
 import logging
 import ipaddress
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,6 @@ class PureStorageClient(StorageClient):
                 if raw_version:
                     # Extract numeric version from string like "Purity//FA 6.5.10"
                     # Split by spaces and find the part that looks like a version number
-                    import re
                     version_match = re.search(r'(\d+\.\d+\.\d+)', raw_version)
                     if version_match:
                         os_version = version_match.group(1)
