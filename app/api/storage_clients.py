@@ -251,17 +251,9 @@ class PureStorageClient(StorageClient):
             array_name = None
             if 'items' in array_data and len(array_data['items']) > 0:
                 item = array_data['items'][0]
-                # Get version string (e.g., "Purity//FA 6.5.10" or just "6.5.10")
-                raw_version = item.get('os') or item.get('version')
-                if raw_version:
-                    # Extract numeric version from string like "Purity//FA 6.5.10"
-                    # Use regex to find version number pattern (X.X.X)
-                    version_match = re.search(r'(\d+\.\d+\.\d+)', raw_version)
-                    if version_match:
-                        os_version = version_match.group(1)
-                    else:
-                        # If no version pattern found, use the raw string
-                        os_version = raw_version
+                # Get version string - use 'version' field which contains the actual version number (e.g., "6.5.10")
+                # The 'os' field contains "Purity//FA" which is not useful
+                os_version = item.get('version')
                 array_name = item.get('name')
             
             # Get space/capacity info
@@ -342,6 +334,35 @@ class PureStorageClient(StorageClient):
                     logger.info(f"Found {len(controllers)} controllers for {self.ip_address} (shelf controllers filtered out)")
             except Exception as ctrl_error:
                 logger.warning(f"Could not get controllers for {self.ip_address}: {ctrl_error}")
+            
+            # Get all management network interfaces to collect all management IPs
+            # REST API v2: GET /api/2.x/network-interfaces?filter=services='management'
+            all_mgmt_ips = []
+            try:
+                network_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/network-interfaces",
+                    headers=headers,
+                    params={'filter': "services='management'"},
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if network_response.status_code == 200:
+                    network_data = network_response.json()
+                    items = network_data.get('items', [])
+                    
+                    for interface in items:
+                        # Check if interface is enabled and has an IP address
+                        if interface.get('enabled'):
+                            eth_info = interface.get('eth', {})
+                            ip_address = eth_info.get('address')
+                            if ip_address:
+                                all_mgmt_ips.append(ip_address)
+                    
+                    if all_mgmt_ips:
+                        logger.info(f"Found {len(all_mgmt_ips)} management IPs for {self.ip_address}: {all_mgmt_ips}")
+            except Exception as net_error:
+                logger.warning(f"Could not get network interfaces for {self.ip_address}: {net_error}")
             
             # Get hardware status
             # REST API v2: GET /api/2.x/hardware
@@ -424,8 +445,11 @@ class PureStorageClient(StorageClient):
             # Check for ActiveCluster configuration
             # REST API v2: GET /api/2.x/pods
             # An array is ActiveCluster if at least one pod has arrays.length > 1
+            # Also check for sync-replication type in array connections
             is_active_cluster = False
             pods_info = []
+            site_count = 1  # Default to 1 site
+            
             try:
                 pods_response = requests.get(
                     f"{self.base_url}/api/{api_version}/pods",
@@ -446,14 +470,18 @@ class PureStorageClient(StorageClient):
                             'name': pod.get('name'),
                             'source': pod.get('source'),
                             'arrays': [arr.get('name') for arr in pod_arrays],
+                            'array_count': pod.get('array_count', len(pod_arrays)),
+                            'promotion_status': pod.get('promotion_status'),
                             'stretch': pod.get('stretch', False)
                         }
                         pods_info.append(pod_info)
                         
                         # ActiveCluster detection: pod must have more than 1 array
-                        if len(pod_arrays) > 1:
+                        # Check both array_count field and arrays list length
+                        array_count = pod.get('array_count', len(pod_arrays))
+                        if array_count > 1 or len(pod_arrays) > 1:
                             is_active_cluster = True
-                            logger.info(f"ActiveCluster detected: pod '{pod.get('name')}' has {len(pod_arrays)} arrays")
+                            logger.info(f"ActiveCluster detected: pod '{pod.get('name')}' has {array_count} arrays")
                     
                     if is_active_cluster:
                         logger.info(f"ActiveCluster confirmed for {self.ip_address} with {len(pods_info)} pods")
@@ -462,6 +490,21 @@ class PureStorageClient(StorageClient):
             except Exception as pods_error:
                 # Pods endpoint might not be available on all arrays
                 logger.debug(f"Could not check pods for {self.ip_address}: {pods_error}")
+            
+            # Additional ActiveCluster detection via array connections
+            # If there's a sync-replication type connection, it indicates ActiveCluster
+            if not is_active_cluster and array_connections:
+                for conn in array_connections:
+                    if conn.get('type') == 'sync-replication':
+                        is_active_cluster = True
+                        logger.info(f"ActiveCluster detected via sync-replication connection to {conn.get('name')}")
+                        break
+            
+            # Calculate site count based on peer connections
+            # If there are array connections (peer arrays), we have at least 2 sites
+            if array_connections:
+                site_count = 2
+                logger.info(f"Multi-site configuration detected: {site_count} sites (local + {len(array_connections)} peer(s))")
             
             # Logout to clean up the session
             try:
@@ -488,7 +531,9 @@ class PureStorageClient(StorageClient):
                 controllers=controllers,
                 array_connections=array_connections,
                 is_active_cluster=is_active_cluster,
-                pods_info=pods_info if pods_info else None
+                site_count=site_count,
+                pods_info=pods_info if pods_info else None,
+                all_mgmt_ips=all_mgmt_ips if all_mgmt_ips else None
             )
                 
         except Exception as e:
