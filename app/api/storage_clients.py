@@ -448,7 +448,6 @@ class PureStorageClient(StorageClient):
             # Also check for sync-replication type in array connections
             is_active_cluster = False
             pods_info = []
-            site_count = 1  # Default to 1 site
             
             try:
                 pods_response = requests.get(
@@ -501,10 +500,12 @@ class PureStorageClient(StorageClient):
                         break
             
             # Calculate site count based on peer connections
-            # If there are array connections (peer arrays), we have at least 2 sites
+            # Each array connection represents a peer site, plus local site
             if array_connections:
-                site_count = 2
+                site_count = len(array_connections) + 1  # Local site + peer sites
                 logger.info(f"Multi-site configuration detected: {site_count} sites (local + {len(array_connections)} peer(s))")
+            else:
+                site_count = 1  # Single site (no peer connections)
             
             # Logout to clean up the session
             try:
