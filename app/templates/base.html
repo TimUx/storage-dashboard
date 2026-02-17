@@ -138,7 +138,7 @@
 </head>
 <body>
     <nav class="navbar">
-        <h1>{{ settings.company_name if settings else 'Storage Dashboard' }}</h1>
+        <h1 aria-label="{% if settings and settings.logo_filename %}{{ settings.company_name }} Logo{% endif %}">{{ settings.company_name if settings else 'Storage Dashboard' }}</h1>
         <div class="navbar-links">
             <a href="/">Dashboard</a>
             <a href="/admin">Admin</a>
