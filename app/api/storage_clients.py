@@ -74,6 +74,19 @@ class PureStorageClient(StorageClient):
     # FlashArray REST API version (will be detected dynamically)
     API_VERSION = '2.4'
     
+    def __init__(self, ip_address, port=443, username=None, password=None, token=None):
+        """Initialize Pure Storage client
+        
+        Args:
+            ip_address: IP address or hostname of the FlashArray
+            port: Port number (default: 443)
+            username: Not used for Pure Storage (uses token-based auth)
+            password: Not used for Pure Storage (uses token-based auth)
+            token: API token for authentication
+        """
+        super().__init__(ip_address, port, username, password, token)
+        self._session_token = None  # Cached session token for API 2.x
+    
     def detect_api_version(self):
         """Detect the API version supported by the FlashArray"""
         try:
@@ -101,6 +114,51 @@ class PureStorageClient(StorageClient):
         # Return default version if detection fails
         return self.API_VERSION
     
+    def authenticate(self, api_version):
+        """Authenticate and get session token for API 2.x
+        
+        Args:
+            api_version: API version to use (e.g., '2.4', '2.26')
+            
+        Returns:
+            Session token string or None if authentication fails
+        """
+        try:
+            ssl_verify = get_ssl_verify()
+            
+            # For API 2.x, we need to login with the API token to get a session token
+            # POST /api/2.x/login with api_token in the body
+            login_data = {
+                'api_token': self.token
+            }
+            
+            response = requests.post(
+                f"{self.base_url}/api/{api_version}/login",
+                json=login_data,
+                headers={
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                # Extract x-auth-token from response headers
+                session_token = response.headers.get('x-auth-token')
+                if session_token:
+                    logger.info(f"Successfully authenticated to Pure Storage {self.ip_address}")
+                    return session_token
+                else:
+                    logger.warning(f"No x-auth-token in login response for {self.ip_address}")
+            else:
+                logger.warning(f"Login failed for {self.ip_address}: HTTP {response.status_code}")
+                
+        except Exception as e:
+            logger.warning(f"Authentication error for {self.ip_address}: {e}")
+        
+        return None
+    
     def get_health_status(self):
         try:
             if not self.token:
@@ -111,9 +169,15 @@ class PureStorageClient(StorageClient):
             # Detect API version dynamically
             api_version = self.detect_api_version()
             
-            # FlashArray REST API v2 headers
+            # Authenticate to get session token for API 2.x
+            session_token = self.authenticate(api_version)
+            
+            if not session_token:
+                return self._format_response(status='error', error='Authentication failed - could not obtain session token')
+            
+            # FlashArray REST API v2 headers with session token
             headers = {
-                'x-auth-token': self.token,
+                'x-auth-token': session_token,
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
             }
@@ -164,6 +228,18 @@ class PureStorageClient(StorageClient):
                     # Get used space (total_physical is the actual used space)
                     space_info = item.get('space', {})
                     used_bytes = space_info.get('total_physical', 0) or 0
+            
+            # Logout to clean up the session
+            try:
+                requests.post(
+                    f"{self.base_url}/api/{api_version}/logout",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=5
+                )
+            except Exception:
+                # Logout errors are not critical
+                pass
             
             return self._format_response(
                 status='online',
