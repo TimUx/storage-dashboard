@@ -356,7 +356,7 @@
 <div class="detail-container">
     <div class="action-buttons">
         <a href="/" class="btn btn-secondary">← Zurück zum Dashboard</a>
-        <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
+        <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
             🌐 WebUI öffnen ↗
         </a>
         <form method="POST" action="/admin/systems/{{ system.id }}/rediscover" style="display: inline;">
@@ -366,7 +366,7 @@
 
     <div class="detail-header">
         <h1>
-            <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" class="webui-link" 
+            <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" class="webui-link" 
                title="Zur WebUI öffnen">
                 {{ system.name }}
                 <span class="webui-link-icon">↗</span>

@@ -81,21 +81,50 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
             controllers_response = client.get_controllers()
             if isinstance(controllers_response, flasharray.ValidResponse):
                 controller_items = list(getattr(controllers_response, 'items', []))
-                discovery_data['node_count'] = len(controller_items)
                 
-                for ctrl in controller_items:
+                # Filter out shelf controllers (names containing .SC)
+                actual_nodes = [ctrl for ctrl in controller_items if '.SC' not in getattr(ctrl, 'name', '')]
+                discovery_data['node_count'] = len(actual_nodes)
+                
+                for ctrl in actual_nodes:
+                    ctrl_name = getattr(ctrl, 'name', 'Unknown')
                     node_info = {
-                        'name': getattr(ctrl, 'name', 'Unknown'),
+                        'name': ctrl_name,
                         'status': getattr(ctrl, 'status', 'unknown'),
                         'mode': getattr(ctrl, 'mode', 'unknown'),
                         'model': getattr(ctrl, 'model', 'unknown'),
-                        'version': getattr(ctrl, 'version', 'unknown')
+                        'version': getattr(ctrl, 'version', 'unknown'),
+                        'ips': []
                     }
+                    
+                    # Try to get network interfaces for this controller
+                    try:
+                        network_interfaces_response = client.get_network_interfaces(
+                            filter=f'services=\'management\''
+                        )
+                        if isinstance(network_interfaces_response, flasharray.ValidResponse):
+                            interface_items = list(getattr(network_interfaces_response, 'items', []))
+                            for intf in interface_items:
+                                # Check if interface belongs to this controller
+                                intf_name = getattr(intf, 'name', '')
+                                if ctrl_name in intf_name or intf_name.startswith(ctrl_name):
+                                    intf_address = getattr(intf, 'address', None)
+                                    if intf_address:
+                                        node_info['ips'].append(intf_address)
+                                        # Add to all_ips list
+                                        if intf_address not in discovery_data['all_ips']:
+                                            discovery_data['all_ips'].append(intf_address)
+                                        # Perform DNS lookup for node IP
+                                        dns_names = reverse_dns_lookup(intf_address)
+                                        discovery_data['dns_names'].extend(dns_names)
+                    except Exception as net_error:
+                        logger.debug(f"Could not get network interfaces for {ctrl_name}: {net_error}")
+                    
                     discovery_data['node_details'].append(node_info)
         except Exception as e:
             logger.warning(f"Could not get controller info: {e}")
         
-        # Try to detect ActiveCluster (requires additional API calls)
+        # Try to detect ActiveCluster and get peer cluster info
         try:
             # ActiveCluster pods would be detected here
             pods_response = client.get_pods()
@@ -104,8 +133,30 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 if pod_items:
                     # If pods exist, might be ActiveCluster
                     discovery_data['cluster_type'] = 'active-cluster'
+                    
+                    # Try to get pod array info to find peer cluster
+                    for pod in pod_items:
+                        try:
+                            pod_arrays_response = client.get_pods_arrays(pod_names=[getattr(pod, 'name', '')])
+                            if isinstance(pod_arrays_response, flasharray.ValidResponse):
+                                pod_array_items = list(getattr(pod_arrays_response, 'items', []))
+                                for pod_array in pod_array_items:
+                                    array_name = getattr(pod_array, 'name', None)
+                                    # Store partner array name for matching later
+                                    if array_name and discovery_data['partner_info'] is None:
+                                        discovery_data['partner_info'] = {
+                                            'name': array_name,
+                                            'status': getattr(pod_array, 'status', 'unknown')
+                                        }
+                                        break
+                        except Exception as pod_error:
+                            logger.debug(f"Could not get pod array info: {pod_error}")
+                    
         except:
             pass  # Not all arrays support pods
+        
+        # Deduplicate DNS names
+        discovery_data['dns_names'] = list(set(discovery_data['dns_names']))
         
         return discovery_data
         
