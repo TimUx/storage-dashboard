@@ -3,6 +3,9 @@ from app.api.base_client import StorageClient
 from flask import current_app
 import requests
 import warnings
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_ssl_verify():
     """Get SSL verification setting from app config, with custom certificates if available"""
@@ -157,13 +160,10 @@ class NetAppONTAPClient(StorageClient):
             used_bytes = 0
             
             try:
-                # Get all aggregates
-                aggregates = list(Aggregate.get_collection())
+                # Get all aggregates with space fields
+                aggregates = list(Aggregate.get_collection(fields='space'))
                 
                 for aggr in aggregates:
-                    # Get detailed aggregate info
-                    aggr.get()
-                    
                     # Extract space information
                     space = getattr(aggr, 'space', None)
                     if space:
@@ -174,8 +174,8 @@ class NetAppONTAPClient(StorageClient):
                             total_bytes += size
                             used_bytes += used
             except Exception as aggr_error:
-                # If aggregate query fails, return with 0 capacity but online status
-                pass
+                # Log the error but continue with 0 capacity
+                logger.warning(f"Could not get aggregate space info for {self.ip_address}: {aggr_error}")
             
             return self._format_response(
                 status='online',
@@ -190,20 +190,26 @@ class NetAppONTAPClient(StorageClient):
 
 
 class NetAppStorageGRIDClient(StorageClient):
-    """NetApp StorageGRID client"""
+    """NetApp StorageGRID client - API v4
+    
+    Based on: https://webscalegmi.netapp.com/grid/apidocs.html
+    """
     
     def get_health_status(self):
         try:
-            # StorageGRID REST API
+            # StorageGRID REST API v4
             if not self.token:
                 return self._format_response(status='error', error='No API token configured')
             
-            headers = {'Authorization': f'Bearer {self.token}'}
+            headers = {
+                'Authorization': f'Bearer {self.token}',
+                'Accept': 'application/json'
+            }
             ssl_verify = get_ssl_verify()
             
-            # Get grid health
+            # Get grid health/topology to verify connectivity
             response = requests.get(
-                f"{self.base_url}/api/v3/grid/health/topology",
+                f"{self.base_url}/api/v4/grid/health/topology",
                 headers=headers,
                 verify=ssl_verify,
                 timeout=10
@@ -212,25 +218,60 @@ class NetAppStorageGRIDClient(StorageClient):
             if response.status_code != 200:
                 return self._format_response(status='error', error=f'API error: {response.status_code}')
             
-            # Get capacity info - Note: StorageGRID API requires specific endpoints for actual capacity
-            # This is a simplified implementation
-            total_tb = 0.0
-            used_tb = 0.0
+            # Get capacity info from storage usage API
+            total_bytes = 0
+            used_bytes = 0
             
-            # Attempt to get storage metrics if available
             try:
-                metrics_response = requests.get(
-                    f"{self.base_url}/api/v3/grid/metric-query",
+                # Get storage usage metrics
+                usage_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/storage-usage",
                     headers=headers,
                     verify=ssl_verify,
                     timeout=10
                 )
-                if metrics_response.status_code == 200:
-                    # Parse metrics data if successful
-                    # Note: Actual implementation would need specific metric queries
-                    pass
-            except:
-                pass
+                
+                if usage_response.status_code == 200:
+                    usage_data = usage_response.json()
+                    
+                    # Parse storage usage data
+                    # StorageGRID API v4 returns data in 'data' object
+                    data = usage_data.get('data', {})
+                    
+                    # Try different possible field names based on API documentation
+                    # Total capacity
+                    if 'storageTotalBytes' in data:
+                        total_bytes = data.get('storageTotalBytes', 0)
+                    elif 'totalCapacityBytes' in data:
+                        total_bytes = data.get('totalCapacityBytes', 0)
+                    elif 'totalCapacity' in data:
+                        total_bytes = data.get('totalCapacity', 0)
+                    
+                    # Used capacity
+                    if 'storageUsedBytes' in data:
+                        used_bytes = data.get('storageUsedBytes', 0)
+                    elif 'usedCapacityBytes' in data:
+                        used_bytes = data.get('usedCapacityBytes', 0)
+                    elif 'objectDataUsedBytes' in data:
+                        # Object data usage is the primary metric
+                        used_bytes = data.get('objectDataUsedBytes', 0)
+                    elif 'usedCapacity' in data:
+                        used_bytes = data.get('usedCapacity', 0)
+                    
+                    # Log for debugging
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"StorageGRID capacity: total={total_bytes} bytes, used={used_bytes} bytes")
+                        
+            except Exception as usage_error:
+                # Log but don't fail if we can't get capacity
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Could not get StorageGRID storage usage: {usage_error}")
+            
+            # Convert bytes to TB (1 TB = 1024^4 bytes)
+            total_tb = total_bytes / (1024**4) if total_bytes > 0 else 0.0
+            used_tb = used_bytes / (1024**4) if used_bytes > 0 else 0.0
             
             return self._format_response(
                 status='online',

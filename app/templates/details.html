@@ -356,7 +356,7 @@
 <div class="detail-container">
     <div class="action-buttons">
         <a href="/" class="btn btn-secondary">← Zurück zum Dashboard</a>
-        <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
+        <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
             🌐 WebUI öffnen ↗
         </a>
         <form method="POST" action="/admin/systems/{{ system.id }}/rediscover" style="display: inline;">
@@ -366,7 +366,7 @@
 
     <div class="detail-header">
         <h1>
-            <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" class="webui-link" 
+            <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" class="webui-link" 
                title="Zur WebUI öffnen">
                 {{ system.name }}
                 <span class="webui-link-icon">↗</span>
@@ -557,12 +557,18 @@
                         {% endif %}
                     </div>
                     {% if node.status %}
-                    <span class="status-badge status-{{ 'online' if node.status in ['online', 'ready', 'ok'] else 'warning' }}">
+                    <span class="status-badge status-{{ 'online' if node.status in ['online', 'ready', 'ok', 'connected'] else 'warning' }}">
                         {{ node.status }}
                     </span>
                     {% endif %}
                 </div>
                 <div class="node-details">
+                    {% if node.type %}
+                    <div class="node-detail"><strong>Type:</strong> {{ node.type }}</div>
+                    {% endif %}
+                    {% if node.site %}
+                    <div class="node-detail"><strong>Site:</strong> {{ node.site }}</div>
+                    {% endif %}
                     {% if node.model %}
                     <div class="node-detail"><strong>Model:</strong> {{ node.model }}</div>
                     {% endif %}
@@ -577,6 +583,9 @@
                     {% endif %}
                     {% if node.uuid %}
                     <div class="node-detail"><strong>UUID:</strong> {{ node.uuid[:8] }}...</div>
+                    {% endif %}
+                    {% if node.id and not node.uuid %}
+                    <div class="node-detail"><strong>ID:</strong> {{ node.id }}</div>
                     {% endif %}
                 </div>
                 {% if node.ips %}

@@ -5,6 +5,11 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Pure Storage shelf controller pattern
+# Shelf controllers have '.SC' in their names (e.g., SH9.SC0, SH9.SC1)
+# These are not actual nodes and should be filtered out
+SHELF_CONTROLLER_PATTERN = '.SC'
+
 
 def reverse_dns_lookup(ip_address):
     """
@@ -81,21 +86,50 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
             controllers_response = client.get_controllers()
             if isinstance(controllers_response, flasharray.ValidResponse):
                 controller_items = list(getattr(controllers_response, 'items', []))
-                discovery_data['node_count'] = len(controller_items)
                 
-                for ctrl in controller_items:
+                # Filter out shelf controllers (names containing .SC)
+                actual_nodes = [ctrl for ctrl in controller_items if SHELF_CONTROLLER_PATTERN not in getattr(ctrl, 'name', '')]
+                discovery_data['node_count'] = len(actual_nodes)
+                
+                for ctrl in actual_nodes:
+                    ctrl_name = getattr(ctrl, 'name', 'Unknown')
                     node_info = {
-                        'name': getattr(ctrl, 'name', 'Unknown'),
+                        'name': ctrl_name,
                         'status': getattr(ctrl, 'status', 'unknown'),
                         'mode': getattr(ctrl, 'mode', 'unknown'),
                         'model': getattr(ctrl, 'model', 'unknown'),
-                        'version': getattr(ctrl, 'version', 'unknown')
+                        'version': getattr(ctrl, 'version', 'unknown'),
+                        'ips': []
                     }
+                    
+                    # Try to get network interfaces for this controller
+                    try:
+                        network_interfaces_response = client.get_network_interfaces(
+                            filter="services='management'"
+                        )
+                        if isinstance(network_interfaces_response, flasharray.ValidResponse):
+                            interface_items = list(getattr(network_interfaces_response, 'items', []))
+                            for intf in interface_items:
+                                # Check if interface belongs to this controller
+                                intf_name = getattr(intf, 'name', '')
+                                if intf_name.startswith(ctrl_name):
+                                    intf_address = getattr(intf, 'address', None)
+                                    if intf_address:
+                                        node_info['ips'].append(intf_address)
+                                        # Add to all_ips list
+                                        if intf_address not in discovery_data['all_ips']:
+                                            discovery_data['all_ips'].append(intf_address)
+                                        # Perform DNS lookup for node IP
+                                        dns_names = reverse_dns_lookup(intf_address)
+                                        discovery_data['dns_names'].extend(dns_names)
+                    except Exception as net_error:
+                        logger.debug(f"Could not get network interfaces for {ctrl_name}: {net_error}")
+                    
                     discovery_data['node_details'].append(node_info)
         except Exception as e:
             logger.warning(f"Could not get controller info: {e}")
         
-        # Try to detect ActiveCluster (requires additional API calls)
+        # Try to detect ActiveCluster and get peer cluster info
         try:
             # ActiveCluster pods would be detected here
             pods_response = client.get_pods()
@@ -104,8 +138,30 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 if pod_items:
                     # If pods exist, might be ActiveCluster
                     discovery_data['cluster_type'] = 'active-cluster'
+                    
+                    # Try to get pod array info to find peer cluster
+                    for pod in pod_items:
+                        try:
+                            pod_arrays_response = client.get_pods_arrays(pod_names=[getattr(pod, 'name', '')])
+                            if isinstance(pod_arrays_response, flasharray.ValidResponse):
+                                pod_array_items = list(getattr(pod_arrays_response, 'items', []))
+                                for pod_array in pod_array_items:
+                                    array_name = getattr(pod_array, 'name', None)
+                                    # Store partner array name for matching later
+                                    if array_name and discovery_data['partner_info'] is None:
+                                        discovery_data['partner_info'] = {
+                                            'name': array_name,
+                                            'status': getattr(pod_array, 'status', 'unknown')
+                                        }
+                                        break
+                        except Exception as pod_error:
+                            logger.debug(f"Could not get pod array info: {pod_error}")
+                    
         except:
             pass  # Not all arrays support pods
+        
+        # Deduplicate DNS names
+        discovery_data['dns_names'] = list(set(discovery_data['dns_names']))
         
         return discovery_data
         
@@ -136,24 +192,37 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
         )
         
         discovery_data = {
-            'cluster_type': 'local',
+            'cluster_type': None,  # Will be set based on HA and MetroCluster detection
             'node_count': 0,
             'site_count': 1,
             'dns_names': reverse_dns_lookup(ip_address),
             'all_ips': [ip_address],
             'node_details': [],
-            'partner_info': None
+            'partner_info': None,
+            'ha_enabled': False,  # Will be set to True if 2+ nodes are found
+            'metrocluster_enabled': False
         }
         
-        # Get cluster info
+        # Get cluster info and check for HA and MetroCluster
         try:
             cluster = Cluster()
             cluster.get()
             
             # Check for MetroCluster
             if hasattr(cluster, 'metrocluster') and cluster.metrocluster:
-                discovery_data['cluster_type'] = 'metrocluster'
+                discovery_data['metrocluster_enabled'] = True
                 discovery_data['site_count'] = 2
+                
+                # Try to get MetroCluster partner info
+                try:
+                    if hasattr(cluster.metrocluster, 'configuration_state'):
+                        mc_state = cluster.metrocluster.configuration_state
+                    
+                    # Try to get partner cluster information
+                    # Note: This would require MetroCluster specific API calls
+                    # For now, we mark that MetroCluster is enabled
+                except Exception as mc_error:
+                    logger.debug(f"Could not get MetroCluster details: {mc_error}")
         except Exception as e:
             logger.warning(f"Could not get cluster info: {e}")
         
@@ -163,7 +232,19 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
             node_list = list(nodes)
             discovery_data['node_count'] = len(node_list)
             
+            # Determine HA based on node count (2+ nodes = HA)
+            if len(node_list) >= 2:
+                discovery_data['ha_enabled'] = True
+            else:
+                discovery_data['ha_enabled'] = False
+            
             for node in node_list:
+                # Get full node details
+                try:
+                    node.get()
+                except:
+                    pass
+                
                 # Get management IPs
                 node_ips = []
                 if hasattr(node, 'management_interfaces'):
@@ -179,14 +260,26 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                 node_info = {
                     'name': node.name if hasattr(node, 'name') else 'Unknown',
                     'uuid': node.uuid if hasattr(node, 'uuid') else None,
-                    'state': getattr(node, 'state', 'unknown'),
+                    'status': getattr(node, 'state', 'unknown'),  # 'status' key for consistency with Pure Storage
                     'model': getattr(node, 'model', 'unknown'),
-                    'serial_number': getattr(node, 'serial_number', 'unknown'),
+                    'serial': getattr(node, 'serial_number', 'unknown'),
+                    'version': getattr(node, 'version', {}).get('full', 'unknown') if hasattr(node, 'version') else 'unknown',
                     'ips': node_ips
                 }
                 discovery_data['node_details'].append(node_info)
         except Exception as e:
             logger.warning(f"Could not get node info: {e}")
+        
+        # Determine cluster_type based on HA and MetroCluster status
+        if discovery_data['metrocluster_enabled'] and discovery_data['ha_enabled']:
+            # Both MetroCluster and HA - this is the case described in the requirement
+            discovery_data['cluster_type'] = 'metrocluster'  # MetroCluster takes precedence
+        elif discovery_data['metrocluster_enabled']:
+            discovery_data['cluster_type'] = 'metrocluster'
+        elif discovery_data['ha_enabled']:
+            discovery_data['cluster_type'] = 'ha'
+        else:
+            discovery_data['cluster_type'] = 'local'
         
         # Deduplicate DNS names and IPs
         discovery_data['dns_names'] = list(set(discovery_data['dns_names']))
@@ -205,9 +298,10 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
 
 def discover_storagegrid(ip_address, api_token, ssl_verify=False):
     """
-    Discover NetApp StorageGRID details via API
+    Discover NetApp StorageGRID details via API v4
     
     Returns dict with grid info, sites, nodes, etc.
+    Based on: https://webscalegmi.netapp.com/grid/apidocs.html
     """
     import requests
     
@@ -222,19 +316,157 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
             'partner_info': None
         }
         
-        # StorageGRID uses a different API structure
-        # Would need to authenticate and query grid topology
-        # This is a simplified version
-        
         base_url = f"https://{ip_address}"
         headers = {
             'Authorization': f'Bearer {api_token}',
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
         }
         
-        # Get grid topology (requires proper authentication flow)
-        # For now, return basic info
-        logger.info(f"StorageGRID discovery not fully implemented for {ip_address}")
+        # Get grid sites first
+        sites_count = 1
+        try:
+            sites_response = requests.get(
+                f"{base_url}/api/v4/grid/sites",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            if sites_response.status_code == 200:
+                sites_data = sites_response.json()
+                # Response format: {"data": [{"id": "...", "name": "..."}, ...]}
+                sites_list = sites_data.get('data', [])
+                if sites_list:
+                    sites_count = len(sites_list)
+                    discovery_data['site_count'] = sites_count
+                    
+                    # Determine cluster type based on site count
+                    if sites_count > 1:
+                        discovery_data['cluster_type'] = 'multi-site'
+                    else:
+                        discovery_data['cluster_type'] = 'single-site'
+                    
+                    logger.info(f"StorageGRID: Found {sites_count} sites")
+                    
+        except Exception as sites_error:
+            logger.warning(f"Could not get StorageGRID sites: {sites_error}")
+        
+        # Get grid nodes
+        try:
+            nodes_response = requests.get(
+                f"{base_url}/api/v4/grid/nodes",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            if nodes_response.status_code == 200:
+                nodes_data = nodes_response.json()
+                # Response format: {"data": [{node_details}, ...]}
+                nodes_list = nodes_data.get('data', [])
+                
+                all_nodes = []
+                for node in nodes_list:
+                    node_name = node.get('name', 'Unknown')
+                    node_id = node.get('id', '')
+                    node_type = node.get('type', 'unknown')
+                    node_state = node.get('state', 'unknown')
+                    node_site = node.get('site', 'Unknown Site')
+                    
+                    # Get node IPs if available
+                    node_ips = []
+                    if 'ips' in node:
+                        node_ips = node.get('ips', [])
+                    elif 'addresses' in node:
+                        # Alternative field name
+                        node_ips = node.get('addresses', [])
+                    
+                    node_info = {
+                        'name': node_name,
+                        'id': node_id,
+                        'site': node_site,
+                        'type': node_type,
+                        'status': node_state,
+                        'ips': node_ips
+                    }
+                    
+                    all_nodes.append(node_info)
+                    
+                    # Add IPs to discovery data
+                    for ip in node_ips:
+                        if ip and ip not in discovery_data['all_ips']:
+                            discovery_data['all_ips'].append(ip)
+                            # Try DNS lookup for each IP
+                            try:
+                                dns_names = reverse_dns_lookup(ip)
+                                discovery_data['dns_names'].extend(dns_names)
+                            except:
+                                pass
+                
+                discovery_data['node_count'] = len(all_nodes)
+                discovery_data['node_details'] = all_nodes
+                
+                logger.info(f"StorageGRID: Found {len(all_nodes)} nodes")
+                    
+        except Exception as nodes_error:
+            logger.warning(f"Could not get StorageGRID nodes: {nodes_error}")
+        
+        # Try to get topology as fallback if nodes endpoint didn't work
+        if discovery_data['node_count'] == 0:
+            try:
+                topology_response = requests.get(
+                    f"{base_url}/api/v4/grid/health/topology",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if topology_response.status_code == 200:
+                    topology_data = topology_response.json()
+                    
+                    # Parse hierarchical topology structure
+                    # Format: {"data": {"children": [sites], ...}}
+                    data = topology_data.get('data', {})
+                    sites = data.get('children', [])
+                    
+                    if sites and discovery_data['site_count'] == 1:
+                        discovery_data['site_count'] = len(sites)
+                        if len(sites) > 1:
+                            discovery_data['cluster_type'] = 'multi-site'
+                    
+                    # Parse nodes from topology
+                    all_nodes = []
+                    for site in sites:
+                        site_name = site.get('name', 'Unknown Site')
+                        nodes = site.get('children', [])
+                        
+                        for node in nodes:
+                            node_name = node.get('name', 'Unknown')
+                            node_id = node.get('id', '')
+                            node_state = node.get('state', 'unknown')
+                            
+                            node_info = {
+                                'name': node_name,
+                                'id': node_id,
+                                'site': site_name,
+                                'type': 'unknown',
+                                'status': node_state,
+                                'ips': []
+                            }
+                            
+                            all_nodes.append(node_info)
+                    
+                    if all_nodes:
+                        discovery_data['node_count'] = len(all_nodes)
+                        discovery_data['node_details'] = all_nodes
+                        
+            except Exception as topo_error:
+                logger.debug(f"Could not get StorageGRID topology: {topo_error}")
+        
+        # Deduplicate DNS names and IPs
+        discovery_data['dns_names'] = list(set(discovery_data['dns_names']))
+        discovery_data['all_ips'] = list(set(discovery_data['all_ips']))
         
         return discovery_data
         

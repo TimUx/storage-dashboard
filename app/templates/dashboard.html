@@ -100,6 +100,15 @@ body {
     border: 1px solid var(--border-light);
 }
 
+.auto-refresh-control select {
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: white;
+    color: var(--text-dark);
+}
+
 .auto-refresh-label {
     display: flex;
     align-items: center;
@@ -525,15 +534,24 @@ body.table-view .systems-table {
 
 /* Filter Section within Overview Card */
 .filter-section {
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 0;
+    border-bottom: none;
 }
 
 .filter-section h3 {
-    font-size: 1rem;
-    color: var(--itscare-blue);
-    margin: 0 0 0.75rem 0;
-    font-weight: 600;
+    display: none; /* Hide the filter heading */
+}
+
+.overview-content {
+    padding: 1rem 1.5rem;
+}
+
+.controls-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
 }
 
 .filter-bar {
@@ -554,9 +572,10 @@ body.table-view .systems-table {
 
 .filter-controls {
     display: flex;
-    gap: 1rem;
+    gap: 0.75rem;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-end;
+    flex: 1;
 }
 
 .filter-group {
@@ -566,20 +585,20 @@ body.table-view .systems-table {
 }
 
 .filter-group label {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: var(--text-medium);
     font-weight: 600;
 }
 
 .filter-group select,
 .filter-group input {
-    padding: 0.5rem 0.75rem;
+    padding: 0.4rem 0.6rem;
     border: 1px solid var(--border-light);
     border-radius: 4px;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     background: white;
     color: var(--text-dark);
-    min-width: 150px;
+    min-width: 130px;
 }
 
 .filter-group select:focus,
@@ -591,8 +610,8 @@ body.table-view .systems-table {
 
 .filter-results {
     color: var(--text-medium);
-    font-size: 0.9rem;
-    padding: 0.5rem 0;
+    font-size: 0.85rem;
+    padding: 0.4rem 0;
     font-weight: 600;
 }
 
@@ -600,29 +619,27 @@ body.table-view .systems-table {
     background: var(--text-light);
     color: white;
     border: none;
-    padding: 0.5rem 1rem;
+    padding: 0.4rem 0.8rem;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 500;
     transition: all 0.3s;
-    margin-top: 1.25rem;
+    align-self: flex-end;
+    height: fit-content;
 }
 
 .actions-section {
-    padding-top: 1rem;
+    padding-top: 0;
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.75rem;
 }
 
 .actions-section h3 {
-    font-size: 1rem;
-    color: var(--itscare-blue);
-    margin: 0;
-    font-weight: 600;
+    display: none; /* Hide actions heading */
 }
 
 .btn-reset:hover {
@@ -686,68 +703,78 @@ body.table-view .systems-table {
     </div>
     
     <div class="overview-content">
-        <!-- Filter Section -->
-        <div class="filter-section">
-            <h3>🔍 Filter</h3>
-            <div class="filter-controls">
-                <div class="filter-group">
-                    <label for="vendor-filter">Hersteller</label>
-                    <select id="vendor-filter" onchange="applyFilters()">
-                        <option value="">Alle</option>
-                        <option value="pure">Pure Storage</option>
-                        <option value="netapp-ontap">NetApp ONTAP</option>
-                        <option value="netapp-storagegrid">NetApp StorageGRID</option>
-                        <option value="dell-datadomain">Dell DataDomain</option>
-                    </select>
+        <div class="controls-wrapper">
+            <!-- Filter Section -->
+            <div class="filter-section">
+                <h3>🔍 Filter</h3>
+                <div class="filter-controls">
+                    <div class="filter-group">
+                        <label for="vendor-filter">Hersteller</label>
+                        <select id="vendor-filter" onchange="applyFilters()">
+                            <option value="">Alle</option>
+                            <option value="pure">Pure Storage</option>
+                            <option value="netapp-ontap">NetApp ONTAP</option>
+                            <option value="netapp-storagegrid">NetApp StorageGRID</option>
+                            <option value="dell-datadomain">Dell DataDomain</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="status-filter">Status</label>
+                        <select id="status-filter" onchange="applyFilters()">
+                            <option value="">Alle</option>
+                            <option value="online">Healthy (Online)</option>
+                            <option value="error">Unhealthy (Error)</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="cluster-filter">Cluster-Typ</label>
+                        <select id="cluster-filter" onchange="applyFilters()">
+                            <option value="">Alle</option>
+                            <option value="ha">HA</option>
+                            <option value="active-cluster">Active-Cluster</option>
+                            <option value="metrocluster">MetroCluster</option>
+                            <option value="local">Local</option>
+                            <option value="multi-site">Multi-Site</option>
+                            <option value="single-site">Single-Site</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="search-filter">Suche</label>
+                        <input type="text" id="search-filter" placeholder="Name, IP, DNS..." oninput="applyFilters()">
+                    </div>
+                    <button class="btn-reset" onclick="resetFilters()">Zurücksetzen</button>
+                    <div class="filter-results" id="filter-results"></div>
                 </div>
-                <div class="filter-group">
-                    <label for="status-filter">Status</label>
-                    <select id="status-filter" onchange="applyFilters()">
-                        <option value="">Alle</option>
-                        <option value="online">Healthy (Online)</option>
-                        <option value="error">Unhealthy (Error)</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label for="cluster-filter">Cluster-Typ</label>
-                    <select id="cluster-filter" onchange="applyFilters()">
-                        <option value="">Alle</option>
-                        <option value="ha">HA</option>
-                        <option value="active-cluster">Active-Cluster</option>
-                        <option value="metrocluster">MetroCluster</option>
-                        <option value="local">Local</option>
-                        <option value="multi-site">Multi-Site</option>
-                        <option value="single-site">Single-Site</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label for="search-filter">Suche</label>
-                    <input type="text" id="search-filter" placeholder="Name, IP, DNS..." oninput="applyFilters()">
-                </div>
-                <button class="btn-reset" onclick="resetFilters()">Zurücksetzen</button>
-                <div class="filter-results" id="filter-results"></div>
             </div>
-        </div>
-        
-        <!-- Actions Section -->
-        <div class="actions-section">
-            <div class="header-actions">
-                <div class="auto-refresh-control">
-                    <label class="auto-refresh-label">
-                        <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh()">
-                        <span>Auto-Refresh</span>
-                    </label>
-                    <span class="refresh-timer" id="refresh-timer"></span>
+            
+            <!-- Actions Section -->
+            <div class="actions-section">
+                <h3>Dashboard Optionen</h3>
+                <div class="header-actions">
+                    <div class="auto-refresh-control">
+                        <label class="auto-refresh-label">
+                            <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh()">
+                            <span>Auto-Refresh</span>
+                        </label>
+                        <select id="refresh-interval" onchange="changeRefreshInterval()">
+                            <option value="30">30s</option>
+                            <option value="45">45s</option>
+                            <option value="60">60s</option>
+                            <option value="90">90s</option>
+                            <option value="120">2min</option>
+                        </select>
+                        <span class="refresh-timer" id="refresh-timer"></span>
+                    </div>
+                    <div class="view-toggle">
+                        <button id="card-view-btn" class="active" onclick="switchView('card')">
+                            <span>&#x25A0;&#x25A0;</span> Cards
+                        </button>
+                        <button id="table-view-btn" onclick="switchView('table')">
+                            <span>☰</span> Table
+                        </button>
+                    </div>
+                    <button class="refresh-btn" onclick="manualRefresh()">&#x21bb; Aktualisieren</button>
                 </div>
-                <div class="view-toggle">
-                    <button id="card-view-btn" class="active" onclick="switchView('card')">
-                        <span>&#x25A0;&#x25A0;</span> Cards
-                    </button>
-                    <button id="table-view-btn" onclick="switchView('table')">
-                        <span>☰</span> Table
-                    </button>
-                </div>
-                <button class="refresh-btn" onclick="manualRefresh()">&#x21bb; Aktualisieren</button>
             </div>
         </div>
     </div>
@@ -780,7 +807,7 @@ body.table-view .systems-table {
                  data-dns="{{ system.dns_names[0] if system.dns_names else '' }}">
                 <div class="system-header">
                     <div class="system-name">
-                        <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" 
+                        <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" 
                            class="webui-link" title="Zur WebUI öffnen">
                             {{ system.name }}
                             <span class="webui-link-icon">↗</span>
@@ -888,7 +915,7 @@ body.table-view .systems-table {
                         data-ip="{{ system.ip_address }}"
                         data-dns="{{ system.dns_names[0] if system.dns_names else '' }}">
                         <td>
-                            <a href="https://{{ system.ip_address }}" target="_blank" rel="noopener noreferrer" 
+                            <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" 
                                class="webui-link" title="Zur WebUI öffnen" style="font-weight: bold;">
                                 {{ system.name }} ↗
                             </a>
@@ -973,8 +1000,9 @@ body.table-view .systems-table {
 
 <script>
 // Auto-refresh configuration
+const DEFAULT_REFRESH_INTERVAL = '45';  // Default refresh interval in seconds
 let autoRefreshCountdown = null;
-let refreshTimeSeconds = 45; // Default to 45 seconds (middle of 30-60 range)
+let refreshTimeSeconds = 45;
 let countdownSeconds = refreshTimeSeconds;
 
 // Initialize auto-refresh on page load
@@ -982,6 +1010,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const savedView = localStorage.getItem('dashboard-view') || 'card';
     switchView(savedView);
     applyFilters(); // Apply initial filters
+    
+    // Restore refresh interval preference
+    const savedInterval = localStorage.getItem('refresh-interval') || DEFAULT_REFRESH_INTERVAL;
+    refreshTimeSeconds = parseInt(savedInterval, 10);
+    document.getElementById('refresh-interval').value = savedInterval;
     
     // Restore auto-refresh preference
     const autoRefreshEnabled = localStorage.getItem('auto-refresh-enabled') === 'true';
@@ -993,6 +1026,17 @@ document.addEventListener('DOMContentLoaded', function() {
         updateTimerDisplay();
     }
 });
+
+function changeRefreshInterval() {
+    const newInterval = parseInt(document.getElementById('refresh-interval').value, 10);
+    refreshTimeSeconds = newInterval;
+    localStorage.setItem('refresh-interval', newInterval);
+    
+    // If auto-refresh is active, restart with new interval
+    if (document.getElementById('auto-refresh-toggle').checked) {
+        startAutoRefresh();
+    }
+}
 
 function toggleAutoRefresh() {
     const isEnabled = document.getElementById('auto-refresh-toggle').checked;
