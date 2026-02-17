@@ -798,7 +798,7 @@ body.table-view .systems-table {
             {% for item in systems %}
             {% set system = item.system %}
             {% set status = item.status %}
-            {% set dns_names = system.get_dns_names() %}
+            {% set dns_names = system.dns_names %}
             <div class="system-card" 
                  data-vendor="{{ vendor }}" 
                  data-status="{{ status.status }}"
@@ -909,7 +909,7 @@ body.table-view .systems-table {
                     {% for item in systems %}
                     {% set system = item.system %}
                     {% set status = item.status %}
-                    {% set dns_names = system.get_dns_names() %}
+                    {% set dns_names = system.dns_names %}
                     <tr data-vendor="{{ vendor }}" 
                         data-status="{{ status.status }}"
                         data-cluster-type="{{ system.cluster_type or '' }}"
