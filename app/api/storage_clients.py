@@ -640,7 +640,31 @@ class NetAppStorageGRIDClient(StorageClient):
             }
             ssl_verify = get_ssl_verify(self.resolved_address)
             
-            # Get grid health/topology to verify connectivity and get version info
+            # Get grid health to verify connectivity
+            # API: GET /api/v4/grid/health
+            hardware_status = 'ok'
+            cluster_status = 'ok'
+            try:
+                health_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/health",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if health_response.status_code == 200:
+                    health_data = health_response.json()
+                    data = health_data.get('data', {})
+                    
+                    # Check overall health status
+                    health_state = data.get('health', 'unknown')
+                    if health_state and health_state.lower() not in ['healthy', 'ok', 'normal']:
+                        hardware_status = 'warning'
+                        logger.warning(f"StorageGRID health issue for {self.ip_address}: {health_state}")
+            except Exception as health_error:
+                logger.warning(f"Could not get StorageGRID health for {self.ip_address}: {health_error}")
+            
+            # Get grid topology to verify connectivity and get version info
             response = requests.get(
                 f"{self.base_url}/api/v4/grid/health/topology",
                 headers=headers,
@@ -666,6 +690,68 @@ class NetAppStorageGRIDClient(StorageClient):
                     os_version = extract_field_with_fallbacks(version_data, ['data.productVersion', 'productVersion'])
             except Exception as version_error:
                 logger.warning(f"Could not get StorageGRID version for {self.ip_address}: {version_error}")
+            
+            # Get alerts count
+            # API: GET /api/v4/grid/alerts
+            alerts_count = 0
+            try:
+                alerts_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/alerts",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if alerts_response.status_code == 200:
+                    alerts_data = alerts_response.json()
+                    alerts_list = alerts_data.get('data', [])
+                    # Count active/unresolved alerts
+                    alerts_count = sum(1 for alert in alerts_list if alert.get('state', '').lower() in ['active', 'triggered', 'firing'])
+                    
+                    if alerts_count > 0:
+                        logger.info(f"Found {alerts_count} active alerts for StorageGRID {self.ip_address}")
+                        hardware_status = 'warning'
+            except Exception as alerts_error:
+                logger.warning(f"Could not get StorageGRID alerts for {self.ip_address}: {alerts_error}")
+            
+            # Get node health information
+            # API: GET /api/v4/grid/node-health
+            nodes_info = []
+            try:
+                node_health_response = requests.get(
+                    f"{self.base_url}/api/v4/grid/node-health",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if node_health_response.status_code == 200:
+                    node_health_data = node_health_response.json()
+                    nodes_list = node_health_data.get('data', [])
+                    
+                    for node in nodes_list:
+                        node_id = node.get('id', '')
+                        node_name = node.get('name', 'Unknown')
+                        node_state = node.get('state', 'unknown')
+                        node_type = node.get('type', 'unknown')
+                        
+                        node_info = {
+                            'name': node_name,
+                            'id': node_id,
+                            'type': node_type,
+                            'status': node_state
+                        }
+                        
+                        # Check node health
+                        if node_state and node_state.lower() not in ['connected', 'online', 'ok', 'healthy']:
+                            hardware_status = 'warning'
+                            logger.warning(f"StorageGRID node {node_name} state: {node_state}")
+                        
+                        nodes_info.append(node_info)
+                    
+                    logger.info(f"Found {len(nodes_info)} nodes in StorageGRID {self.ip_address}")
+            except Exception as node_health_error:
+                logger.warning(f"Could not get StorageGRID node health for {self.ip_address}: {node_health_error}")
             
             # Get capacity info from storage usage API
             total_bytes = 0
@@ -740,12 +826,13 @@ class NetAppStorageGRIDClient(StorageClient):
             
             return self._format_response(
                 status='online',
-                hardware='ok',
-                cluster='ok',
-                alerts=0,
+                hardware=hardware_status,
+                cluster=cluster_status,
+                alerts=alerts_count,
                 total_tb=total_tb,
                 used_tb=used_tb,
-                os_version=os_version
+                os_version=os_version,
+                controllers=nodes_info if nodes_info else None
             )
         except Exception as e:
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
