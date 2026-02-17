@@ -157,13 +157,10 @@ class NetAppONTAPClient(StorageClient):
             used_bytes = 0
             
             try:
-                # Get all aggregates
-                aggregates = list(Aggregate.get_collection())
+                # Get all aggregates with space fields
+                aggregates = list(Aggregate.get_collection(fields='space'))
                 
                 for aggr in aggregates:
-                    # Get detailed aggregate info
-                    aggr.get()
-                    
                     # Extract space information
                     space = getattr(aggr, 'space', None)
                     if space:
@@ -174,8 +171,10 @@ class NetAppONTAPClient(StorageClient):
                             total_bytes += size
                             used_bytes += used
             except Exception as aggr_error:
-                # If aggregate query fails, return with 0 capacity but online status
-                pass
+                # Log the error but continue with 0 capacity
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Could not get aggregate space info for {self.ip_address}: {aggr_error}")
             
             return self._format_response(
                 status='online',
