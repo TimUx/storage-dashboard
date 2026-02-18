@@ -23,3 +23,7 @@ VENDOR_PORT_DESCRIPTIONS = {
     VENDOR_NETAPP_STORAGEGRID: 'HTTPS',
     VENDOR_DELL_DATADOMAIN: 'DataDomain REST API'
 }
+
+# Standard ports list (unique values from VENDOR_DEFAULT_PORTS)
+# Computed once at module load time for efficiency
+STANDARD_PORTS = list(set(VENDOR_DEFAULT_PORTS.values()))

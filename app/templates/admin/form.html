@@ -257,10 +257,10 @@
 
 <script>
 // Auto-set port based on vendor selection
-// Vendor port configuration is passed from the backend (single source of truth)
+// All configuration is from backend constants (single source of truth, computed at module load)
 const vendorPorts = {{ vendor_ports | tojson }};
 const vendorPortDescriptions = {{ vendor_port_descriptions | tojson }};
-const standardPorts = {{ standard_ports | tojson }};  // Precomputed on backend for performance
+const standardPorts = {{ standard_ports | tojson }};  // Precomputed in app/constants.py
 
 // Generate hint messages for each vendor using backend data
 const vendorHints = {};
