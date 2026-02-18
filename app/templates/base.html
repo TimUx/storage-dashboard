@@ -48,7 +48,7 @@
         }
         
         .navbar h1 {
-            font-size: 1.5rem;
+            font-size: 1.8rem;
             font-weight: 600;
             display: flex;
             align-items: center;
@@ -60,9 +60,9 @@
             {% if settings and settings.logo_filename %}
             content: '';
             display: inline-block;
-            height: 50px;
-            width: 200px;
-            max-width: 200px;
+            height: 40px;
+            width: 160px;
+            max-width: 160px;
             margin-right: 0.75rem;
             background-image: url('{{ url_for('admin.settings_logo') }}');
             background-size: contain;
@@ -70,16 +70,8 @@
             background-position: center left;
             {% else %}
             content: '💾';
-            font-size: 2rem;
+            font-size: 1.6rem;
             {% endif %}
-        }
-        
-        .navbar h1::after {
-            content: '';
-            width: 2px;
-            height: 40px;
-            background: linear-gradient(180deg, var(--primary-color) 0%, var(--secondary-color) 50%, var(--accent-color) 100%);
-            margin-left: 0.5rem;
         }
         
         .navbar-links {

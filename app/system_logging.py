@@ -1,12 +1,43 @@
 """Logging utility for system events"""
-from app.models import SystemLog, db
+from app.models import SystemLog, db, AppSettings
 from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Maximum number of log entries to keep per system
-MAX_LOGS_PER_SYSTEM = 1000
+
+def get_log_settings():
+    """Get log settings from AppSettings, with fallback to defaults"""
+    settings = AppSettings.query.first()
+    if settings:
+        return {
+            'max_logs_per_system': settings.max_logs_per_system or 1000,
+            'log_retention_days': settings.log_retention_days or 30,
+            'min_log_level': settings.min_log_level or 'INFO'
+        }
+    return {
+        'max_logs_per_system': 1000,
+        'log_retention_days': 30,
+        'min_log_level': 'INFO'
+    }
+
+
+# Log level priority for filtering
+LOG_LEVELS = {
+    'DEBUG': 10,
+    'INFO': 20,
+    'WARNING': 30,
+    'ERROR': 40,
+    'CRITICAL': 50
+}
+
+
+def should_log(level):
+    """Check if a log level should be recorded based on settings"""
+    settings = get_log_settings()
+    min_level = settings['min_log_level']
+    
+    return LOG_LEVELS.get(level.upper(), 0) >= LOG_LEVELS.get(min_level, 20)
 
 
 def log_system_event(system_id, level, category, message, details=None, status_code=None, api_endpoint=None):
@@ -23,6 +54,10 @@ def log_system_event(system_id, level, category, message, details=None, status_c
         api_endpoint: Optional API endpoint that was called
     """
     try:
+        # Check if this log level should be recorded
+        if not should_log(level):
+            return
+        
         log_entry = SystemLog(
             system_id=system_id,
             level=level.upper(),
@@ -47,17 +82,34 @@ def log_system_event(system_id, level, category, message, details=None, status_c
             pass
 
 
-def cleanup_old_logs(system_id, max_logs=MAX_LOGS_PER_SYSTEM):
+def cleanup_old_logs(system_id, max_logs=None):
     """
     Remove old log entries to prevent database growth
     Keeps only the most recent max_logs entries per system
+    Also removes logs older than retention_days
     
     Args:
         system_id: ID of the storage system
-        max_logs: Maximum number of logs to keep
+        max_logs: Maximum number of logs to keep (if None, uses settings)
     """
     try:
-        # Count total logs for this system
+        settings = get_log_settings()
+        if max_logs is None:
+            max_logs = settings['max_logs_per_system']
+        
+        retention_days = settings['log_retention_days']
+        
+        # Delete logs older than retention period
+        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        old_logs = SystemLog.query.filter(
+            SystemLog.system_id == system_id,
+            SystemLog.timestamp < cutoff_date
+        ).all()
+        
+        for log in old_logs:
+            db.session.delete(log)
+        
+        # Count total logs for this system after date cleanup
         total_logs = SystemLog.query.filter_by(system_id=system_id).count()
         
         if total_logs > max_logs:
@@ -69,9 +121,11 @@ def cleanup_old_logs(system_id, max_logs=MAX_LOGS_PER_SYSTEM):
             
             for log in logs_to_delete:
                 db.session.delete(log)
-            
+        
+        if old_logs or (total_logs > max_logs):
             db.session.commit()
-            logger.debug(f"Cleaned up {len(logs_to_delete)} old log entries for system {system_id}")
+            deleted_count = len(old_logs) + (len(logs_to_delete) if total_logs > max_logs else 0)
+            logger.debug(f"Cleaned up {deleted_count} old log entries for system {system_id}")
             
     except Exception as e:
         logger.error(f"Failed to cleanup old logs: {e}")

@@ -1,0 +1,501 @@
+{% extends "base.html" %}
+
+{% block title %}Einstellungen - Storage Dashboard{% endblock %}
+
+{% block styles %}
+.settings-container {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+.settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.settings-header h1 {
+    color: #2c3e50;
+    margin: 0;
+}
+
+.back-btn {
+    padding: 0.75rem 1.5rem;
+    background: #95a5a6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+}
+
+.back-btn:hover {
+    background: #7f8c8d;
+}
+
+/* Tab Navigation */
+.tabs-nav {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0;
+    border-bottom: 2px solid #e0e0e0;
+    background: white;
+    padding: 0 1.5rem;
+    border-radius: 8px 8px 0 0;
+}
+
+.tab-button {
+    padding: 1rem 1.5rem;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #666;
+    transition: all 0.3s;
+    position: relative;
+    top: 2px;
+}
+
+.tab-button:hover {
+    color: #333;
+    background: #f8f9fa;
+}
+
+.tab-button.active {
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
+    background: white;
+}
+
+/* Tab Content */
+.tabs-content {
+    background: white;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.tab-pane {
+    display: none;
+    padding: 2rem;
+}
+
+.tab-pane.active {
+    display: block;
+}
+
+/* Settings Sections */
+.settings-section {
+    background: #f8f9fa;
+    padding: 1.5rem;
+    border-radius: 6px;
+    margin-bottom: 1.5rem;
+}
+
+.settings-section h2 {
+    color: #2c3e50;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #e0e0e0;
+    font-size: 1.3rem;
+}
+
+.settings-section h3 {
+    color: #34495e;
+    margin: 1.5rem 0 1rem 0;
+    font-size: 1.1rem;
+}
+
+/* Form Elements */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group input[type="color"],
+.form-group select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+}
+
+.form-group input[type="color"] {
+    height: 50px;
+    cursor: pointer;
+}
+
+.form-group input[type="file"] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px dashed #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+}
+
+.info-text {
+    font-size: 0.9rem;
+    color: #666;
+    margin-top: 0.5rem;
+}
+
+.warning-text {
+    font-size: 0.9rem;
+    color: #e67e22;
+    margin-top: 0.5rem;
+    font-weight: 500;
+}
+
+/* Color Preview */
+.color-preview {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.color-box {
+    flex: 1;
+    padding: 1rem;
+    border-radius: 6px;
+    text-align: center;
+    color: white;
+    font-weight: 600;
+}
+
+/* Logo Preview */
+.logo-preview {
+    max-width: 200px;
+    max-height: 100px;
+    margin-top: 1rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+
+/* Buttons */
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+    margin-right: 0.5rem;
+}
+
+.btn-primary {
+    background: var(--accent-color);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #007ab8;
+}
+
+.btn-secondary {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #7f8c8d;
+}
+
+.btn-group {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 2px solid #e0e0e0;
+}
+
+/* Certificate List in Tab */
+.cert-list {
+    margin-top: 1.5rem;
+}
+
+.cert-item {
+    background: white;
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    border-left: 4px solid var(--accent-color);
+}
+
+.cert-item h4 {
+    margin: 0 0 0.5rem 0;
+    color: #2c3e50;
+}
+
+.cert-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.9rem;
+    color: #666;
+    flex-wrap: wrap;
+}
+
+.cert-actions {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+}
+{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <div class="settings-header">
+        <h1>⚙️ Einstellungen</h1>
+        <a href="/admin" class="back-btn">← Zurück</a>
+    </div>
+    
+    <!-- Tab Navigation -->
+    <div class="tabs-nav">
+        <button class="tab-button active" data-tab="design">🎨 Design</button>
+        <button class="tab-button" data-tab="logs">📋 Logs</button>
+        <button class="tab-button" data-tab="certificates">🔒 Zertifikate</button>
+        <button class="tab-button" data-tab="system">⚙️ System</button>
+    </div>
+    
+    <!-- Tab Content -->
+    <div class="tabs-content">
+        <form method="POST" enctype="multipart/form-data">
+            <!-- Design Tab -->
+            <div class="tab-pane active" id="design-tab">
+                <div class="settings-section">
+                    <h2>Firmeninformationen</h2>
+                    
+                    <div class="form-group">
+                        <label for="company_name">Firmenname</label>
+                        <input type="text" id="company_name" name="company_name" 
+                               value="{{ settings.company_name }}" required>
+                        <p class="info-text">Wird im Titel der Anwendung angezeigt</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="logo_file">Firmenlogo</label>
+                        <input type="file" id="logo_file" name="logo_file" 
+                               accept=".png,.jpg,.jpeg,.svg,.gif">
+                        <p class="info-text">Erlaubte Formate: PNG, JPG, SVG, GIF</p>
+                        {% if settings.logo_filename %}
+                            <p class="info-text">Aktuelles Logo: {{ settings.logo_filename }}</p>
+                            <img src="{{ url_for('admin.settings_logo') }}" alt="Logo" class="logo-preview">
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h2>Farbschema</h2>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="primary_color">Primärfarbe (Rot)</label>
+                            <input type="color" id="primary_color" name="primary_color" 
+                                   value="{{ settings.primary_color }}">
+                            <p class="info-text">Standard: #A70240</p>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="secondary_color">Sekundärfarbe (Gelb-Grün)</label>
+                            <input type="color" id="secondary_color" name="secondary_color" 
+                                   value="{{ settings.secondary_color }}">
+                            <p class="info-text">Standard: #BED600</p>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="accent_color">Akzentfarbe (Blau)</label>
+                            <input type="color" id="accent_color" name="accent_color" 
+                                   value="{{ settings.accent_color }}">
+                            <p class="info-text">Standard: #0098DB</p>
+                        </div>
+                    </div>
+                    
+                    <div class="color-preview">
+                        <div class="color-box" style="background-color: {{ settings.primary_color }}">
+                            Primär
+                        </div>
+                        <div class="color-box" style="background-color: {{ settings.secondary_color }}; color: #333;">
+                            Sekundär
+                        </div>
+                        <div class="color-box" style="background-color: {{ settings.accent_color }}">
+                            Akzent
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Logs Tab -->
+            <div class="tab-pane" id="logs-tab">
+                <div class="settings-section">
+                    <h2>Log-Verwaltung</h2>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="max_logs_per_system">Maximale Logs pro System</label>
+                            <input type="number" id="max_logs_per_system" name="max_logs_per_system" 
+                                   value="{{ settings.max_logs_per_system }}" min="100" max="10000" step="100">
+                            <p class="info-text">Standard: 1000 Logs</p>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="log_retention_days">Aufbewahrungsdauer (Tage)</label>
+                            <input type="number" id="log_retention_days" name="log_retention_days" 
+                                   value="{{ settings.log_retention_days }}" min="1" max="365">
+                            <p class="info-text">Logs älter als diese Anzahl Tage werden gelöscht</p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="min_log_level">Minimales Log-Level</label>
+                        <select id="min_log_level" name="min_log_level">
+                            <option value="DEBUG" {% if settings.min_log_level == 'DEBUG' %}selected{% endif %}>DEBUG - Alle Details</option>
+                            <option value="INFO" {% if settings.min_log_level == 'INFO' %}selected{% endif %}>INFO - Informationen und höher</option>
+                            <option value="WARNING" {% if settings.min_log_level == 'WARNING' %}selected{% endif %}>WARNING - Warnungen und Fehler</option>
+                            <option value="ERROR" {% if settings.min_log_level == 'ERROR' %}selected{% endif %}>ERROR - Nur Fehler</option>
+                            <option value="CRITICAL" {% if settings.min_log_level == 'CRITICAL' %}selected{% endif %}>CRITICAL - Nur kritische Fehler</option>
+                        </select>
+                        <p class="info-text">Nur Logs mit diesem Level oder höher werden gespeichert</p>
+                    </div>
+                    
+                    <p class="warning-text">⚠️ Hinweis: Änderungen am Log-Level betreffen nur neue Logs. Bestehende Logs bleiben erhalten.</p>
+                </div>
+            </div>
+            
+            <!-- Certificates Tab -->
+            <div class="tab-pane" id="certificates-tab">
+                <div class="settings-section">
+                    <h2>SSL/TLS Zertifikate</h2>
+                    
+                    <div class="cert-list">
+                        {% if certificates %}
+                            {% for cert in certificates %}
+                            <div class="cert-item">
+                                <h4>{{ cert.name }}</h4>
+                                <div class="cert-meta">
+                                    <span><strong>Typ:</strong> {{ cert.certificate_type.upper() }}</span>
+                                    <span><strong>Status:</strong> {{ 'Aktiv' if cert.enabled else 'Inaktiv' }}</span>
+                                    <span><strong>Erstellt:</strong> {{ cert.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                                </div>
+                                {% if cert.description %}
+                                <p style="margin-top: 0.5rem; color: #666;">{{ cert.description }}</p>
+                                {% endif %}
+                                <div class="cert-actions">
+                                    <a href="{{ url_for('admin.edit_certificate', cert_id=cert.id) }}" class="btn btn-primary btn-sm">Bearbeiten</a>
+                                    <a href="{{ url_for('admin.download_certificate', cert_id=cert.id) }}" class="btn btn-secondary btn-sm">Download</a>
+                                    <form method="POST" action="{{ url_for('admin.toggle_certificate', cert_id=cert.id) }}" style="display: inline;">
+                                        <button type="submit" class="btn btn-secondary btn-sm">
+                                            {{ 'Deaktivieren' if cert.enabled else 'Aktivieren' }}
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="info-text">Keine Zertifikate vorhanden.</p>
+                        {% endif %}
+                    </div>
+                    
+                    <div style="margin-top: 1.5rem;">
+                        <a href="{{ url_for('admin.new_certificate') }}" class="btn btn-primary">+ Neues Zertifikat hochladen</a>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- System Tab -->
+            <div class="tab-pane" id="system-tab">
+                <div class="settings-section">
+                    <h2>System-Einstellungen</h2>
+                    
+                    <div class="form-group">
+                        <label for="timezone">Zeitzone</label>
+                        <select id="timezone" name="timezone">
+                            <option value="Europe/Berlin" {% if settings.timezone == 'Europe/Berlin' %}selected{% endif %}>Europe/Berlin (MEZ/MESZ)</option>
+                            <option value="Europe/London" {% if settings.timezone == 'Europe/London' %}selected{% endif %}>Europe/London (GMT/BST)</option>
+                            <option value="Europe/Paris" {% if settings.timezone == 'Europe/Paris' %}selected{% endif %}>Europe/Paris (MEZ/MESZ)</option>
+                            <option value="Europe/Zurich" {% if settings.timezone == 'Europe/Zurich' %}selected{% endif %}>Europe/Zurich (MEZ/MESZ)</option>
+                            <option value="Europe/Vienna" {% if settings.timezone == 'Europe/Vienna' %}selected{% endif %}>Europe/Vienna (MEZ/MESZ)</option>
+                            <option value="UTC" {% if settings.timezone == 'UTC' %}selected{% endif %}>UTC (Koordinierte Weltzeit)</option>
+                            <option value="America/New_York" {% if settings.timezone == 'America/New_York' %}selected{% endif %}>America/New_York (EST/EDT)</option>
+                            <option value="America/Los_Angeles" {% if settings.timezone == 'America/Los_Angeles' %}selected{% endif %}>America/Los_Angeles (PST/PDT)</option>
+                            <option value="Asia/Tokyo" {% if settings.timezone == 'Asia/Tokyo' %}selected{% endif %}>Asia/Tokyo (JST)</option>
+                        </select>
+                        <p class="info-text">Zeitzone für die Anzeige von Zeitstempeln in Logs und anderen Bereichen</p>
+                        <p class="warning-text">⚠️ Zeitstempel werden in der Datenbank in UTC gespeichert und für die Anzeige in die gewählte Zeitzone konvertiert.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Submit Buttons -->
+            <div class="btn-group">
+                <button type="submit" class="btn btn-primary">💾 Einstellungen speichern</button>
+                <a href="/admin" class="btn btn-secondary">Abbrechen</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// Tab Switching Logic
+document.addEventListener('DOMContentLoaded', function() {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+    
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const tabName = this.getAttribute('data-tab');
+            
+            // Remove active class from all buttons and panes
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabPanes.forEach(pane => pane.classList.remove('active'));
+            
+            // Add active class to clicked button and corresponding pane
+            this.classList.add('active');
+            document.getElementById(tabName + '-tab').classList.add('active');
+            
+            // Store active tab in sessionStorage
+            sessionStorage.setItem('activeSettingsTab', tabName);
+        });
+    });
+    
+    // Restore active tab from sessionStorage
+    const savedTab = sessionStorage.getItem('activeSettingsTab');
+    if (savedTab) {
+        const savedButton = document.querySelector(`[data-tab="${savedTab}"]`);
+        if (savedButton) {
+            savedButton.click();
+        }
+    }
+});
+</script>
+{% endblock %}

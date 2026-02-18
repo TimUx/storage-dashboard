@@ -293,6 +293,14 @@ class AppSettings(db.Model):
     # Other settings
     company_name = db.Column(db.String(100), default='Storage Dashboard')
     
+    # Timezone settings
+    timezone = db.Column(db.String(50), default='Europe/Berlin')  # IANA timezone
+    
+    # Log retention settings
+    max_logs_per_system = db.Column(db.Integer, default=1000)  # Maximum logs per system
+    log_retention_days = db.Column(db.Integer, default=30)  # Days to keep logs
+    min_log_level = db.Column(db.String(20), default='INFO')  # Minimum log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self):

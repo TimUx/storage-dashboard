@@ -27,8 +27,7 @@
         border-radius: 8px;
         margin-bottom: 1.5rem;
         box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
-        border-bottom: 4px solid;
-        border-image: linear-gradient(90deg, var(--itscare-blue) 0%, var(--itscare-blue) 33.33%, var(--itscare-green) 33.33%, var(--itscare-green) 66.66%, var(--itscare-red) 66.66%, var(--itscare-red) 100%) 1;
+        border-bottom: 4px solid var(--itscare-red);
     }
 
     .detail-header h1 {
@@ -230,7 +229,7 @@
 
     .node-details {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        grid-template-columns: repeat(3, 1fr);
         gap: 0.5rem;
         font-size: 0.9rem;
     }

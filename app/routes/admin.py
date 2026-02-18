@@ -632,7 +632,7 @@ def import_systems():
 @bp.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
-    """Application settings and customization"""
+    """Application settings and customization with tabbed interface"""
     # Get or create settings
     app_settings = AppSettings.query.first()
     if not app_settings:
@@ -640,13 +640,30 @@ def settings():
         db.session.add(app_settings)
         db.session.commit()
     
+    # Get certificates for the certificates tab
+    certificates = Certificate.query.order_by(Certificate.created_at.desc()).all()
+    
     if request.method == 'POST':
         try:
-            # Update colors
+            # Update design settings
             app_settings.primary_color = request.form.get('primary_color', '#A70240')
             app_settings.secondary_color = request.form.get('secondary_color', '#BED600')
             app_settings.accent_color = request.form.get('accent_color', '#0098DB')
             app_settings.company_name = request.form.get('company_name', 'Storage Dashboard')
+            
+            # Update system settings
+            app_settings.timezone = request.form.get('timezone', 'Europe/Berlin')
+            
+            # Update log settings
+            max_logs = request.form.get('max_logs_per_system')
+            if max_logs:
+                app_settings.max_logs_per_system = int(max_logs)
+            
+            retention_days = request.form.get('log_retention_days')
+            if retention_days:
+                app_settings.log_retention_days = int(retention_days)
+            
+            app_settings.min_log_level = request.form.get('min_log_level', 'INFO')
             
             # Handle logo upload
             if 'logo_file' in request.files:
@@ -667,7 +684,7 @@ def settings():
             logger.error(f'Error saving settings: {e}', exc_info=True)
             flash(f'Fehler beim Speichern: {str(e)}', 'error')
     
-    return render_template('admin/settings.html', settings=app_settings)
+    return render_template('admin/settings_tabbed.html', settings=app_settings, certificates=certificates)
 
 
 @bp.route('/settings/logo')
