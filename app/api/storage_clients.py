@@ -1338,10 +1338,10 @@ class NetAppStorageGRIDClient(StorageClient):
 
 
 class DellDataDomainClient(StorageClient):
-    """Dell DataDomain client - REST API v1.0
+    """Dell DataDomain client - REST API v4
     
     Uses token-based authentication similar to StorageGRID.
-    Authentication endpoint: POST /rest/v1.0/auth
+    Authentication endpoint: POST /api/v4/authorize
     API calls use X-DD-AUTH-TOKEN header
     """
     
@@ -1363,22 +1363,24 @@ class DellDataDomainClient(StorageClient):
             
             auth_data = {
                 'username': self.username,
-                'password': self.password
+                'password': self.password,
+                'cookie': True,
+                'csrfToken': False
             }
             
             logger.debug(f"Authenticating to DataDomain {self.ip_address}")
             
             response = requests.post(
-                f"{self.base_url}/rest/v1.0/auth",
+                f"{self.base_url}/api/v4/authorize",
                 json=auth_data,
                 headers={'Content-Type': 'application/json'},
                 verify=ssl_verify,
                 timeout=10
             )
             
-            if response.status_code == 201:
+            if response.status_code == 200:
                 auth_response = response.json()
-                token = auth_response.get('X-DD-AUTH-TOKEN')
+                token = auth_response.get('data')
                 
                 if token:
                     logger.debug(f"Successfully obtained session token for DataDomain {self.ip_address}")
@@ -1401,7 +1403,7 @@ class DellDataDomainClient(StorageClient):
     
     def get_health_status(self):
         try:
-            # DataDomain REST API v1.0 with token authentication
+            # DataDomain REST API v4 for authentication, v1.0 for data retrieval
             # If no token is configured, try to authenticate automatically
             new_token_generated = False
             if not self.token:

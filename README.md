@@ -37,7 +37,7 @@ Alle Storage-Systeme werden über ihre REST APIs angebunden:
 - **Pure Storage FlashArray** - REST API v2 Integration
 - **NetApp ONTAP 9** - REST API Integration
 - **NetApp StorageGRID 11** - REST API v4 Integration
-- **Dell DataDomain** - REST API v1.0 Integration
+- **Dell DataDomain** - REST API v4 Integration
 
 > **Hinweis:** Das Dashboard verwendet standardmäßige REST API Calls mit dem `requests` Modul für alle Hersteller.
 
