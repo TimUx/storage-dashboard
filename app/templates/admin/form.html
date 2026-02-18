@@ -154,7 +154,7 @@
         <div class="form-group">
             <label for="port">Port</label>
             <input type="number" id="port" name="port" value="{{ system.port if system else 443 }}">
-            <small>Standard: 443</small>
+            <small id="port-hint">Standard: 443 (HTTPS)</small>
         </div>
         
         {% if system and system.cluster_type %}
@@ -254,4 +254,50 @@
         </div>
     </form>
 </div>
+
+<script>
+// Auto-set port based on vendor selection
+document.getElementById('vendor').addEventListener('change', function() {
+    const vendor = this.value;
+    const portInput = document.getElementById('port');
+    const portHint = document.getElementById('port-hint');
+    
+    // Default ports for different vendors
+    const vendorPorts = {
+        'pure': 443,
+        'netapp-ontap': 443,
+        'netapp-storagegrid': 443,
+        'dell-datadomain': 3009
+    };
+    
+    const vendorHints = {
+        'pure': 'Standard: 443 (HTTPS)',
+        'netapp-ontap': 'Standard: 443 (HTTPS)',
+        'netapp-storagegrid': 'Standard: 443 (HTTPS)',
+        'dell-datadomain': 'Standard: 3009 (DataDomain REST API)'
+    };
+    
+    if (vendor in vendorPorts) {
+        // Only auto-set if the current value is empty or is one of the standard ports
+        const currentPort = parseInt(portInput.value);
+        const standardPorts = [443, 3009];
+        
+        if (!portInput.value || standardPorts.includes(currentPort)) {
+            portInput.value = vendorPorts[vendor];
+        }
+        
+        portHint.textContent = vendorHints[vendor];
+    }
+});
+
+// Trigger the change event on page load if creating a new system
+{% if not system %}
+document.addEventListener('DOMContentLoaded', function() {
+    const vendorSelect = document.getElementById('vendor');
+    if (vendorSelect.value) {
+        vendorSelect.dispatchEvent(new Event('change'));
+    }
+});
+{% endif %}
+</script>
 {% endblock %}

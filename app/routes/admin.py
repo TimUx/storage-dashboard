@@ -65,12 +65,24 @@ def new_system():
     """Create new storage system with auto-discovery"""
     if request.method == 'POST':
         try:
+            vendor = request.form['vendor']
+            
+            # Determine default port based on vendor if not specified
+            default_ports = {
+                'pure': 443,
+                'netapp-ontap': 443,
+                'netapp-storagegrid': 443,
+                'dell-datadomain': 3009
+            }
+            default_port = default_ports.get(vendor, 443)
+            port = int(request.form.get('port', default_port))
+            
             # Create system with basic info
             system = StorageSystem(
                 name=request.form['name'],
-                vendor=request.form['vendor'],
+                vendor=vendor,
                 ip_address=request.form['ip_address'],
-                port=int(request.form.get('port', 443)),
+                port=port,
                 api_username=request.form.get('api_username', '').strip() or None,
                 api_password=request.form.get('api_password', '').strip() or None,
                 api_token=request.form.get('api_token', '').strip() or None,
@@ -123,10 +135,22 @@ def edit_system(system_id):
     
     if request.method == 'POST':
         try:
+            vendor = request.form['vendor']
+            
+            # Determine default port based on vendor if not specified
+            default_ports = {
+                'pure': 443,
+                'netapp-ontap': 443,
+                'netapp-storagegrid': 443,
+                'dell-datadomain': 3009
+            }
+            default_port = default_ports.get(vendor, 443)
+            port = int(request.form.get('port', default_port))
+            
             system.name = request.form['name']
-            system.vendor = request.form['vendor']
+            system.vendor = vendor
             system.ip_address = request.form['ip_address']
-            system.port = int(request.form.get('port', 443))
+            system.port = port
             system.api_username = request.form.get('api_username', '').strip() or None
             system.api_password = request.form.get('api_password', '').strip() or None
             system.api_token = request.form.get('api_token', '').strip() or None

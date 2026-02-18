@@ -1535,8 +1535,20 @@ class DellDataDomainClient(StorageClient):
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
-def get_client(vendor, ip_address, port=443, username=None, password=None, token=None):
-    """Factory function to get appropriate storage client"""
+def get_client(vendor, ip_address, port=None, username=None, password=None, token=None):
+    """Factory function to get appropriate storage client
+    
+    Args:
+        vendor: Vendor type ('pure', 'netapp-ontap', 'netapp-storagegrid', 'dell-datadomain')
+        ip_address: IP address or hostname of the storage system
+        port: Port number (defaults to vendor-specific port if not specified)
+        username: API username (for ONTAP and DataDomain)
+        password: API password (for ONTAP and DataDomain)
+        token: API token (for Pure Storage and StorageGRID)
+    
+    Returns:
+        StorageClient: Appropriate storage client instance
+    """
     clients = {
         'pure': PureStorageClient,
         'netapp-ontap': NetAppONTAPClient,
@@ -1544,8 +1556,20 @@ def get_client(vendor, ip_address, port=443, username=None, password=None, token
         'dell-datadomain': DellDataDomainClient
     }
     
+    # Default ports for each vendor
+    default_ports = {
+        'pure': 443,
+        'netapp-ontap': 443,
+        'netapp-storagegrid': 443,
+        'dell-datadomain': 3009  # DataDomain REST API uses port 3009
+    }
+    
     client_class = clients.get(vendor)
     if not client_class:
         raise ValueError(f"Unknown vendor: {vendor}")
+    
+    # Use vendor-specific default port if not specified
+    if port is None:
+        port = default_ports.get(vendor, 443)
     
     return client_class(ip_address, port, username, password, token)
