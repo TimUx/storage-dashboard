@@ -1340,9 +1340,9 @@ class NetAppStorageGRIDClient(StorageClient):
 class DellDataDomainClient(StorageClient):
     """Dell DataDomain client - REST API v1.0
     
-    Uses token-based authentication similar to StorageGRID.
-    Authentication endpoint: POST /rest/v1.0/auth
-    API calls use X-DD-AUTH-TOKEN header
+    Uses token-based authentication.
+    Authentication endpoint: POST /rest/v1.0/auth (port 3009)
+    Returns X-DD-AUTH-TOKEN in response header
     """
     
     def authenticate(self):
@@ -1366,7 +1366,7 @@ class DellDataDomainClient(StorageClient):
                 'password': self.password
             }
             
-            logger.debug(f"Authenticating to DataDomain {self.ip_address}")
+            logger.debug(f"Authenticating to DataDomain {self.ip_address} via {self.base_url}")
             
             response = requests.post(
                 f"{self.base_url}/rest/v1.0/auth",
@@ -1377,14 +1377,15 @@ class DellDataDomainClient(StorageClient):
             )
             
             if response.status_code == 201:
-                auth_response = response.json()
-                token = auth_response.get('X-DD-AUTH-TOKEN')
+                # Token is in response header, not body
+                token = response.headers.get('X-DD-AUTH-TOKEN')
                 
                 if token:
                     logger.debug(f"Successfully obtained session token for DataDomain {self.ip_address}")
                     return token
                 else:
-                    logger.error(f"Authentication response did not contain token: {auth_response}")
+                    logger.error(f"Authentication response did not contain X-DD-AUTH-TOKEN header")
+                    logger.error(f"Response headers: {dict(response.headers)}")
                     return None
             else:
                 logger.error(f"DataDomain authentication failed for {self.ip_address}: HTTP {response.status_code}")

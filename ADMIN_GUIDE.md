@@ -43,12 +43,15 @@ Das Dashboard benötigt Netzwerkzugriff zu folgenden Ports auf den Storage-Syste
 - **Pure Storage:** Port 443 (HTTPS)
 - **NetApp ONTAP:** Port 443 (HTTPS)
 - **NetApp StorageGRID:** Port 443 (HTTPS)
-- **Dell DataDomain:** Port 443 (HTTPS)
+- **Dell DataDomain:** Port 3009 (HTTPS - REST API)
 
 **Firewall-Konfiguration:**
 ```bash
 # Beispiel: Firewall-Regeln für ausgehende Verbindungen
+# Port 443 für Pure, NetApp ONTAP und StorageGRID
 firewall-cmd --permanent --add-rich-rule='rule family="ipv4" destination address="<storage-ip>" port port="443" protocol="tcp" accept'
+# Port 3009 für Dell DataDomain
+firewall-cmd --permanent --add-rich-rule='rule family="ipv4" destination address="<datadomain-ip>" port port="3009" protocol="tcp" accept'
 firewall-cmd --reload
 ```
 
@@ -645,7 +648,7 @@ Im Admin-Bereich:
 - **Name:** Z.B. "DataDomain-DD9800"
 - **Hersteller:** `dell-datadomain`
 - **IP-Adresse:** Management-IP
-- **Port:** 443
+- **Port:** 3009 (Standard-Port für DataDomain REST API)
 - **Benutzername:** dashboard_api
 - **Passwort:** Das gesetzte Passwort
 - **API Token:** Leer lassen
