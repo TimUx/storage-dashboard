@@ -134,12 +134,12 @@ def migrate_datadomain_port():
         
         count = 0
         for system in datadomain_systems:
-            logger.info(f"Updating DataDomain system '{system.name}' ({system.ip_address}) from port 443 to {correct_port}")
+            logger.info(f"Updating Dell DataDomain system '{system.name}' ({system.ip_address}) from port 443 to {correct_port}")
             system.port = correct_port
             count += 1
         
         db.session.commit()
-        logger.info(f"Successfully updated {count} DataDomain system(s) to use port {correct_port}")
+        logger.info(f"Successfully updated {count} Dell DataDomain system(s) to use port {correct_port}")
         return count
         
     except Exception as e:

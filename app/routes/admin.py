@@ -119,9 +119,13 @@ def new_system():
             logger.error(f'Error adding system: {e}', exc_info=True)
             flash(f'Error adding system: {str(e)}', 'error')
     
+    # Prepare data for template
+    standard_ports = list(set(VENDOR_DEFAULT_PORTS.values()))
+    
     return render_template('admin/form.html', system=None, action='Create', 
                          vendor_ports=VENDOR_DEFAULT_PORTS, 
-                         vendor_port_descriptions=VENDOR_PORT_DESCRIPTIONS)
+                         vendor_port_descriptions=VENDOR_PORT_DESCRIPTIONS,
+                         standard_ports=standard_ports)
 
 
 @bp.route('/systems/<int:system_id>/edit', methods=['GET', 'POST'])
@@ -153,9 +157,13 @@ def edit_system(system_id):
         except Exception as e:
             flash(f'Error updating system: {str(e)}', 'error')
     
+    # Prepare data for template
+    standard_ports = list(set(VENDOR_DEFAULT_PORTS.values()))
+    
     return render_template('admin/form.html', system=system, action='Edit', 
                          vendor_ports=VENDOR_DEFAULT_PORTS, 
-                         vendor_port_descriptions=VENDOR_PORT_DESCRIPTIONS)
+                         vendor_port_descriptions=VENDOR_PORT_DESCRIPTIONS,
+                         standard_ports=standard_ports)
 
 
 @bp.route('/systems/<int:system_id>/rediscover', methods=['POST'])

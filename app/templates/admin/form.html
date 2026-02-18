@@ -260,9 +260,7 @@
 // Vendor port configuration is passed from the backend (single source of truth)
 const vendorPorts = {{ vendor_ports | tojson }};
 const vendorPortDescriptions = {{ vendor_port_descriptions | tojson }};
-
-// Precompute standard ports array (for performance)
-const standardPorts = Object.values(vendorPorts).map(p => parseInt(p));
+const standardPorts = {{ standard_ports | tojson }};  // Precomputed on backend for performance
 
 // Generate hint messages for each vendor using backend data
 const vendorHints = {};
