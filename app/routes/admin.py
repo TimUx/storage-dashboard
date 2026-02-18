@@ -4,6 +4,11 @@ from flask_login import login_user, logout_user, login_required, current_user
 from app import db
 from app.models import StorageSystem, Certificate, AdminUser, AppSettings
 from app.discovery import auto_discover_system
+from app.constants import (
+    VENDOR_DEFAULT_PORTS, 
+    VENDOR_PORT_DESCRIPTIONS,
+    STANDARD_PORTS
+)
 from datetime import datetime
 import logging
 import io
@@ -65,12 +70,18 @@ def new_system():
     """Create new storage system with auto-discovery"""
     if request.method == 'POST':
         try:
+            vendor = request.form['vendor']
+            
+            # Determine default port based on vendor if not specified
+            default_port = VENDOR_DEFAULT_PORTS.get(vendor, 443)
+            port = int(request.form.get('port', default_port))
+            
             # Create system with basic info
             system = StorageSystem(
                 name=request.form['name'],
-                vendor=request.form['vendor'],
+                vendor=vendor,
                 ip_address=request.form['ip_address'],
-                port=int(request.form.get('port', 443)),
+                port=port,
                 api_username=request.form.get('api_username', '').strip() or None,
                 api_password=request.form.get('api_password', '').strip() or None,
                 api_token=request.form.get('api_token', '').strip() or None,
@@ -112,7 +123,10 @@ def new_system():
             logger.error(f'Error adding system: {e}', exc_info=True)
             flash(f'Error adding system: {str(e)}', 'error')
     
-    return render_template('admin/form.html', system=None, action='Create')
+    return render_template('admin/form.html', system=None, action='Create', 
+                         vendor_ports=VENDOR_DEFAULT_PORTS, 
+                         vendor_port_descriptions=VENDOR_PORT_DESCRIPTIONS,
+                         standard_ports=STANDARD_PORTS)
 
 
 @bp.route('/systems/<int:system_id>/edit', methods=['GET', 'POST'])
@@ -123,10 +137,16 @@ def edit_system(system_id):
     
     if request.method == 'POST':
         try:
+            vendor = request.form['vendor']
+            
+            # Determine default port based on vendor if not specified
+            default_port = VENDOR_DEFAULT_PORTS.get(vendor, 443)
+            port = int(request.form.get('port', default_port))
+            
             system.name = request.form['name']
-            system.vendor = request.form['vendor']
+            system.vendor = vendor
             system.ip_address = request.form['ip_address']
-            system.port = int(request.form.get('port', 443))
+            system.port = port
             system.api_username = request.form.get('api_username', '').strip() or None
             system.api_password = request.form.get('api_password', '').strip() or None
             system.api_token = request.form.get('api_token', '').strip() or None
@@ -138,7 +158,10 @@ def edit_system(system_id):
         except Exception as e:
             flash(f'Error updating system: {str(e)}', 'error')
     
-    return render_template('admin/form.html', system=system, action='Edit')
+    return render_template('admin/form.html', system=system, action='Edit', 
+                         vendor_ports=VENDOR_DEFAULT_PORTS, 
+                         vendor_port_descriptions=VENDOR_PORT_DESCRIPTIONS,
+                         standard_ports=STANDARD_PORTS)
 
 
 @bp.route('/systems/<int:system_id>/rediscover', methods=['POST'])

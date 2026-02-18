@@ -154,7 +154,7 @@
         <div class="form-group">
             <label for="port">Port</label>
             <input type="number" id="port" name="port" value="{{ system.port if system else 443 }}">
-            <small>Standard: 443</small>
+            <small id="port-hint">Standard: 443 (HTTPS)</small>
         </div>
         
         {% if system and system.cluster_type %}
@@ -254,4 +254,46 @@
         </div>
     </form>
 </div>
+
+<script>
+// Auto-set port based on vendor selection
+// All configuration is from backend constants (single source of truth, computed at module load)
+const vendorPorts = {{ vendor_ports | tojson }};
+const vendorPortDescriptions = {{ vendor_port_descriptions | tojson }};
+const standardPorts = {{ standard_ports | tojson }};  // Precomputed in app/constants.py
+
+// Generate hint messages for each vendor using backend data
+const vendorHints = {};
+for (const [vendor, port] of Object.entries(vendorPorts)) {
+    const description = vendorPortDescriptions[vendor] || 'HTTPS';
+    vendorHints[vendor] = `Standard: ${port} (${description})`;
+}
+
+document.getElementById('vendor').addEventListener('change', function() {
+    const vendor = this.value;
+    const portInput = document.getElementById('port');
+    const portHint = document.getElementById('port-hint');
+    
+    if (vendor in vendorPorts) {
+        // Only auto-set if the current value is empty or is one of the standard ports
+        const currentPort = parseInt(portInput.value);
+        
+        if (!portInput.value || standardPorts.includes(currentPort)) {
+            portInput.value = vendorPorts[vendor];
+        }
+        
+        portHint.textContent = vendorHints[vendor];
+    }
+});
+
+// Trigger the change event on page load if creating a new system
+{% if not system %}
+document.addEventListener('DOMContentLoaded', function() {
+    const vendorSelect = document.getElementById('vendor');
+    if (vendorSelect.value) {
+        vendorSelect.dispatchEvent(new Event('change'));
+    }
+});
+{% endif %}
+</script>
 {% endblock %}

@@ -2,6 +2,7 @@
 import sqlite3
 import logging
 from app import db
+from app.constants import VENDOR_DELL_DATADOMAIN, VENDOR_DEFAULT_PORTS
 import re
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,41 @@ def migrate_storage_systems_table():
     return migrations_applied
 
 
+def migrate_datadomain_port():
+    """Update existing DataDomain systems to use port 3009 if they're using the default port 443
+    
+    Uses constants from app.constants to ensure consistency with the rest of the application.
+    """
+    try:
+        from app.models import StorageSystem
+        
+        # Get the correct DataDomain port from constants
+        correct_port = VENDOR_DEFAULT_PORTS[VENDOR_DELL_DATADOMAIN]
+        
+        # Find all DataDomain systems using port 443 (incorrect default)
+        # Note: We check for 443 specifically as that was the old default
+        datadomain_systems = StorageSystem.query.filter_by(vendor=VENDOR_DELL_DATADOMAIN, port=443).all()
+        
+        if not datadomain_systems:
+            logger.info(f"No {VENDOR_DELL_DATADOMAIN} systems found with port 443, skipping port migration.")
+            return 0
+        
+        count = 0
+        for system in datadomain_systems:
+            logger.info(f"Updating Dell DataDomain system '{system.name}' ({system.ip_address}) from port 443 to {correct_port}")
+            system.port = correct_port
+            count += 1
+        
+        db.session.commit()
+        logger.info(f"Successfully updated {count} Dell DataDomain system(s) to use port {correct_port}")
+        return count
+        
+    except Exception as e:
+        logger.error(f"Error migrating DataDomain ports: {e}")
+        db.session.rollback()
+        raise
+
+
 def run_all_migrations():
     """Run all pending database migrations"""
     logger.info("Starting database migrations...")
@@ -123,6 +159,14 @@ def run_all_migrations():
         if 'storage_systems' in inspector.get_table_names():
             migrations = migrate_storage_systems_table()
             all_migrations.extend(migrations)
+            
+            # Run DataDomain port migration
+            try:
+                updated_count = migrate_datadomain_port()
+                if updated_count > 0:
+                    all_migrations.append(f'datadomain_port_3009 ({updated_count} systems)')
+            except Exception as e:
+                logger.warning(f"DataDomain port migration failed (non-critical): {e}")
         
         if all_migrations:
             logger.info(f"Applied {len(all_migrations)} migrations: {', '.join(all_migrations)}")
