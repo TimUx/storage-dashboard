@@ -72,6 +72,11 @@ def add_column_if_not_exists(table_name, column_name, column_type, default=None)
         logger.info(f"Successfully added column {table_name}.{column_name}")
         return True
     except Exception as e:
+        # Handle race condition where another worker already added the column
+        error_msg = str(e).lower()
+        if 'duplicate column' in error_msg or 'already exists' in error_msg:
+            logger.info(f"Column {table_name}.{column_name} already exists (added by another worker)")
+            return False
         logger.error(f"Error adding column {table_name}.{column_name}: {e}")
         raise
 
