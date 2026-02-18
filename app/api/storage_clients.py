@@ -1355,6 +1355,9 @@ class DellDataDomainClient(StorageClient):
     # Critical alert severity levels
     CRITICAL_ALERT_SEVERITIES = ['critical', 'major']
     
+    # Management network interfaces to check when bulk API fails
+    MANAGEMENT_INTERFACES = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
+    
     def authenticate(self):
         """Authenticate with DataDomain and obtain session token
         
@@ -1482,10 +1485,10 @@ class DellDataDomainClient(StorageClient):
                 'state': ha_section.get('state', 'unknown'),
                 'role': ha_section.get('role', 'unknown'),
                 'mode': ha_section.get('mode'),
-                'node_name': ha_section.get('nodeName'),
+                'node_name': ha_section.get('nodeName'),  # Current node's name
                 'origin_hostname': ha_section.get('originHostname'),
                 'system_id': ha_section.get('systemId'),
-                'partner_name': data.get('partner_name'),
+                'partner_name': data.get('partner_name'),  # Will be populated from peer info if not present
                 'partner_address': data.get('partner_address'),
                 'partner_status': data.get('partner_status'),
                 'failover_status': data.get('failover_status')
@@ -1650,8 +1653,7 @@ class DellDataDomainClient(StorageClient):
             # If we didn't get any NICs from the bulk API, try querying management interfaces individually
             if not nics:
                 logger.debug(f"DataDomain {self.ip_address} - No NICs from bulk API, trying individual management interfaces")
-                mgmt_interfaces = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
-                for iface_name in mgmt_interfaces:
+                for iface_name in self.MANAGEMENT_INTERFACES:
                     try:
                         iface_data = self._make_api_request(f'/rest/v2.0/dd-systems/0/networks/nics/{iface_name}', headers, ssl_verify)
                         if iface_data:
@@ -1877,8 +1879,7 @@ class DellDataDomainClient(StorageClient):
             
             # If network interfaces API didn't work, try the legacy method for management IPs
             if not network_interfaces:
-                mgmt_interfaces = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
-                for iface in mgmt_interfaces:
+                for iface in self.MANAGEMENT_INTERFACES:
                     try:
                         iface_response = requests.get(
                             f"{self.base_url}/rest/v1.0/dd-systems/0/networks/{iface}",
