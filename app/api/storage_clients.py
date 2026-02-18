@@ -1338,62 +1338,196 @@ class NetAppStorageGRIDClient(StorageClient):
 
 
 class DellDataDomainClient(StorageClient):
-    """Dell DataDomain client"""
+    """Dell DataDomain client - REST API v1.0
+    
+    Uses token-based authentication similar to StorageGRID.
+    Authentication endpoint: POST /rest/v1.0/auth
+    API calls use X-DD-AUTH-TOKEN header
+    """
+    
+    def authenticate(self):
+        """Authenticate with DataDomain and obtain session token
+        
+        Uses username and password to authenticate and retrieve a session token.
+        The token should be saved to the database for future use.
+        
+        Returns:
+            str: Session token if successful, None if authentication fails
+        """
+        if not self.username or not self.password:
+            logger.error(f"Cannot authenticate to DataDomain {self.ip_address}: username or password not configured")
+            return None
+        
+        try:
+            ssl_verify = get_ssl_verify(self.resolved_address)
+            
+            auth_data = {
+                'username': self.username,
+                'password': self.password
+            }
+            
+            logger.debug(f"Authenticating to DataDomain {self.ip_address}")
+            
+            response = requests.post(
+                f"{self.base_url}/rest/v1.0/auth",
+                json=auth_data,
+                headers={'Content-Type': 'application/json'},
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            if response.status_code == 201:
+                auth_response = response.json()
+                token = auth_response.get('X-DD-AUTH-TOKEN')
+                
+                if token:
+                    logger.debug(f"Successfully obtained session token for DataDomain {self.ip_address}")
+                    return token
+                else:
+                    logger.error(f"Authentication response did not contain token: {auth_response}")
+                    return None
+            else:
+                logger.error(f"DataDomain authentication failed for {self.ip_address}: HTTP {response.status_code}")
+                try:
+                    logger.error(f"Response: {response.text[:MAX_RESPONSE_LOG_LENGTH]}")
+                except Exception:
+                    pass
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error authenticating to DataDomain {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
+            return None
     
     def get_health_status(self):
         try:
-            # DataDomain REST API
-            auth = (self.username, self.password) if self.username and self.password else None
-            if not auth:
-                return self._format_response(status='error', hardware='error', cluster='error', error='No credentials configured')
+            # DataDomain REST API v1.0 with token authentication
+            # If no token is configured, try to authenticate automatically
+            new_token_generated = False
+            if not self.token:
+                logger.debug(f"Attempting automatic authentication for DataDomain {self.ip_address}")
+                self.token = self.authenticate()
+                if self.token:
+                    new_token_generated = True
+                else:
+                    return self._format_response(status='error', hardware='error', cluster='error', 
+                                                error='Authentication failed. Please check credentials.')
             
+            headers = {
+                'X-DD-AUTH-TOKEN': self.token,
+                'Accept': 'application/json'
+            }
             ssl_verify = get_ssl_verify(self.resolved_address)
             
-            # Get system info
+            # Get system info from /rest/v1.0/system
+            # This provides comprehensive system information including capacity, compression, etc.
             response = requests.get(
-                f"{self.base_url}/rest/v1.0/dd-systems",
-                auth=auth,
+                f"{self.base_url}/rest/v1.0/system",
+                headers=headers,
                 verify=ssl_verify,
                 timeout=10
             )
             
             if response.status_code != 200:
-                return self._format_response(status='error', hardware='error', cluster='error', error=f'API error: {response.status_code}')
+                error_msg = f'API error: {response.status_code}'
+                if response.status_code == 401:
+                    # Token invalid - try to re-authenticate once
+                    logger.debug(f"Re-authenticating to DataDomain {self.ip_address}")
+                    
+                    new_token = self.authenticate()
+                    if new_token:
+                        self.token = new_token
+                        new_token_generated = True
+                        
+                        # Retry the request with new token
+                        headers['X-DD-AUTH-TOKEN'] = self.token
+                        response = requests.get(
+                            f"{self.base_url}/rest/v1.0/system",
+                            headers=headers,
+                            verify=ssl_verify,
+                            timeout=10
+                        )
+                        
+                        if response.status_code != 200:
+                            error_msg = f'API error: {response.status_code}'
+                            logger.error(f"DataDomain API error for {self.ip_address}: HTTP {response.status_code}")
+                            return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
+                    else:
+                        error_msg = 'API error: 401 - Authentication failed. Please check credentials.'
+                        logger.error(f"DataDomain authentication failed for {self.ip_address}")
+                        return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
+                else:
+                    logger.error(f"DataDomain API error for {self.ip_address}: HTTP {response.status_code}")
+                    try:
+                        logger.error(f"Response text: {response.text[:MAX_RESPONSE_LOG_LENGTH]}")
+                    except Exception:
+                        logger.error("Response text unavailable")
+                    return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
             
             data = response.json()
             
-            # Extract OS version from system info using helper function
-            os_version = None
-            if 'dd_systems' in data and len(data['dd_systems']) > 0:
-                system = data['dd_systems'][0]
-                os_version = extract_field_with_fallbacks(system, ['version', 'os_version'])
+            # Extract system information
+            os_version = data.get('version')
+            system_name = data.get('name')
+            model = data.get('model')
             
-            # Get capacity info
-            capacity_response = requests.get(
-                f"{self.base_url}/rest/v1.0/dd-systems/0/file-systems",
-                auth=auth,
-                verify=ssl_verify,
-                timeout=10
-            )
+            # Extract capacity information from physical_capacity
+            physical_capacity = data.get('physical_capacity', {})
+            total_bytes = physical_capacity.get('total', 0)
+            used_bytes = physical_capacity.get('used', 0)
             
-            total_bytes = 0
-            used_bytes = 0
-            if capacity_response.status_code == 200:
-                fs_data = capacity_response.json()
-                filesystems = fs_data.get('file_system', [])
-                for fs in filesystems:
-                    total_bytes += fs.get('total_physical_capacity', {}).get('value', 0)
-                    used_bytes += fs.get('used_physical_capacity', {}).get('value', 0)
+            # Get logical capacity and compression factor for additional info
+            logical_capacity = data.get('logical_capacity', {})
+            compression_factor = data.get('compression_factor', 0) or 0
             
-            return self._format_response(
+            logger.debug(f"DataDomain {self.ip_address} - System: {system_name}, Model: {model}, "
+                        f"Version: {os_version}, Compression: {compression_factor:.2f}x")
+            
+            # Get management interface IPs
+            # DataDomain typically uses ethMa-ethMd for management interfaces in HA configurations
+            all_mgmt_ips = []
+            mgmt_interfaces = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
+            for iface in mgmt_interfaces:
+                try:
+                    iface_response = requests.get(
+                        f"{self.base_url}/rest/v1.0/dd-systems/0/networks/{iface}",
+                        headers=headers,
+                        verify=ssl_verify,
+                        timeout=10
+                    )
+                    
+                    if iface_response.status_code == 200:
+                        iface_data = iface_response.json()
+                        # Extract IP address from interface data
+                        ip_config = iface_data.get('ip_config', {})
+                        ip_address = ip_config.get('ip_address')
+                        if ip_address:
+                            all_mgmt_ips.append({
+                                'interface': iface,
+                                'ip_address': ip_address,
+                                'enabled': iface_data.get('enabled', False)
+                            })
+                            logger.debug(f"DataDomain {self.ip_address} - Interface {iface}: {ip_address}")
+                except Exception as iface_error:
+                    logger.debug(f"Could not get interface {iface} for DataDomain {self.ip_address}: {iface_error}")
+            
+            result = self._format_response(
                 status='online',
                 hardware='ok',
                 cluster='ok',
                 alerts=0,
                 total_tb=total_bytes / (1024**4),
                 used_tb=used_bytes / (1024**4),
-                os_version=os_version
+                os_version=os_version,
+                all_mgmt_ips=all_mgmt_ips if all_mgmt_ips else None
             )
+            
+            # Include new token if one was generated
+            if new_token_generated:
+                result['new_api_token'] = self.token
+            
+            return result
+            
         except Exception as e:
             logger.error(f"Error getting Dell DataDomain health status for {self.ip_address}: {e}")
             logger.error(traceback.format_exc())
