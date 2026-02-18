@@ -17,12 +17,22 @@ def fetch_system_status(system, app):
         system: StorageSystem instance
         app: Flask application instance for context
     """
+    from app.system_logging import log_system_event
+    
     with app.app_context():
         try:
             # Refresh the system object in this thread's context
             # Using load=False to prevent an unnecessary SELECT query since
             # we already have all the data we need from the original object
             system = db.session.merge(system, load=False)
+            
+            # Log connection attempt
+            log_system_event(
+                system_id=system.id,
+                level='INFO',
+                category='connection',
+                message=f'Attempting to connect to {system.name} ({system.ip_address})'
+            )
             
             client = get_client(
                 vendor=system.vendor,
@@ -33,6 +43,24 @@ def fetch_system_status(system, app):
                 token=system.api_token
             )
             status = client.get_health_status()
+            
+            # Check if there was an error
+            if status.get('error'):
+                log_system_event(
+                    system_id=system.id,
+                    level='ERROR' if status.get('status') == 'error' else 'WARNING',
+                    category='api_call',
+                    message=f'Error retrieving status: {status.get("error")}',
+                    status_code=None
+                )
+            else:
+                log_system_event(
+                    system_id=system.id,
+                    level='INFO',
+                    category='data_query',
+                    message=f'Successfully retrieved status for {system.name}'
+                )
+            
             
             # Update OS version and API version if available in status
             if 'os_version' in status and status['os_version']:
@@ -109,6 +137,17 @@ def fetch_system_status(system, app):
         except Exception as e:
             logger.error(f"Error fetching status for {system.name} ({system.ip_address}): {e}")
             logger.error(traceback.format_exc())
+            
+            # Log the error to database
+            from app.system_logging import log_system_event
+            log_system_event(
+                system_id=system.id,
+                level='ERROR',
+                category='connection',
+                message=f'Exception while fetching status: {str(e)}',
+                details=traceback.format_exc()
+            )
+            
             return {
                 'system': system.to_dict(),
                 'status': {

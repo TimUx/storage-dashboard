@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}Log Details - Admin{% endblock %}
+
+{% block styles %}
+.admin-header {
+    margin: 1.5rem 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.admin-header h2 {
+    font-size: 1.8rem;
+    color: #2c3e50;
+}
+
+.log-detail-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+}
+
+.log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #ecf0f1;
+}
+
+.log-title {
+    flex: 1;
+}
+
+.log-title h3 {
+    margin: 0 0 0.5rem 0;
+    color: #2c3e50;
+}
+
+.log-meta {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.log-level {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.log-level-info {
+    background: #e3f2fd;
+    color: #0277bd;
+}
+
+.log-level-warning {
+    background: #fff3e0;
+    color: #ef6c00;
+}
+
+.log-level-error {
+    background: #ffebee;
+    color: #c62828;
+}
+
+.log-level-critical {
+    background: #a10035;
+    color: white;
+}
+
+.log-category {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    background: #ecf0f1;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    color: #555;
+    font-weight: 500;
+}
+
+.log-section {
+    margin-bottom: 1.5rem;
+}
+
+.log-section h4 {
+    color: #2c3e50;
+    margin-bottom: 0.75rem;
+    font-size: 1.1rem;
+}
+
+.log-field {
+    margin-bottom: 1rem;
+}
+
+.log-field-label {
+    font-weight: 600;
+    color: #7f8c8d;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+}
+
+.log-field-value {
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.95rem;
+}
+
+.log-details-box {
+    background: #f8f9fa;
+    border-left: 4px solid var(--accent-color);
+    padding: 1rem;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+}
+
+.btn-secondary {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #7f8c8d;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+}
+{% endblock %}
+
+{% block content %}
+<div class="admin-header">
+    <h2>📋 Log Details</h2>
+    <div>
+        <a href="{{ url_for('admin.logs', system_id=log.system_id if log.system_id else '') }}" class="btn btn-secondary">← Zurück zu Logs</a>
+    </div>
+</div>
+
+<div class="log-detail-card">
+    <div class="log-header">
+        <div class="log-title">
+            <h3>{{ log.message }}</h3>
+            <div class="log-meta">
+                <span class="log-level log-level-{{ log.level.lower() }}">
+                    {{ log.level }}
+                </span>
+                <span class="log-category">{{ log.category }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="log-section">
+        <h4>Allgemeine Informationen</h4>
+        <div class="info-grid">
+            <div class="log-field">
+                <div class="log-field-label">System</div>
+                <div class="log-field-value">
+                    {{ log.system.name if log.system else 'Unknown' }}
+                    {% if log.system %}
+                    <br><small style="color: #7f8c8d;">{{ log.system.vendor }} - {{ log.system.ip_address }}</small>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="log-field">
+                <div class="log-field-label">Zeitstempel</div>
+                <div class="log-field-value">{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if log.timestamp else 'N/A' }}</div>
+            </div>
+
+            {% if log.status_code %}
+            <div class="log-field">
+                <div class="log-field-label">HTTP Status Code</div>
+                <div class="log-field-value">{{ log.status_code }}</div>
+            </div>
+            {% endif %}
+
+            {% if log.api_endpoint %}
+            <div class="log-field">
+                <div class="log-field-label">API Endpoint</div>
+                <div class="log-field-value">{{ log.api_endpoint }}</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="log-section">
+        <h4>Nachricht</h4>
+        <div class="log-details-box">{{ log.message }}</div>
+    </div>
+
+    {% if log.details %}
+    <div class="log-section">
+        <h4>Details / Stack Trace</h4>
+        <div class="log-details-box">{{ log.details }}</div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

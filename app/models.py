@@ -281,3 +281,40 @@ class AppSettings(db.Model):
     def __repr__(self):
         return f'<AppSettings {self.id}>'
 
+
+class SystemLog(db.Model):
+    """System log model for tracking connection attempts and errors"""
+    __tablename__ = 'system_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    system_id = db.Column(db.Integer, db.ForeignKey('storage_systems.id', ondelete='CASCADE'), nullable=False)
+    system = db.relationship('StorageSystem', backref=db.backref('logs', lazy='dynamic', cascade='all, delete-orphan'))
+    
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    level = db.Column(db.String(20), nullable=False, index=True)  # INFO, WARNING, ERROR, CRITICAL
+    category = db.Column(db.String(50), nullable=False, index=True)  # connection, authentication, api_call, data_query
+    message = db.Column(db.Text, nullable=False)
+    details = db.Column(db.Text)  # Additional details, stack trace, etc.
+    
+    # Additional context
+    status_code = db.Column(db.Integer)  # HTTP status code if applicable
+    api_endpoint = db.Column(db.String(200))  # API endpoint that was called
+    
+    def __repr__(self):
+        return f'<SystemLog {self.timestamp} - {self.level} - {self.system.name if self.system else "Unknown"}>'
+    
+    def to_dict(self):
+        """Convert log entry to dictionary"""
+        return {
+            'id': self.id,
+            'system_id': self.system_id,
+            'system_name': self.system.name if self.system else 'Unknown',
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'level': self.level,
+            'category': self.category,
+            'message': self.message,
+            'details': self.details,
+            'status_code': self.status_code,
+            'api_endpoint': self.api_endpoint
+        }
+
