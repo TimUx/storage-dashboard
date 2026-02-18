@@ -43,7 +43,7 @@ def log_system_event(system_id, level, category, message, details=None, status_c
         # Don't raise - logging failures shouldn't break the application
         try:
             db.session.rollback()
-        except:
+        except Exception:
             pass
 
 
@@ -77,7 +77,7 @@ def cleanup_old_logs(system_id, max_logs=MAX_LOGS_PER_SYSTEM):
         logger.error(f"Failed to cleanup old logs: {e}")
         try:
             db.session.rollback()
-        except:
+        except Exception:
             pass
 
 

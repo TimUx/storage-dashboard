@@ -10,6 +10,41 @@ bp = Blueprint('main', __name__)
 logger = logging.getLogger(__name__)
 
 
+def extract_ips_from_mgmt_ips(all_mgmt_ips, system_name, system_ip):
+    """Extract IP addresses from all_mgmt_ips data structure
+    
+    Handles both dict format with 'ip' and 'dns_names' keys and legacy string format.
+    
+    Args:
+        all_mgmt_ips: List of management IP information (dicts or strings)
+        system_name: System name for logging
+        system_ip: System IP for logging
+    
+    Returns:
+        Set of IP address strings
+    """
+    ips = set()
+    
+    if not isinstance(all_mgmt_ips, (list, tuple)):
+        logger.warning(f"Unexpected type for all_mgmt_ips on {system_name} ({system_ip}): "
+                     f"{type(all_mgmt_ips).__name__}, value: {str(all_mgmt_ips)[:100]}")
+        return ips
+    
+    for mgmt_ip_info in all_mgmt_ips:
+        if isinstance(mgmt_ip_info, dict) and 'ip' in mgmt_ip_info:
+            ips.add(mgmt_ip_info['ip'])
+        elif isinstance(mgmt_ip_info, str):
+            # Fallback for backward compatibility if it's just a string
+            ips.add(mgmt_ip_info)
+        else:
+            # Unexpected item type within the list
+            logger.warning(f"Unexpected item type in all_mgmt_ips for {system_name} ({system_ip}): "
+                         f"{type(mgmt_ip_info).__name__}, value: {str(mgmt_ip_info)[:100]}")
+    
+    return ips
+
+
+
 def fetch_system_status(system, app):
     """Fetch status for a single system
     
@@ -99,24 +134,16 @@ def fetch_system_status(system, app):
                 # Merge with existing IPs
                 all_ips = set(system.get_all_ips() or [])
                 all_ips.add(system.ip_address)
-                # Extract IP addresses from all_mgmt_ips (list of dicts with 'ip' and 'dns_names')
-                # Ensure all_mgmt_ips is iterable (list)
-                if isinstance(status['all_mgmt_ips'], (list, tuple)):
-                    for mgmt_ip_info in status['all_mgmt_ips']:
-                        if isinstance(mgmt_ip_info, dict) and 'ip' in mgmt_ip_info:
-                            all_ips.add(mgmt_ip_info['ip'])
-                        elif isinstance(mgmt_ip_info, str):
-                            # Fallback for backward compatibility if it's just a string
-                            all_ips.add(mgmt_ip_info)
-                        else:
-                            # Unexpected item type within the list
-                            logger.warning(f"Unexpected item type in all_mgmt_ips for {system.name} ({system.ip_address}): "
-                                         f"{type(mgmt_ip_info).__name__}, value: {str(mgmt_ip_info)[:100]}")
-                else:
-                    # Handle unexpected type - log warning and skip
-                    logger.warning(f"Unexpected type for all_mgmt_ips on {system.name} ({system.ip_address}): "
-                                 f"{type(status['all_mgmt_ips']).__name__}, value: {str(status['all_mgmt_ips'])[:100]}")
-                # Save the merged IPs regardless of the format
+                
+                # Extract IP addresses using helper function
+                mgmt_ips = extract_ips_from_mgmt_ips(
+                    status['all_mgmt_ips'],
+                    system.name,
+                    system.ip_address
+                )
+                all_ips.update(mgmt_ips)
+                
+                # Save the merged IPs
                 system.set_all_ips(list(all_ips))
             
             # Update site count if available
