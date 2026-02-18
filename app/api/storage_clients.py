@@ -1636,16 +1636,21 @@ class DellDataDomainClient(StorageClient):
                         if iface_data:
                             # Check for 'address' field first, then fallback to 'ip_config'
                             ip_address = iface_data.get('address')
+                            netmask = iface_data.get('netmask')
+                            gateway = iface_data.get('gateway')
+                            
                             if not ip_address:
                                 ip_config = iface_data.get('ip_config', {})
                                 ip_address = ip_config.get('ip_address')
+                                netmask = ip_config.get('netmask')
+                                gateway = ip_config.get('gateway')
                             
                             if ip_address:
                                 nics.append({
                                     'name': iface_name,
                                     'ip_address': ip_address,
-                                    'netmask': iface_data.get('netmask') or (iface_data.get('ip_config', {}).get('netmask')),
-                                    'gateway': iface_data.get('gateway') or (iface_data.get('ip_config', {}).get('gateway')),
+                                    'netmask': netmask,
+                                    'gateway': gateway,
                                     'enabled': iface_data.get('enabled', False),
                                     'link_status': iface_data.get('link_status', 'unknown'),
                                     'mtu': iface_data.get('mtu')
