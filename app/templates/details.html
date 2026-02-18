@@ -661,16 +661,16 @@
             <!-- Current Node Information -->
             {% if ha_info.node_name %}
             <div>
-                <h3 style="margin-top: 0; color: var(--itscare-blue); font-size: 1rem;">Current Node</h3>
+                <h3 style="margin-top: 0; color: var(--itscare-blue); font-size: 1rem;">Aktueller Node</h3>
                 <div class="detail-row">
-                    <span class="detail-label">Node Name:</span>
+                    <span class="detail-label">Node-Name:</span>
                     <span class="detail-value">{{ ha_info.node_name }}</span>
                 </div>
                 {% if status.all_mgmt_ips %}
                     {% for nic in status.all_mgmt_ips %}
                         {% if nic.name and 'ethMa' in nic.name and nic.ip_address %}
                 <div class="detail-row">
-                    <span class="detail-label">Local IP ({{ nic.name }}):</span>
+                    <span class="detail-label">Lokale IP ({{ nic.name }}):</span>
                     <span class="detail-value">
                         <span class="ip-badge">{{ nic.ip_address }}</span>
                         {% if nic.dns_names %}
@@ -686,7 +686,7 @@
                     {% endfor %}
                 {% endif %}
                 <div class="detail-row">
-                    <span class="detail-label">Cluster IP:</span>
+                    <span class="detail-label">Cluster-IP:</span>
                     <span class="detail-value"><span class="ip-badge">{{ system.ip_address }}</span></span>
                 </div>
             </div>
