@@ -5,14 +5,14 @@
 {% block styles %}
 /* ITscare Corporate Design - Full HD Optimization (1920x1080) */
 :root {
-    /* ITscare Primary Colors from Logo */
-    --itscare-blue: #0066CC;
-    --itscare-blue-dark: #004C99;
-    --itscare-blue-light: #3385D6;
-    --itscare-red: #E30613;
-    --itscare-red-dark: #B30510;
-    --itscare-green: #00A651;
-    --itscare-green-dark: #008040;
+    /* Use Admin Preset Colors */
+    --itscare-blue: var(--accent-color);  /* Admin Blue: #0098DB */
+    --itscare-blue-dark: #007ab8;  /* Darker shade of admin blue */
+    --itscare-blue-light: #33ade3;  /* Lighter shade of admin blue */
+    --itscare-red: var(--primary-color);  /* Admin Red: #A70240 */
+    --itscare-red-dark: #8a0235;  /* Darker shade of admin red */
+    --itscare-green: var(--secondary-color);  /* Admin Green: #BED600 */
+    --itscare-green-dark: #a8ba00;  /* Darker shade of admin green */
     
     /* UI Colors */
     --text-dark: #1a1a1a;
@@ -619,7 +619,7 @@ body.table-view .systems-table {
     border-radius: 6px;
     margin-bottom: 1rem;
     box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
-    border-left: 4px solid var(--itscare-green);
+    border-bottom: 3px solid var(--itscare-green);  /* Solid green line */
 }
 
 .filter-bar h3 {

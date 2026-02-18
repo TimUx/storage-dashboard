@@ -3,8 +3,46 @@ from flask import Blueprint, render_template, abort, current_app
 from app.models import StorageSystem, db
 from app.api import get_client
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+import traceback
 
 bp = Blueprint('main', __name__)
+logger = logging.getLogger(__name__)
+
+
+def extract_ips_from_mgmt_ips(all_mgmt_ips, system_name, system_ip):
+    """Extract IP addresses from all_mgmt_ips data structure
+    
+    Handles both dict format with 'ip' and 'dns_names' keys and legacy string format.
+    
+    Args:
+        all_mgmt_ips: List of management IP information (dicts or strings)
+        system_name: System name for logging
+        system_ip: System IP for logging
+    
+    Returns:
+        Set of IP address strings
+    """
+    ips = set()
+    
+    if not isinstance(all_mgmt_ips, (list, tuple)):
+        logger.warning(f"Unexpected type for all_mgmt_ips on {system_name} ({system_ip}): "
+                     f"{type(all_mgmt_ips).__name__}, value: {str(all_mgmt_ips)[:100]}")
+        return ips
+    
+    for mgmt_ip_info in all_mgmt_ips:
+        if isinstance(mgmt_ip_info, dict) and 'ip' in mgmt_ip_info:
+            ips.add(mgmt_ip_info['ip'])
+        elif isinstance(mgmt_ip_info, str):
+            # Fallback for backward compatibility if it's just a string
+            ips.add(mgmt_ip_info)
+        else:
+            # Unexpected item type within the list
+            logger.warning(f"Unexpected item type in all_mgmt_ips for {system_name} ({system_ip}): "
+                         f"{type(mgmt_ip_info).__name__}, value: {str(mgmt_ip_info)[:100]}")
+    
+    return ips
+
 
 
 def fetch_system_status(system, app):
@@ -14,12 +52,22 @@ def fetch_system_status(system, app):
         system: StorageSystem instance
         app: Flask application instance for context
     """
+    from app.system_logging import log_system_event
+    
     with app.app_context():
         try:
             # Refresh the system object in this thread's context
             # Using load=False to prevent an unnecessary SELECT query since
             # we already have all the data we need from the original object
             system = db.session.merge(system, load=False)
+            
+            # Log connection attempt
+            log_system_event(
+                system_id=system.id,
+                level='INFO',
+                category='connection',
+                message=f'Attempting to connect to {system.name} ({system.ip_address})'
+            )
             
             client = get_client(
                 vendor=system.vendor,
@@ -30,6 +78,24 @@ def fetch_system_status(system, app):
                 token=system.api_token
             )
             status = client.get_health_status()
+            
+            # Check if there was an error
+            if status.get('error'):
+                log_system_event(
+                    system_id=system.id,
+                    level='ERROR' if status.get('status') == 'error' else 'WARNING',
+                    category='api_call',
+                    message=f'Error retrieving status: {status.get("error")}',
+                    status_code=None
+                )
+            else:
+                log_system_event(
+                    system_id=system.id,
+                    level='INFO',
+                    category='data_query',
+                    message=f'Successfully retrieved status for {system.name}'
+                )
+            
             
             # Update OS version and API version if available in status
             if 'os_version' in status and status['os_version']:
@@ -68,7 +134,16 @@ def fetch_system_status(system, app):
                 # Merge with existing IPs
                 all_ips = set(system.get_all_ips() or [])
                 all_ips.add(system.ip_address)
-                all_ips.update(status['all_mgmt_ips'])
+                
+                # Extract IP addresses using helper function
+                mgmt_ips = extract_ips_from_mgmt_ips(
+                    status['all_mgmt_ips'],
+                    system.name,
+                    system.ip_address
+                )
+                all_ips.update(mgmt_ips)
+                
+                # Save the merged IPs
                 system.set_all_ips(list(all_ips))
             
             # Update site count if available
@@ -87,6 +162,19 @@ def fetch_system_status(system, app):
                 'status': status
             }
         except Exception as e:
+            logger.error(f"Error fetching status for {system.name} ({system.ip_address}): {e}")
+            logger.error(traceback.format_exc())
+            
+            # Log the error to database
+            from app.system_logging import log_system_event
+            log_system_event(
+                system_id=system.id,
+                level='ERROR',
+                category='connection',
+                message=f'Exception while fetching status: {str(e)}',
+                details=traceback.format_exc()
+            )
+            
             return {
                 'system': system.to_dict(),
                 'status': {
@@ -123,6 +211,8 @@ def index():
                 systems_status.append(result)
             except Exception as e:
                 system = futures[future]
+                logger.error(f"Error in thread fetching status for {system.name} ({system.ip_address}): {e}")
+                logger.error(traceback.format_exc())
                 systems_status.append({
                     'system': system.to_dict(),
                     'status': {
@@ -176,6 +266,8 @@ def system_details(system_id):
         )
         status = client.get_health_status()
     except Exception as e:
+        logger.error(f"Error getting health status for {system.name} ({system.ip_address}): {e}")
+        logger.error(traceback.format_exc())
         status = {
             'status': 'error',
             'hardware_status': 'unknown',

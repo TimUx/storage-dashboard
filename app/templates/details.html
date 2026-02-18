@@ -5,12 +5,13 @@
 {% block content %}
 <style>
     :root {
-        --itscare-blue: #0066CC;
-        --itscare-blue-dark: #004C99;
-        --itscare-red: #E30613;
-        --itscare-red-dark: #B30510;
-        --itscare-green: #00A651;
-        --itscare-green-dark: #008040;
+        /* Use Admin Preset Colors */
+        --itscare-blue: var(--accent-color);  /* Admin Blue: #0098DB */
+        --itscare-blue-dark: #007ab8;  /* Darker shade of admin blue */
+        --itscare-red: var(--primary-color);  /* Admin Red: #A70240 */
+        --itscare-red-dark: #8a0235;  /* Darker shade of admin red */
+        --itscare-green: var(--secondary-color);  /* Admin Green: #BED600 */
+        --itscare-green-dark: #a8ba00;  /* Darker shade of admin green */
     }
 
     .detail-container {

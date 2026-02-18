@@ -7,8 +7,12 @@ import warnings
 import logging
 import ipaddress
 import re
+import traceback
 
 logger = logging.getLogger(__name__)
+
+# Maximum length of response text to log (to avoid flooding logs with large responses)
+MAX_RESPONSE_LOG_LENGTH = 500
 
 # StorageGRID API health state constants
 # States that indicate a healthy grid/node
@@ -552,6 +556,8 @@ class PureStorageClient(StorageClient):
             )
                 
         except Exception as e:
+            logger.error(f"Error getting Pure Storage health status for {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
@@ -919,6 +925,8 @@ class NetAppONTAPClient(StorageClient):
                 controllers=metrocluster_nodes if metrocluster_nodes else cluster_nodes  # Use MetroCluster nodes if available, otherwise regular cluster nodes
             )
         except Exception as e:
+            logger.error(f"Error getting NetApp ONTAP health status for {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
@@ -979,7 +987,17 @@ class NetAppStorageGRIDClient(StorageClient):
             )
             
             if response.status_code != 200:
-                return self._format_response(status='error', hardware='error', cluster='error', error=f'API error: {response.status_code}')
+                error_msg = f'API error: {response.status_code}'
+                if response.status_code == 401:
+                    error_msg = 'API error: 401 - Authentication failed. Please check API token.'
+                    logger.error(f"StorageGRID authentication failed for {self.ip_address}: Invalid or expired API token")
+                else:
+                    logger.error(f"StorageGRID API error for {self.ip_address}: HTTP {response.status_code}")
+                    try:
+                        logger.error(f"Response text: {response.text[:MAX_RESPONSE_LOG_LENGTH]}")
+                    except Exception:
+                        logger.error("Response text unavailable")
+                return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
             
             # Get product version from grid config
             os_version = None
@@ -1226,6 +1244,8 @@ class NetAppStorageGRIDClient(StorageClient):
                 sites_info=sites_info if sites_info else None
             )
         except Exception as e:
+            logger.error(f"Error getting StorageGRID health status for {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
@@ -1287,6 +1307,8 @@ class DellDataDomainClient(StorageClient):
                 os_version=os_version
             )
         except Exception as e:
+            logger.error(f"Error getting Dell DataDomain health status for {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 

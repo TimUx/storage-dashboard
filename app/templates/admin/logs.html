@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+
+{% block title %}System Logs - Admin{% endblock %}
+
+{% block styles %}
+.admin-header {
+    margin: 1.5rem 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.admin-header h2 {
+    font-size: 1.8rem;
+    color: #2c3e50;
+}
+
+.filters {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 1.5rem;
+}
+
+.filter-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.filter-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: #2c3e50;
+}
+
+.filter-group select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.log-table {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+thead {
+    background: var(--accent-color);
+    color: white;
+}
+
+th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.log-level {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.log-level-info {
+    background: #e3f2fd;
+    color: #0277bd;
+}
+
+.log-level-warning {
+    background: #fff3e0;
+    color: #ef6c00;
+}
+
+.log-level-error {
+    background: #ffebee;
+    color: #c62828;
+}
+
+.log-level-critical {
+    background: #a10035;
+    color: white;
+}
+
+.log-category {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background: #ecf0f1;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: #555;
+}
+
+.log-message {
+    max-width: 500px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.log-timestamp {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    color: #7f8c8d;
+    white-space: nowrap;
+}
+
+.btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background: var(--accent-color);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #007ab8;
+}
+
+.btn-secondary {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #7f8c8d;
+}
+
+.btn-danger {
+    background: var(--primary-color);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #8a0235;
+}
+
+.btn-sm {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+
+.pagination a,
+.pagination span {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    text-decoration: none;
+    color: #2c3e50;
+}
+
+.pagination a:hover {
+    background: #f8f9fa;
+}
+
+.pagination .current {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+.pagination .disabled {
+    color: #95a5a6;
+    cursor: not-allowed;
+}
+
+.no-logs {
+    text-align: center;
+    padding: 3rem;
+    color: #7f8c8d;
+}
+
+.no-logs-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+{% endblock %}
+
+{% block content %}
+<div class="admin-header">
+    <h2>📋 System Logs</h2>
+    <div>
+        <a href="{{ url_for('admin.index') }}" class="btn btn-secondary">← Zurück</a>
+    </div>
+</div>
+
+<div class="filters">
+    <form method="GET" action="{{ url_for('admin.logs') }}" id="filterForm">
+        <div class="filter-group">
+            <div>
+                <label for="system_id">System</label>
+                <select name="system_id" id="system_id" onchange="document.getElementById('filterForm').submit()">
+                    <option value="">Alle Systeme</option>
+                    {% for system in systems %}
+                    <option value="{{ system.id }}" {% if selected_system_id == system.id %}selected{% endif %}>
+                        {{ system.name }} ({{ system.vendor }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="level">Level</label>
+                <select name="level" id="level" onchange="document.getElementById('filterForm').submit()">
+                    <option value="">Alle Levels</option>
+                    {% for lvl in available_levels %}
+                    <option value="{{ lvl }}" {% if selected_level == lvl %}selected{% endif %}>{{ lvl }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="category">Kategorie</label>
+                <select name="category" id="category" onchange="document.getElementById('filterForm').submit()">
+                    <option value="">Alle Kategorien</option>
+                    {% for cat in available_categories %}
+                    <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="filter-actions">
+            <a href="{{ url_for('admin.logs') }}" class="btn btn-secondary btn-sm">Filter zurücksetzen</a>
+            {% if selected_system_id %}
+            <form method="POST" action="{{ url_for('admin.clear_logs') }}" style="display: inline;" 
+                  onsubmit="return confirm('Möchten Sie wirklich alle Logs für dieses System löschen?');">
+                <input type="hidden" name="system_id" value="{{ selected_system_id }}">
+                <button type="submit" class="btn btn-danger btn-sm">Logs löschen</button>
+            </form>
+            {% else %}
+            <form method="POST" action="{{ url_for('admin.clear_logs') }}" style="display: inline;"
+                  onsubmit="return confirm('Möchten Sie wirklich ALLE System-Logs löschen?');">
+                <button type="submit" class="btn btn-danger btn-sm">Alle Logs löschen</button>
+            </form>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+{% if logs %}
+<div class="log-table">
+    <table>
+        <thead>
+            <tr>
+                <th>Zeitstempel</th>
+                <th>System</th>
+                <th>Level</th>
+                <th>Kategorie</th>
+                <th>Nachricht</th>
+                <th>Status</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td class="log-timestamp">{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else 'N/A' }}</td>
+                <td>{{ log.system.name if log.system else 'Unknown' }}</td>
+                <td>
+                    <span class="log-level log-level-{{ log.level.lower() }}">
+                        {{ log.level }}
+                    </span>
+                </td>
+                <td>
+                    <span class="log-category">{{ log.category }}</span>
+                </td>
+                <td class="log-message" title="{{ log.message }}">{{ log.message }}</td>
+                <td>
+                    {% if log.status_code %}
+                    <span>{{ log.status_code }}</span>
+                    {% else %}
+                    <span>-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ url_for('admin.log_detail', log_id=log.id) }}" class="btn btn-primary btn-sm">Details</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Pagination -->
+{% if pagination.pages > 1 %}
+<div class="pagination">
+    {% if pagination.has_prev %}
+    <a href="{{ url_for('admin.logs', page=pagination.prev_num, system_id=selected_system_id, level=selected_level, category=selected_category) }}">← Vorherige</a>
+    {% else %}
+    <span class="disabled">← Vorherige</span>
+    {% endif %}
+    
+    <span class="current">Seite {{ pagination.page }} von {{ pagination.pages }}</span>
+    
+    {% if pagination.has_next %}
+    <a href="{{ url_for('admin.logs', page=pagination.next_num, system_id=selected_system_id, level=selected_level, category=selected_category) }}">Nächste →</a>
+    {% else %}
+    <span class="disabled">Nächste →</span>
+    {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="no-logs">
+    <div class="no-logs-icon">📭</div>
+    <h3>Keine Logs gefunden</h3>
+    <p>Es sind keine Log-Einträge für die ausgewählten Filter vorhanden.</p>
+</div>
+{% endif %}
+
+{% endblock %}
