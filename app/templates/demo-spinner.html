@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading Spinner Demo</title>
+    <style>
+        :root {
+            --itscare-blue: #0098DB;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+        
+        .demo-container {
+            background: white;
+            border-radius: 8px;
+            padding: 40px;
+            max-width: 600px;
+            margin: 20px auto;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: var(--itscare-blue);
+            margin-top: 0;
+        }
+        
+        button {
+            background: var(--itscare-blue);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        
+        button:hover {
+            background: #007ab8;
+        }
+        
+        /* Loading Overlay - As implemented in the fix */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+        
+        .loading-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .loading-spinner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .spinner {
+            border: 4px solid rgba(0, 152, 219, 0.2);
+            border-top: 4px solid var(--itscare-blue);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            color: var(--itscare-blue);
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+        
+        .info {
+            background: #e3f2fd;
+            border-left: 4px solid var(--itscare-blue);
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay hidden" id="loadingOverlay">
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <div class="loading-text" id="loadingText">Dashboard wird geladen...</div>
+        </div>
+    </div>
+    
+    <div class="demo-container">
+        <h1>🔄 Loading Spinner Demo</h1>
+        
+        <div class="info">
+            <strong>Implementierung:</strong> Diese Demo zeigt die Loading-Overlays, die in das Storage Dashboard integriert wurden.
+        </div>
+        
+        <h2>Features:</h2>
+        <ul>
+            <li>✅ Vollbild-Overlay mit semi-transparentem Hintergrund</li>
+            <li>✅ Rotierender Spinner in ITscare Blau (#0098DB)</li>
+            <li>✅ Sanfte Fade-In/Fade-Out Transition (0.3s)</li>
+            <li>✅ Dynamischer Text je nach Kontext</li>
+            <li>✅ z-index: 9999 für Sichtbarkeit über allen Inhalten</li>
+        </ul>
+        
+        <h2>Verwendung:</h2>
+        
+        <button onclick="showLoading('Dashboard wird geladen...')">
+            Dashboard Laden
+        </button>
+        
+        <button onclick="showLoading('Discovery wird durchgeführt...')">
+            Discover All
+        </button>
+        
+        <button onclick="showLoading('System wird neu erkannt...')">
+            System Discovery
+        </button>
+        
+        <div class="info" style="margin-top: 20px;">
+            <strong>Technische Details:</strong>
+            <ul>
+                <li><code>position: fixed</code> - Deckt gesamten Viewport ab</li>
+                <li><code>animation: spin 1s linear infinite</code> - Kontinuierliche Rotation</li>
+                <li><code>opacity transition</code> - Sanfte Übergänge</li>
+                <li><code>pointer-events: none</code> wenn hidden - Keine Interaktion blockieren</li>
+            </ul>
+        </div>
+    </div>
+    
+    <script>
+        function showLoading(text) {
+            const overlay = document.getElementById('loadingOverlay');
+            const textElement = document.getElementById('loadingText');
+            
+            textElement.textContent = text;
+            overlay.classList.remove('hidden');
+            
+            // Auto-hide after 3 seconds for demo purposes
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
