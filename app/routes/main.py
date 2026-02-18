@@ -3,8 +3,11 @@ from flask import Blueprint, render_template, abort, current_app
 from app.models import StorageSystem, db
 from app.api import get_client
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+import traceback
 
 bp = Blueprint('main', __name__)
+logger = logging.getLogger(__name__)
 
 
 def fetch_system_status(system, app):
@@ -68,7 +71,13 @@ def fetch_system_status(system, app):
                 # Merge with existing IPs
                 all_ips = set(system.get_all_ips() or [])
                 all_ips.add(system.ip_address)
-                all_ips.update(status['all_mgmt_ips'])
+                # Extract IP addresses from all_mgmt_ips (list of dicts with 'ip' and 'dns_names')
+                for mgmt_ip_info in status['all_mgmt_ips']:
+                    if isinstance(mgmt_ip_info, dict) and 'ip' in mgmt_ip_info:
+                        all_ips.add(mgmt_ip_info['ip'])
+                    elif isinstance(mgmt_ip_info, str):
+                        # Fallback for backward compatibility if it's just a string
+                        all_ips.add(mgmt_ip_info)
                 system.set_all_ips(list(all_ips))
             
             # Update site count if available
@@ -87,6 +96,8 @@ def fetch_system_status(system, app):
                 'status': status
             }
         except Exception as e:
+            logger.error(f"Error fetching status for {system.name} ({system.ip_address}): {e}")
+            logger.error(traceback.format_exc())
             return {
                 'system': system.to_dict(),
                 'status': {
@@ -123,6 +134,8 @@ def index():
                 systems_status.append(result)
             except Exception as e:
                 system = futures[future]
+                logger.error(f"Error in thread fetching status for {system.name} ({system.ip_address}): {e}")
+                logger.error(traceback.format_exc())
                 systems_status.append({
                     'system': system.to_dict(),
                     'status': {
@@ -176,6 +189,8 @@ def system_details(system_id):
         )
         status = client.get_health_status()
     except Exception as e:
+        logger.error(f"Error getting health status for {system.name} ({system.ip_address}): {e}")
+        logger.error(traceback.format_exc())
         status = {
             'status': 'error',
             'hardware_status': 'unknown',

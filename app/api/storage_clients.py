@@ -7,6 +7,7 @@ import warnings
 import logging
 import ipaddress
 import re
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -552,6 +553,8 @@ class PureStorageClient(StorageClient):
             )
                 
         except Exception as e:
+            logger.error(f"Error getting Pure Storage health status for {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
@@ -979,7 +982,14 @@ class NetAppStorageGRIDClient(StorageClient):
             )
             
             if response.status_code != 200:
-                return self._format_response(status='error', hardware='error', cluster='error', error=f'API error: {response.status_code}')
+                error_msg = f'API error: {response.status_code}'
+                if response.status_code == 401:
+                    error_msg = 'API error: 401 - Authentication failed. Please check API token.'
+                    logger.error(f"StorageGRID authentication failed for {self.ip_address}: Invalid or expired API token")
+                else:
+                    logger.error(f"StorageGRID API error for {self.ip_address}: HTTP {response.status_code}")
+                    logger.error(f"Response text: {response.text[:500]}")  # Log first 500 chars of response
+                return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
             
             # Get product version from grid config
             os_version = None
@@ -1226,6 +1236,8 @@ class NetAppStorageGRIDClient(StorageClient):
                 sites_info=sites_info if sites_info else None
             )
         except Exception as e:
+            logger.error(f"Error getting StorageGRID health status for {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
