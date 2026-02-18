@@ -171,7 +171,7 @@
         </ol>
         
         <div class="note">
-            <strong>Alternative:</strong> Sie können den Token auch direkt über die REST API erstellen:
+            <strong>Alternative (für API-Automatisierung):</strong> Sie können den Token auch direkt über die REST API erstellen:
             <pre style="margin-top: 0.5rem;"><code>curl -X POST "https://&lt;storagegrid-ip&gt;/api/v3/authorize" \
   -H "Content-Type: application/json" \
   -d '{
@@ -180,6 +180,7 @@
     "cookie": true,
     "csrfToken": false
   }' -k</code></pre>
+            <em>Hinweis: csrfToken=false ist korrekt für API-Zugriff ohne Browser-Session.</em>
         </div>
         
         <p><strong>Schritt 3: Token im Dashboard konfigurieren</strong></p>
@@ -200,7 +201,7 @@
         <div class="note">
             <strong>Wichtige Hinweise:</strong>
             <ul style="margin-top: 0.5rem; margin-bottom: 0;">
-                <li>Der Bearer Token hat eine begrenzte Gültigkeitsdauer (Standard: 16 Stunden)</li>
+                <li>Der Bearer Token hat eine begrenzte Gültigkeitsdauer (typischerweise 16 Stunden, kann je nach StorageGRID-Konfiguration variieren)</li>
                 <li>Bei Authentifizierungsfehlern muss ein neuer Token generiert werden</li>
                 <li><strong>Empfehlung:</strong> Verwenden Sie Benutzername/Passwort statt Token - das Dashboard generiert dann automatisch neue Tokens bei Bedarf</li>
             </ul>
