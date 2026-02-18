@@ -2,8 +2,12 @@
 import os
 import tempfile
 import atexit
+import ipaddress
+import logging
 from app import db
 from app.models import Certificate
+
+logger = logging.getLogger(__name__)
 
 # Keep track of temporary certificate files for cleanup
 _temp_cert_files = []
@@ -22,6 +26,61 @@ def _cleanup_temp_files():
 
 # Register cleanup on exit
 atexit.register(_cleanup_temp_files)
+
+
+def is_ip_address(address):
+    """Check if the given address is an IP address (IPv4 or IPv6)
+    
+    Args:
+        address: String to check (IP address or hostname)
+        
+    Returns:
+        bool: True if address is an IP address, False if it's a hostname/DNS name
+    """
+    try:
+        ipaddress.ip_address(address)
+        return True
+    except ValueError:
+        return False
+
+
+def get_ssl_verify(target_address=None):
+    """Get SSL verification setting from app config, with custom certificates if available
+    
+    Args:
+        target_address: Optional IP address or hostname being connected to.
+                       If provided and it's an IP address, SSL verification will be disabled
+                       automatically (even if SSL_VERIFY=true) since IP addresses don't match
+                       certificate common names.
+    
+    Returns:
+        bool or str: False to disable SSL verification, True to use system defaults,
+                    or path to custom CA bundle
+    """
+    try:
+        # If connecting to an IP address, SSL verification must be disabled
+        # because certificates are issued to DNS names, not IP addresses
+        if target_address and is_ip_address(target_address):
+            logger.debug(f"Disabling SSL verification for IP address: {target_address}")
+            return False
+        
+        from flask import current_app
+        ssl_verify_enabled = current_app.config.get('SSL_VERIFY', False)
+        
+        if not ssl_verify_enabled:
+            return False
+        
+        # Try to get custom certificates from the database
+        # Note: get_ssl_context() is defined later in this same module
+        try:
+            return get_ssl_context()
+        except Exception:
+            # If custom certificates fail, use default
+            return True
+            
+    except RuntimeError:
+        # Outside application context, default to False for development
+        return False
 
 
 def get_ssl_context():

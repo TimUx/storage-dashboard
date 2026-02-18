@@ -4,7 +4,7 @@ import logging
 import requests
 import traceback
 from datetime import datetime
-from app.api.storage_clients import get_ssl_verify
+from app.ssl_utils import get_ssl_verify
 
 logger = logging.getLogger(__name__)
 

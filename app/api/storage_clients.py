@@ -1,12 +1,12 @@
 """API clients for different storage vendors"""
 from app.api.base_client import StorageClient
 from app.discovery import reverse_dns_lookup
+from app.ssl_utils import get_ssl_verify, is_ip_address
 from app.constants import VENDOR_DEFAULT_PORTS
 from flask import current_app
 import requests
 import warnings
 import logging
-import ipaddress
 import re
 import traceback
 
@@ -26,59 +26,6 @@ STORAGEGRID_HEALTHY_NODE_STATES = {'connected', 'online', 'ok', 'healthy'}
 # Based on StorageGRID API v4 alert states
 STORAGEGRID_ACTIVE_ALERT_STATES = {'active', 'triggered', 'firing'}
 
-
-def is_ip_address(address):
-    """Check if the given address is an IP address (IPv4 or IPv6)
-    
-    Args:
-        address: String to check (IP address or hostname)
-        
-    Returns:
-        bool: True if address is an IP address, False if it's a hostname/DNS name
-    """
-    try:
-        ipaddress.ip_address(address)
-        return True
-    except ValueError:
-        return False
-
-
-def get_ssl_verify(target_address=None):
-    """Get SSL verification setting from app config, with custom certificates if available
-    
-    Args:
-        target_address: Optional IP address or hostname being connected to.
-                       If provided and it's an IP address, SSL verification will be disabled
-                       automatically (even if SSL_VERIFY=true) since IP addresses don't match
-                       certificate common names.
-    
-    Returns:
-        bool or str: False to disable SSL verification, True to use system defaults,
-                    or path to custom CA bundle
-    """
-    try:
-        # If connecting to an IP address, SSL verification must be disabled
-        # because certificates are issued to DNS names, not IP addresses
-        if target_address and is_ip_address(target_address):
-            logger.debug(f"Disabling SSL verification for IP address: {target_address}")
-            return False
-        
-        ssl_verify_enabled = current_app.config.get('SSL_VERIFY', False)
-        
-        if not ssl_verify_enabled:
-            return False
-        
-        # Try to get custom certificates
-        try:
-            from app.ssl_utils import get_ssl_context
-            return get_ssl_context()
-        except Exception:
-            # If custom certificates fail, use default
-            return True
-            
-    except RuntimeError:
-        # Outside application context, default to False for development
-        return False
 
 # Suppress SSL warnings only when verification is disabled
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
