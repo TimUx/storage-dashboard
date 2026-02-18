@@ -1438,7 +1438,7 @@ class DellDataDomainClient(StorageClient):
             # 3. enabled field (may not always be present)
             ha_mode = ha_section.get('mode', '').lower()
             ha_enabled = (
-                (system_type is not None and system_type == 'HA') or 
+                system_type == 'HA' or 
                 ha_mode in ['active_standby', 'active_passive'] or
                 data.get('enabled', False)
             )

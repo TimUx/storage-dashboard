@@ -889,7 +889,7 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                 # 3. enabled field (may not always be present)
                 ha_mode = ha_section.get('mode', '').lower()
                 ha_enabled = (
-                    (system_type is not None and system_type == 'HA') or 
+                    system_type == 'HA' or 
                     ha_mode in ['active_standby', 'active_passive'] or
                     ha_data.get('enabled', False)
                 )
