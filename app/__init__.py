@@ -66,7 +66,18 @@ def create_app():
     app.register_blueprint(api.bp)
     
     with app.app_context():
-        db.create_all()
+        # Create tables if they don't exist
+        # Handle race condition when multiple workers try to create tables simultaneously
+        try:
+            db.create_all()
+        except Exception as e:
+            # Check if this is a "table already exists" error (race condition with other workers)
+            error_msg = str(e).lower()
+            if 'already exists' in error_msg:
+                app.logger.info("Database tables already exist (created by another worker)")
+            else:
+                # Re-raise if it's a different error
+                raise
         
         # Run database migrations
         try:
