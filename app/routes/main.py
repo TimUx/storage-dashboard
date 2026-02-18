@@ -124,6 +124,10 @@ def fetch_system_status(system, app):
             if 'metrocluster_dr_groups' in status and status['metrocluster_dr_groups']:
                 system.set_metrocluster_dr_groups(status['metrocluster_dr_groups'])
             
+            # Update HA information (for DataDomain)
+            if 'ha_status' in status and status['ha_status']:
+                system.set_ha_info(status['ha_status'])
+            
             # Update node details from controllers data (for Pure Storage) or MetroCluster nodes (for NetApp)
             if 'controllers' in status and status['controllers']:
                 system.set_node_details(status['controllers'])

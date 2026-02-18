@@ -598,6 +598,171 @@
     </div>
     {% endif %}
 
+    <!-- DataDomain HA Information -->
+    {% set ha_info = system.get_ha_info() %}
+    {% if system.vendor == 'dell-datadomain' and ha_info %}
+    <div class="detail-card" style="grid-column: 1 / -1;">
+        <h2>🔄 High Availability (HA) Cluster</h2>
+        <div class="detail-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+            <div>
+                <div class="detail-row">
+                    <span class="detail-label">HA Status:</span>
+                    <span class="detail-value">
+                        <span class="status-badge status-{{ 'ok' if ha_info.state == 'online' else 'warning' }}">
+                            {{ ha_info.state or 'unknown' }}
+                        </span>
+                    </span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Role:</span>
+                    <span class="detail-value">{{ ha_info.role or 'unknown' }}</span>
+                </div>
+                {% if ha_info.mode %}
+                <div class="detail-row">
+                    <span class="detail-label">Mode:</span>
+                    <span class="detail-value">{{ ha_info.mode }}</span>
+                </div>
+                {% endif %}
+                {% if ha_info.origin_hostname %}
+                <div class="detail-row">
+                    <span class="detail-label">Origin Hostname:</span>
+                    <span class="detail-value">{{ ha_info.origin_hostname }}</span>
+                </div>
+                {% endif %}
+                {% if ha_info.system_id %}
+                <div class="detail-row">
+                    <span class="detail-label">System ID:</span>
+                    <span class="detail-value">{{ ha_info.system_id }}</span>
+                </div>
+                {% endif %}
+            </div>
+            
+            {% if ha_info.peer or ha_info.partner_name %}
+            <div>
+                <h3 style="margin-top: 0; color: var(--itscare-blue); font-size: 1rem;">Partner Node</h3>
+                {% if ha_info.peer %}
+                <div class="detail-row">
+                    <span class="detail-label">Node Name:</span>
+                    <span class="detail-value">
+                        {% if ha_info.peer.ip %}
+                        <a href="https://{{ ha_info.peer.ip }}" target="_blank" rel="noopener noreferrer" class="partner-cluster-link">
+                            {{ ha_info.peer.node_name or 'Unknown' }} ↗
+                        </a>
+                        {% else %}
+                        {{ ha_info.peer.node_name or 'Unknown' }}
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Status:</span>
+                    <span class="detail-value">
+                        <span class="status-badge status-{{ 'ok' if ha_info.peer.state == 'online' else 'warning' }}">
+                            {{ ha_info.peer.state or 'unknown' }}
+                        </span>
+                    </span>
+                </div>
+                {% if ha_info.peer.ip %}
+                <div class="detail-row">
+                    <span class="detail-label">IP Address:</span>
+                    <span class="detail-value"><span class="ip-badge">{{ ha_info.peer.ip }}</span></span>
+                </div>
+                {% endif %}
+                {% if ha_info.peer.serial_no %}
+                <div class="detail-row">
+                    <span class="detail-label">Serial Number:</span>
+                    <span class="detail-value">{{ ha_info.peer.serial_no }}</span>
+                </div>
+                {% endif %}
+                {% if ha_info.peer.chassis_no %}
+                <div class="detail-row">
+                    <span class="detail-label">Chassis Number:</span>
+                    <span class="detail-value">{{ ha_info.peer.chassis_no }}</span>
+                </div>
+                {% endif %}
+                {% elif ha_info.partner_name %}
+                <div class="detail-row">
+                    <span class="detail-label">Partner Name:</span>
+                    <span class="detail-value">
+                        {% if ha_info.partner_address %}
+                        <a href="https://{{ ha_info.partner_address }}" target="_blank" rel="noopener noreferrer" class="partner-cluster-link">
+                            {{ ha_info.partner_name }} ↗
+                        </a>
+                        {% else %}
+                        {{ ha_info.partner_name }}
+                        {% endif %}
+                    </span>
+                </div>
+                {% if ha_info.partner_status %}
+                <div class="detail-row">
+                    <span class="detail-label">Partner Status:</span>
+                    <span class="detail-value">
+                        <span class="status-badge status-{{ 'ok' if ha_info.partner_status == 'online' else 'warning' }}">
+                            {{ ha_info.partner_status }}
+                        </span>
+                    </span>
+                </div>
+                {% endif %}
+                {% if ha_info.partner_address %}
+                <div class="detail-row">
+                    <span class="detail-label">Partner IP:</span>
+                    <span class="detail-value"><span class="ip-badge">{{ ha_info.partner_address }}</span></span>
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- DataDomain Network Interfaces -->
+    {% if system.vendor == 'dell-datadomain' and status.all_mgmt_ips %}
+    <div class="detail-card" style="grid-column: 1 / -1;">
+        <h2>🌐 Network Interfaces ({{ status.all_mgmt_ips|length }})</h2>
+        <div class="detail-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+            {% for nic in status.all_mgmt_ips %}
+            <div class="node-item">
+                <div class="node-header">
+                    <div class="node-name">{{ nic.name or 'Unknown' }}</div>
+                    {% if nic.enabled is not none %}
+                    <span class="status-badge status-{{ 'ok' if nic.enabled else 'unknown' }}">
+                        {{ 'Enabled' if nic.enabled else 'Disabled' }}
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="node-details">
+                    {% if nic.ip_address %}
+                    <div class="node-detail">
+                        <strong>IP Address:</strong> <span class="ip-badge">{{ nic.ip_address }}</span>
+                    </div>
+                    {% endif %}
+                    {% if nic.netmask %}
+                    <div class="node-detail">
+                        <strong>Netmask:</strong> {{ nic.netmask }}
+                    </div>
+                    {% endif %}
+                    {% if nic.gateway %}
+                    <div class="node-detail">
+                        <strong>Gateway:</strong> {{ nic.gateway }}
+                    </div>
+                    {% endif %}
+                    {% if nic.link_status %}
+                    <div class="node-detail">
+                        <strong>Link Status:</strong> {{ nic.link_status }}
+                    </div>
+                    {% endif %}
+                    {% if nic.mtu %}
+                    <div class="node-detail">
+                        <strong>MTU:</strong> {{ nic.mtu }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Nodes -->
     {% if system.get_node_details() %}
     <div class="detail-card" style="grid-column: 1 / -1;">

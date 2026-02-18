@@ -14,6 +14,7 @@ ALLOWED_COLUMNS = {
     'peer_connections': 'TEXT',
     'metrocluster_info': 'TEXT',
     'metrocluster_dr_groups': 'TEXT',
+    'ha_info': 'TEXT',
 }
 
 
@@ -109,6 +110,10 @@ def migrate_storage_systems_table():
     # Add metrocluster_dr_groups column if missing
     if add_column_if_not_exists('storage_systems', 'metrocluster_dr_groups', 'TEXT'):
         migrations_applied.append('metrocluster_dr_groups')
+    
+    # Add ha_info column if missing (for DataDomain HA clusters)
+    if add_column_if_not_exists('storage_systems', 'ha_info', 'TEXT'):
+        migrations_applied.append('ha_info')
     
     return migrations_applied
 
