@@ -32,6 +32,7 @@ class StorageSystem(db.Model):
     peer_connections = db.Column(db.Text)  # JSON: [{name, status, type, address, ...}] - for Pure Storage array_connections
     metrocluster_info = db.Column(db.Text)  # JSON: {configuration_state, mode, local_cluster_name, partner_cluster_name}
     metrocluster_dr_groups = db.Column(db.Text)  # JSON: [{id, local_nodes, partner_nodes}]
+    ha_info = db.Column(db.Text)  # JSON: {state, role, mode, partner info, ...} - for DataDomain HA clusters
     os_version = db.Column(db.String(100))  # OS/firmware version of the storage system
     api_version = db.Column(db.String(50))  # Detected API version
     
@@ -172,6 +173,22 @@ class StorageSystem(db.Model):
             self.metrocluster_dr_groups = json.dumps(groups)
         else:
             self.metrocluster_dr_groups = None
+    
+    def get_ha_info(self):
+        """Get HA info as dict"""
+        if self.ha_info:
+            try:
+                return json.loads(self.ha_info)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return {}
+        return {}
+    
+    def set_ha_info(self, info):
+        """Set HA info from dict"""
+        if info:
+            self.ha_info = json.dumps(info)
+        else:
+            self.ha_info = None
     
     def to_dict(self):
         return {

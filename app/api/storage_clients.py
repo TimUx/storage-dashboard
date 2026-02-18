@@ -1466,18 +1466,44 @@ class DellDataDomainClient(StorageClient):
             if not data:
                 return None
             
+            # Extract haInfo section if present (API v2.0 format)
+            # If not present, use the entire data object (API v1.0 format)
+            ha_section = data.get('haInfo', data)
+            
             ha_info = {
                 'enabled': data.get('enabled', False),
-                'state': data.get('state', 'unknown'),
-                'role': data.get('role', 'unknown'),
+                'state': ha_section.get('state', 'unknown'),
+                'role': ha_section.get('role', 'unknown'),
+                'mode': ha_section.get('mode'),
+                'origin_hostname': ha_section.get('originHostname'),
+                'system_id': ha_section.get('systemId'),
                 'partner_name': data.get('partner_name'),
                 'partner_address': data.get('partner_address'),
                 'partner_status': data.get('partner_status'),
                 'failover_status': data.get('failover_status')
             }
             
+            # Extract peer information if available
+            peer_info = ha_section.get('peerInfo', {})
+            if peer_info:
+                ha_info['peer'] = {
+                    'chassis_no': peer_info.get('chassisno'),
+                    'serial_no': peer_info.get('serialno'),
+                    'ip': peer_info.get('ip'),
+                    'node_name': peer_info.get('nodeName'),
+                    'state': peer_info.get('state')
+                }
+                # Use peer info to populate partner fields if not already set
+                if not ha_info['partner_name'] and peer_info.get('nodeName'):
+                    ha_info['partner_name'] = peer_info.get('nodeName')
+                if not ha_info['partner_address'] and peer_info.get('ip'):
+                    ha_info['partner_address'] = peer_info.get('ip')
+                if not ha_info['partner_status'] and peer_info.get('state'):
+                    ha_info['partner_status'] = peer_info.get('state')
+            
             logger.debug(f"DataDomain {self.ip_address} - HA Status: {ha_info.get('state')}, "
-                        f"Role: {ha_info.get('role')}, Partner: {ha_info.get('partner_name')}")
+                        f"Role: {ha_info.get('role')}, Mode: {ha_info.get('mode')}, "
+                        f"Partner: {ha_info.get('partner_name')}")
             
             return ha_info
         except Exception as e:
@@ -1531,7 +1557,10 @@ class DellDataDomainClient(StorageClient):
                 return []
             
             interfaces = []
-            network_list = data.get('network', []) or data.get('networks', []) or []
+            # Try multiple possible field names for network list
+            network_list = data.get('network')
+            if network_list is None:
+                network_list = data.get('networks', [])
             
             if isinstance(network_list, list):
                 for iface in network_list:
@@ -1552,6 +1581,64 @@ class DellDataDomainClient(StorageClient):
         except Exception as e:
             logger.debug(f"Could not get network interfaces for DataDomain {self.ip_address}: {e}")
             return []
+    
+    def _get_network_nics(self, headers, ssl_verify):
+        """Get network NICs information from v2.0 API
+        
+        Returns:
+            list: List of network NICs with detailed configuration
+        """
+        try:
+            # Try v2.0 API first for NICs
+            data = self._make_api_request('/rest/v2.0/dd-systems/0/networks/nics', headers, ssl_verify)
+            if not data:
+                # Fallback to v1.0 API
+                return self._get_all_network_interfaces(headers, ssl_verify)
+            
+            nics = []
+            # Try multiple possible field names for NIC list
+            nic_list = data.get('nics')
+            if nic_list is None:
+                nic_list = data.get('nic', [])
+            
+            if isinstance(nic_list, list):
+                for nic in nic_list:
+                    nic_info = {
+                        'name': nic.get('name', nic.get('id', 'unknown')),
+                        'enabled': nic.get('enabled', False),
+                        'link_status': nic.get('link_status', 'unknown'),
+                        'mtu': nic.get('mtu')
+                    }
+                    
+                    # Extract IP configuration
+                    ip_config = nic.get('ip_config', {})
+                    if ip_config:
+                        nic_info['ip_address'] = ip_config.get('ip_address')
+                        nic_info['netmask'] = ip_config.get('netmask')
+                        nic_info['gateway'] = ip_config.get('gateway')
+                    
+                    # Only include NICs with IP addresses
+                    if nic_info.get('ip_address'):
+                        nics.append(nic_info)
+                    
+                    # If no IP was found but ID is available, try to fetch individual NIC details
+                    elif nic.get('id'):
+                        nic_id = nic.get('id')
+                        nic_detail = self._make_api_request(f'/rest/v2.0/dd-systems/0/networks/nics/{nic_id}', headers, ssl_verify)
+                        if nic_detail:
+                            ip_config = nic_detail.get('ip_config', {})
+                            if ip_config.get('ip_address'):
+                                nic_info['ip_address'] = ip_config.get('ip_address')
+                                nic_info['netmask'] = ip_config.get('netmask')
+                                nic_info['gateway'] = ip_config.get('gateway')
+                                nics.append(nic_info)
+            
+            logger.debug(f"DataDomain {self.ip_address} - Found {len(nics)} NICs from v2.0 API")
+            return nics
+        except Exception as e:
+            logger.debug(f"Could not get NICs from v2.0 API for DataDomain {self.ip_address}: {e}")
+            # Fallback to v1.0 API
+            return self._get_all_network_interfaces(headers, ssl_verify)
     
     def _get_replication_status(self, headers, ssl_verify):
         """Get replication context information
@@ -1749,7 +1836,8 @@ class DellDataDomainClient(StorageClient):
             alert_count = len(active_alerts)
             
             # Get all network interfaces (includes management IPs)
-            network_interfaces = self._get_all_network_interfaces(headers, ssl_verify)
+            # Try v2.0 NICs API first, fallback to v1.0 networks API
+            network_interfaces = self._get_network_nics(headers, ssl_verify)
             
             # If network interfaces API didn't work, try the legacy method for management IPs
             if not network_interfaces:
