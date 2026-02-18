@@ -93,12 +93,11 @@
     <p>Diese Anleitung beschreibt, wie Sie API-Zugriff für jedes unterstützte Storage-System einrichten.</p>
     
     <div class="note">
-        <strong>💡 Verwendete Bibliotheken:</strong>
-        <ul style="margin-top: 0.5rem;">
-            <li><strong>Pure Storage:</strong> Offizielle <code>py-pure-client</code> SDK</li>
-            <li><strong>NetApp ONTAP:</strong> Offizielle <code>netapp-ontap</code> SDK</li>
-            <li><strong>StorageGRID & DataDomain:</strong> Direkte REST API Integration (keine offiziellen Python SDKs verfügbar)</li>
-        </ul>
+        <strong>💡 API-Integration:</strong>
+        <p style="margin-top: 0.5rem; margin-bottom: 0;">
+            Alle Storage-Systeme werden über <strong>direkte REST API Calls</strong> mit der Python <code>requests</code> Bibliothek angebunden.
+            Es werden keine herstellerspezifischen SDKs verwendet, sondern standardmäßige HTTP/HTTPS Verbindungen zu den jeweiligen REST APIs.
+        </p>
     </div>
     
     <h2>1. Pure Storage</h2>
@@ -121,7 +120,7 @@
     </div>
     
     <div class="note">
-        <strong>Hinweis:</strong> Das Dashboard verwendet die offizielle <code>py-pure-client</code> Bibliothek für Pure Storage FlashArray REST API v2.
+        <strong>Hinweis:</strong> Das Dashboard verwendet direkte REST API Calls zur Pure Storage FlashArray REST API v2.
     </div>
     
     <h2>2. NetApp ONTAP 9</h2>
@@ -145,7 +144,7 @@
     </div>
     
     <div class="note">
-        <strong>Hinweis:</strong> Das Dashboard verwendet die offizielle <code>netapp-ontap</code> Python Client Library. Für produktive Umgebungen sollte eine dedizierte Read-Only-Rolle verwendet werden.
+        <strong>Hinweis:</strong> Das Dashboard verwendet direkte REST API Calls zur NetApp ONTAP REST API. Für produktive Umgebungen sollte eine dedizierte Read-Only-Rolle verwendet werden.
     </div>
     
     <h2>3. NetApp StorageGRID 11</h2>
