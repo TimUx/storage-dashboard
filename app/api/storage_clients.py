@@ -959,7 +959,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 'csrfToken': False
             }
             
-            logger.info(f"Authenticating to StorageGRID {self.ip_address} to obtain API token")
+            logger.debug(f"Authenticating to StorageGRID {self.ip_address}")
             
             response = requests.post(
                 f"{self.base_url}/api/v4/authorize",
@@ -974,7 +974,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 token = auth_response.get('data')
                 
                 if token:
-                    logger.info(f"Successfully obtained API token for StorageGRID {self.ip_address}")
+                    logger.debug(f"Successfully obtained API token for StorageGRID {self.ip_address}")
                     return token
                 else:
                     logger.error(f"Authentication response did not contain token data: {auth_response}")
