@@ -789,6 +789,10 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
         }
         
         # Step 2: Get system information
+        system_data = {}
+        system_name = None
+        system_type = None
+        model = None
         try:
             system_response = requests.get(
                 f"{base_url}/rest/v1.0/system",
@@ -801,12 +805,59 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                 system_data = system_response.json()
                 discovery_data['os_version'] = system_data.get('version')
                 system_name = system_data.get('name')
+                system_type = system_data.get('type')  # 'HA' for HA clusters
+                model = system_data.get('model')  # e.g., 'DD9410'
                 
-                logger.info(f"DataDomain {ip_address} - System: {system_name}, Version: {discovery_data['os_version']}")
+                logger.info(f"DataDomain {ip_address} - System: {system_name}, Type: {system_type}, Model: {model}, Version: {discovery_data['os_version']}")
         except Exception as sys_error:
             logger.debug(f"Could not get system info for DataDomain {ip_address}: {sys_error}")
         
-        # Step 3: Get HA (High Availability) status and partner node information
+        # Step 3: Get network interfaces to collect all IPs and identify node IPs
+        # Do this before HA check so we can properly assign IPs to nodes
+        nic_ips = {}  # Map of NIC names to IP addresses
+        management_ip = None  # Primary management IP (usually ethMa)
+        cluster_ip = None  # Cluster/virtual IP (usually ethMa:95)
+        try:
+            # Try v2.0 NICs API
+            nics_response = requests.get(
+                f"{base_url}/rest/v2.0/dd-systems/0/networks/nics",
+                headers=headers,
+                verify=ssl_verify_setting,
+                timeout=API_TIMEOUT
+            )
+            
+            if nics_response.status_code == HTTP_OK:
+                nics_data = nics_response.json()
+                nic_list = nics_data.get('nics') or nics_data.get('nic', [])
+                
+                if isinstance(nic_list, list):
+                    for nic in nic_list:
+                        nic_name = nic.get('name')
+                        # Try 'address' field first (v2.0 API), then 'ip_config.ip_address' (v1.0 API)
+                        nic_address = nic.get('address')
+                        if not nic_address:
+                            ip_config = nic.get('ip_config', {})
+                            nic_address = ip_config.get('ip_address')
+                        
+                        if nic_address:
+                            nic_ips[nic_name] = nic_address
+                            
+                            if nic_address not in discovery_data['all_ips']:
+                                discovery_data['all_ips'].append(nic_address)
+                                
+                                # Perform DNS lookup for each IP
+                                dns_names = reverse_dns_lookup(nic_address)
+                                discovery_data['dns_names'].extend(dns_names)
+                            
+                            # Identify management and cluster IPs
+                            if nic_name == 'ethMa':
+                                management_ip = nic_address
+                            elif ':' in nic_name and nic_name.startswith('ethMa:'):
+                                cluster_ip = nic_address
+        except Exception as nic_error:
+            logger.debug(f"Could not get network interfaces for DataDomain {ip_address}: {nic_error}")
+        
+        # Step 4: Get HA (High Availability) status and partner node information
         ha_enabled = False
         try:
             # Try API v1 first (more structured data)
@@ -829,11 +880,19 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
             if ha_response.status_code == HTTP_OK:
                 ha_data = ha_response.json()
                 
-                # Check if HA is enabled
-                ha_enabled = ha_data.get('enabled', False)
-                
                 # Extract haInfo section if present (API v1/v2.0 format)
                 ha_section = ha_data.get('haInfo', ha_data)
+                
+                # Check if HA is enabled by multiple indicators:
+                # 1. system_type == 'HA' from /rest/v1.0/system (field 'type')
+                # 2. mode == 'active_standby' or 'active_passive' from HA info
+                # 3. enabled field (may not always be present)
+                ha_mode = ha_section.get('mode', '').lower()
+                ha_enabled = (
+                    system_type == 'HA' or 
+                    ha_mode in ['active_standby', 'active_passive'] or
+                    ha_data.get('enabled', False)
+                )
                 
                 if ha_enabled:
                     discovery_data['cluster_type'] = 'ha'
@@ -867,37 +926,55 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                         
                         # Add partner IP to all_ips list
                         if peer_info.get('ip'):
-                            discovery_data['all_ips'].append(peer_info.get('ip'))
+                            if peer_info.get('ip') not in discovery_data['all_ips']:
+                                discovery_data['all_ips'].append(peer_info.get('ip'))
                     
                     discovery_data['ha_info'] = ha_info
                     
                     # Create node details for current node and partner node
+                    # Use origin_hostname (API field 'originHostname') or nodeName for the node name
+                    current_node_name = ha_info.get('origin_hostname') or ha_info.get('node_name') or system_name or 'Current Node'
+                    
+                    # Use management IP for current node (ethMa), not the cluster IP
+                    current_node_ip = management_ip or ip_address
+                    
                     current_node = {
-                        'name': ha_info.get('node_name') or system_name or 'Current Node',
+                        'name': current_node_name,
                         'status': ha_info.get('state', 'unknown'),
                         'role': ha_info.get('role', 'unknown'),
                         'type': 'DataDomain HA Node',
-                        'ips': [ip_address]
+                        'ha_enabled': True,
+                        'ips': [current_node_ip]
                     }
                     if discovery_data['os_version']:
                         current_node['version'] = discovery_data['os_version']
+                    if model:
+                        current_node['model'] = model
                     
                     discovery_data['node_details'].append(current_node)
                     
                     # Add partner node if peer info is available
                     if peer_info and peer_info.get('nodeName'):
+                        # Use role from peer_info if available, otherwise default to 'standby'
+                        partner_role = peer_info.get('role', 'standby')
                         partner_node = {
                             'name': peer_info.get('nodeName'),
                             'status': peer_info.get('state', 'unknown'),
-                            'role': 'partner',
+                            'role': partner_role,
                             'type': 'DataDomain HA Node',
+                            'ha_enabled': True,
                             'serial': peer_info.get('serialno'),
                             'ips': [peer_info.get('ip')] if peer_info.get('ip') else []
                         }
+                        if discovery_data['os_version']:
+                            partner_node['version'] = discovery_data['os_version']
+                        if model:
+                            partner_node['model'] = model
+                        
                         discovery_data['node_details'].append(partner_node)
                     
                     logger.info(f"DataDomain {ip_address} - HA Cluster detected: {ha_info.get('state')}, "
-                               f"Node: {ha_info.get('node_name')}, Partner: {ha_info.get('partner_name')}")
+                               f"Node: {current_node_name}, Partner: {ha_info.get('partner_name')}")
                 else:
                     # HA not enabled - single node system
                     discovery_data['cluster_type'] = 'local'
@@ -912,6 +989,8 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                     }
                     if discovery_data['os_version']:
                         current_node['version'] = discovery_data['os_version']
+                    if model:
+                        current_node['model'] = model
                     
                     discovery_data['node_details'].append(current_node)
                     
@@ -921,34 +1000,6 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
             # If HA check failed, assume single node
             discovery_data['cluster_type'] = 'local'
             discovery_data['node_count'] = 1
-        
-        # Step 4: Get network interfaces to collect all IPs
-        try:
-            # Try v2.0 NICs API
-            nics_response = requests.get(
-                f"{base_url}/rest/v2.0/dd-systems/0/networks/nics",
-                headers=headers,
-                verify=ssl_verify_setting,
-                timeout=API_TIMEOUT
-            )
-            
-            if nics_response.status_code == HTTP_OK:
-                nics_data = nics_response.json()
-                nic_list = nics_data.get('nics') or nics_data.get('nic', [])
-                
-                if isinstance(nic_list, list):
-                    for nic in nic_list:
-                        ip_config = nic.get('ip_config', {})
-                        ip_address_nic = ip_config.get('ip_address')
-                        
-                        if ip_address_nic and ip_address_nic not in discovery_data['all_ips']:
-                            discovery_data['all_ips'].append(ip_address_nic)
-                            
-                            # Perform DNS lookup for each IP
-                            dns_names = reverse_dns_lookup(ip_address_nic)
-                            discovery_data['dns_names'].extend(dns_names)
-        except Exception as nic_error:
-            logger.debug(f"Could not get network interfaces for DataDomain {ip_address}: {nic_error}")
         
         # Deduplicate DNS names and IPs
         discovery_data['dns_names'] = list(set(discovery_data['dns_names']))

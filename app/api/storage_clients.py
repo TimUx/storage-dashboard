@@ -1405,8 +1405,13 @@ class DellDataDomainClient(StorageClient):
             logger.debug(f"Error making DataDomain API request to {endpoint}: {e}")
             return None
     
-    def _get_ha_status(self, headers, ssl_verify):
+    def _get_ha_status(self, headers, ssl_verify, system_type=None):
         """Get High Availability status and partner node information
+        
+        Args:
+            headers: Request headers
+            ssl_verify: SSL verification setting
+            system_type: System type from /rest/v1.0/system (e.g., 'HA')
         
         Returns:
             dict: HA status information or None
@@ -1427,8 +1432,19 @@ class DellDataDomainClient(StorageClient):
             # If not present, use the entire data object (REST v1.0 format)
             ha_section = data.get('haInfo', data)
             
+            # Check if HA is enabled by multiple indicators:
+            # 1. system_type == 'HA' from /rest/v1.0/system (field 'type')
+            # 2. mode == 'active_standby' or 'active_passive' from HA info
+            # 3. enabled field (may not always be present)
+            ha_mode = ha_section.get('mode', '').lower()
+            ha_enabled = (
+                system_type == 'HA' or 
+                ha_mode in ['active_standby', 'active_passive'] or
+                data.get('enabled', False)
+            )
+            
             ha_info = {
-                'enabled': data.get('enabled', False),
+                'enabled': ha_enabled,
                 'state': ha_section.get('state', 'unknown'),
                 'role': ha_section.get('role', 'unknown'),
                 'mode': ha_section.get('mode'),
@@ -1799,6 +1815,7 @@ class DellDataDomainClient(StorageClient):
             os_version = data.get('version')
             system_name = data.get('name')
             model = data.get('model')
+            system_type = data.get('type')  # 'HA' for HA clusters
             
             # Extract capacity information from physical_capacity
             physical_capacity = data.get('physical_capacity', {})
@@ -1809,12 +1826,12 @@ class DellDataDomainClient(StorageClient):
             logical_capacity = data.get('logical_capacity', {})
             compression_factor = data.get('compression_factor', 0) or 0
             
-            logger.debug(f"DataDomain {self.ip_address} - System: {system_name}, Model: {model}, "
+            logger.debug(f"DataDomain {self.ip_address} - System: {system_name}, Type: {system_type}, Model: {model}, "
                         f"Version: {os_version}, Compression: {compression_factor:.2f}x")
             
             # Gather comprehensive system information using helper methods
             # Get HA status and partner node information
-            ha_status = self._get_ha_status(headers, ssl_verify)
+            ha_status = self._get_ha_status(headers, ssl_verify, system_type)
             
             # Get active alerts
             active_alerts = self._get_active_alerts(headers, ssl_verify)
