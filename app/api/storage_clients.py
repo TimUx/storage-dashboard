@@ -1478,12 +1478,13 @@ class DellDataDomainClient(StorageClient):
             
             # Get logical capacity and compression factor for additional info
             logical_capacity = data.get('logical_capacity', {})
-            compression_factor = data.get('compression_factor', 0)
+            compression_factor = data.get('compression_factor', 0) or 0
             
             logger.debug(f"DataDomain {self.ip_address} - System: {system_name}, Model: {model}, "
                         f"Version: {os_version}, Compression: {compression_factor:.2f}x")
             
             # Get management interface IPs
+            # DataDomain typically uses ethMa-ethMd for management interfaces in HA configurations
             all_mgmt_ips = []
             mgmt_interfaces = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
             for iface in mgmt_interfaces:
