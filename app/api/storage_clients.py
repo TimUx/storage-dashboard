@@ -1627,39 +1627,66 @@ class DellDataDomainClient(StorageClient):
                                     nic_info['gateway'] = ip_config.get('gateway')
                                     nics.append(nic_info)
             
-            # If we didn't get any NICs from the bulk API, try querying management interfaces individually
-            if not nics:
-                logger.debug(f"DataDomain {self.ip_address} - No NICs from bulk API, trying individual management interfaces")
-                for iface_name in self.MANAGEMENT_INTERFACES:
-                    try:
-                        iface_data = self._make_api_request(f'/rest/v2.0/dd-systems/0/networks/nics/{iface_name}', headers, ssl_verify)
-                        if iface_data:
-                            # Check for 'address' field first, then fallback to 'ip_config'
-                            ip_address = iface_data.get('address')
-                            netmask = iface_data.get('netmask')
-                            gateway = iface_data.get('gateway')
-                            
-                            if not ip_address:
-                                ip_config = iface_data.get('ip_config', {})
-                                ip_address = ip_config.get('ip_address')
-                                netmask = ip_config.get('netmask')
-                                gateway = ip_config.get('gateway')
-                            
-                            if ip_address:
-                                nics.append({
-                                    'name': iface_name,
-                                    'ip_address': ip_address,
-                                    'netmask': netmask,
-                                    'gateway': gateway,
-                                    'enabled': iface_data.get('enabled', False),
-                                    'link_status': iface_data.get('link_status', 'unknown'),
-                                    'mtu': iface_data.get('mtu')
-                                })
-                    except Exception as e:
-                        logger.debug(f"Could not get individual NIC {iface_name} for DataDomain {self.ip_address}: {e}")
+            # Always query management interfaces individually to ensure we capture all local IPs
+            # This ensures interfaces like ethMa (local IP on primary node) are not missed
+            # Track which interfaces were already found to avoid duplicates
+            found_interfaces = {nic.get('name') for nic in nics if nic.get('name')}
+            
+            for iface_name in self.MANAGEMENT_INTERFACES:
+                # Skip if we already found this interface from bulk API
+                if iface_name in found_interfaces:
+                    continue
+                    
+                try:
+                    iface_data = self._make_api_request(f'/rest/v2.0/dd-systems/0/networks/nics/{iface_name}', headers, ssl_verify)
+                    if iface_data:
+                        # Check for 'address' field first, then fallback to 'ip_config'
+                        ip_address = iface_data.get('address')
+                        netmask = iface_data.get('netmask')
+                        gateway = iface_data.get('gateway')
+                        
+                        if not ip_address:
+                            ip_config = iface_data.get('ip_config', {})
+                            ip_address = ip_config.get('ip_address')
+                            netmask = ip_config.get('netmask')
+                            gateway = ip_config.get('gateway')
+                        
+                        if ip_address:
+                            logger.debug(f"DataDomain {self.ip_address} - Found IP {ip_address} for interface {iface_name}")
+                            nics.append({
+                                'name': iface_name,
+                                'ip_address': ip_address,
+                                'netmask': netmask,
+                                'gateway': gateway,
+                                'enabled': iface_data.get('enabled', False),
+                                'link_status': iface_data.get('link_status', 'unknown'),
+                                'mtu': iface_data.get('mtu')
+                            })
+                except Exception as e:
+                    logger.debug(f"Could not get individual NIC {iface_name} for DataDomain {self.ip_address}: {e}")
             
             logger.debug(f"DataDomain {self.ip_address} - Found {len(nics)} NICs from v2.0 API")
-            return nics
+            
+            # Perform reverse DNS lookups for all NICs (similar to Pure Storage implementation)
+            nics_with_dns = []
+            for nic in nics:
+                ip_address = nic.get('ip_address')
+                if ip_address:
+                    dns_names = reverse_dns_lookup(ip_address)
+                    # Maintain both 'ip_address' (for template display) and 'ip' (for extract_ips_from_mgmt_ips)
+                    # This dual format ensures compatibility with both DataDomain-specific template code
+                    # and the generic IP extraction function used by all vendors
+                    nic_with_dns = nic.copy()
+                    nic_with_dns['ip'] = ip_address  # Add 'ip' field for extract_ips_from_mgmt_ips compatibility
+                    nic_with_dns['dns_names'] = dns_names
+                    nics_with_dns.append(nic_with_dns)
+                    if dns_names:
+                        logger.info(f"DataDomain {self.ip_address} - DNS resolved for {ip_address} ({nic.get('name')}): {dns_names}")
+                else:
+                    # Keep NICs without IP as-is
+                    nics_with_dns.append(nic)
+            
+            return nics_with_dns
         except Exception as e:
             logger.debug(f"Could not get NICs from v2.0 API for DataDomain {self.ip_address}: {e}")
             # Fallback to v1.0 API
