@@ -1433,12 +1433,12 @@ class DellDataDomainClient(StorageClient):
             ha_section = data.get('haInfo', data)
             
             # Check if HA is enabled by multiple indicators:
-            # 1. system_type == 'HA' from /rest/v1.0/system
+            # 1. system_type == 'HA' from /rest/v1.0/system (field 'type')
             # 2. mode == 'active_standby' or 'active_passive' from HA info
             # 3. enabled field (may not always be present)
             ha_mode = ha_section.get('mode', '').lower()
             ha_enabled = (
-                system_type == 'HA' or 
+                (system_type is not None and system_type == 'HA') or 
                 ha_mode in ['active_standby', 'active_passive'] or
                 data.get('enabled', False)
             )

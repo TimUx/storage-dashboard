@@ -884,12 +884,12 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                 ha_section = ha_data.get('haInfo', ha_data)
                 
                 # Check if HA is enabled by multiple indicators:
-                # 1. system_type == 'HA' from /rest/v1.0/system
-                # 2. mode == 'active_standby' from HA info
+                # 1. system_type == 'HA' from /rest/v1.0/system (field 'type')
+                # 2. mode == 'active_standby' or 'active_passive' from HA info
                 # 3. enabled field (may not always be present)
                 ha_mode = ha_section.get('mode', '').lower()
                 ha_enabled = (
-                    system_type == 'HA' or 
+                    (system_type is not None and system_type == 'HA') or 
                     ha_mode in ['active_standby', 'active_passive'] or
                     ha_data.get('enabled', False)
                 )
@@ -932,7 +932,7 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                     discovery_data['ha_info'] = ha_info
                     
                     # Create node details for current node and partner node
-                    # Use origin_hostname or nodeName for the node name
+                    # Use origin_hostname (API field 'originHostname') or nodeName for the node name
                     current_node_name = ha_info.get('origin_hostname') or ha_info.get('node_name') or system_name or 'Current Node'
                     
                     # Use management IP for current node (ethMa), not the cluster IP
