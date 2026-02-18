@@ -922,6 +922,8 @@ class NetAppONTAPClient(StorageClient):
                 controllers=metrocluster_nodes if metrocluster_nodes else cluster_nodes  # Use MetroCluster nodes if available, otherwise regular cluster nodes
             )
         except Exception as e:
+            logger.error(f"Error getting NetApp ONTAP health status for {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
@@ -1299,6 +1301,8 @@ class DellDataDomainClient(StorageClient):
                 os_version=os_version
             )
         except Exception as e:
+            logger.error(f"Error getting Dell DataDomain health status for {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
 
