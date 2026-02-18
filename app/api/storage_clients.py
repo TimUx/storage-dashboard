@@ -1401,6 +1401,243 @@ class DellDataDomainClient(StorageClient):
             logger.error(traceback.format_exc())
             return None
     
+    def _make_api_request(self, endpoint, headers=None, ssl_verify=None):
+        """Make an API request to DataDomain
+        
+        Args:
+            endpoint: API endpoint path (e.g., '/rest/v1.0/dd-systems/0/ha')
+            headers: HTTP headers (will add auth token)
+            ssl_verify: SSL verification setting
+            
+        Returns:
+            dict: Response JSON data or None on error
+        """
+        if headers is None:
+            headers = {
+                'X-DD-AUTH-TOKEN': self.token,
+                'Accept': 'application/json'
+            }
+        if ssl_verify is None:
+            ssl_verify = get_ssl_verify(self.resolved_address)
+        
+        try:
+            response = requests.get(
+                f"{self.base_url}{endpoint}",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.debug(f"DataDomain API request to {endpoint} failed: HTTP {response.status_code}")
+                return None
+        except Exception as e:
+            logger.debug(f"Error making DataDomain API request to {endpoint}: {e}")
+            return None
+    
+    def _get_ha_status(self, headers, ssl_verify):
+        """Get High Availability status and partner node information
+        
+        Returns:
+            dict: HA status information or None
+        """
+        try:
+            data = self._make_api_request('/rest/v1.0/dd-systems/0/ha', headers, ssl_verify)
+            if not data:
+                return None
+            
+            ha_info = {
+                'enabled': data.get('enabled', False),
+                'state': data.get('state', 'unknown'),
+                'role': data.get('role', 'unknown'),
+                'partner_name': data.get('partner_name'),
+                'partner_address': data.get('partner_address'),
+                'partner_status': data.get('partner_status'),
+                'failover_status': data.get('failover_status')
+            }
+            
+            logger.debug(f"DataDomain {self.ip_address} - HA Status: {ha_info.get('state')}, "
+                        f"Role: {ha_info.get('role')}, Partner: {ha_info.get('partner_name')}")
+            
+            return ha_info
+        except Exception as e:
+            logger.debug(f"Could not get HA status for DataDomain {self.ip_address}: {e}")
+            return None
+    
+    def _get_active_alerts(self, headers, ssl_verify):
+        """Get active alerts from the system
+        
+        Returns:
+            list: List of active alerts with severity, message, etc.
+        """
+        try:
+            data = self._make_api_request('/rest/v1.0/dd-systems/0/alerts', headers, ssl_verify)
+            if not data:
+                return []
+            
+            # Extract alerts from response
+            # DataDomain API may return alerts in different formats
+            alerts = []
+            alert_list = data.get('alerts', []) or data.get('alert', []) or []
+            
+            if isinstance(alert_list, list):
+                for alert in alert_list:
+                    # Only include active alerts
+                    if alert.get('state', '').lower() in ['active', 'new', 'unresolved']:
+                        alerts.append({
+                            'id': alert.get('id'),
+                            'severity': alert.get('severity', 'unknown'),
+                            'category': alert.get('category', 'general'),
+                            'message': alert.get('message', ''),
+                            'timestamp': alert.get('timestamp', ''),
+                            'state': alert.get('state', 'active')
+                        })
+            
+            logger.debug(f"DataDomain {self.ip_address} - Found {len(alerts)} active alerts")
+            return alerts
+        except Exception as e:
+            logger.debug(f"Could not get alerts for DataDomain {self.ip_address}: {e}")
+            return []
+    
+    def _get_all_network_interfaces(self, headers, ssl_verify):
+        """Get all network interface information
+        
+        Returns:
+            list: List of network interfaces with IPs
+        """
+        try:
+            data = self._make_api_request('/rest/v1.0/dd-systems/0/networks', headers, ssl_verify)
+            if not data:
+                return []
+            
+            interfaces = []
+            network_list = data.get('network', []) or data.get('networks', []) or []
+            
+            if isinstance(network_list, list):
+                for iface in network_list:
+                    ip_config = iface.get('ip_config', {})
+                    ip_address = ip_config.get('ip_address')
+                    
+                    if ip_address:
+                        interfaces.append({
+                            'name': iface.get('name', iface.get('id', 'unknown')),
+                            'ip_address': ip_address,
+                            'enabled': iface.get('enabled', False),
+                            'link_status': iface.get('link_status', 'unknown'),
+                            'mtu': iface.get('mtu')
+                        })
+            
+            logger.debug(f"DataDomain {self.ip_address} - Found {len(interfaces)} network interfaces")
+            return interfaces
+        except Exception as e:
+            logger.debug(f"Could not get network interfaces for DataDomain {self.ip_address}: {e}")
+            return []
+    
+    def _get_replication_status(self, headers, ssl_verify):
+        """Get replication context information
+        
+        Returns:
+            dict: Replication status information
+        """
+        try:
+            data = self._make_api_request('/rest/v1.0/dd-systems/0/replication/contexts', headers, ssl_verify)
+            if not data:
+                return None
+            
+            contexts = []
+            context_list = data.get('context', []) or data.get('contexts', []) or []
+            
+            if isinstance(context_list, list):
+                for ctx in context_list:
+                    contexts.append({
+                        'id': ctx.get('id'),
+                        'name': ctx.get('name'),
+                        'state': ctx.get('state', 'unknown'),
+                        'direction': ctx.get('direction'),
+                        'remote_host': ctx.get('remote_host'),
+                        'remote_user': ctx.get('remote_user')
+                    })
+            
+            repl_info = {
+                'context_count': len(contexts),
+                'contexts': contexts
+            }
+            
+            logger.debug(f"DataDomain {self.ip_address} - Found {len(contexts)} replication contexts")
+            return repl_info
+        except Exception as e:
+            logger.debug(f"Could not get replication status for DataDomain {self.ip_address}: {e}")
+            return None
+    
+    def _get_hardware_status(self, headers, ssl_verify):
+        """Get hardware component health status
+        
+        Returns:
+            dict: Hardware health information
+        """
+        try:
+            data = self._make_api_request('/rest/v1.0/dd-systems/0/hardware', headers, ssl_verify)
+            if not data:
+                return None
+            
+            hw_info = {
+                'chassis_status': data.get('chassis', {}).get('status', 'unknown'),
+                'controller_count': len(data.get('controllers', [])),
+                'disk_count': len(data.get('disks', [])),
+                'power_supply_count': len(data.get('power_supplies', [])),
+                'fan_count': len(data.get('fans', [])),
+                'overall_status': 'ok'  # Will be updated based on component status
+            }
+            
+            # Check for failed components
+            failed_components = []
+            for component_type in ['power_supplies', 'fans', 'controllers']:
+                components = data.get(component_type, [])
+                if isinstance(components, list):
+                    for comp in components:
+                        if comp.get('status', '').lower() in ['failed', 'error', 'critical']:
+                            failed_components.append(f"{component_type}:{comp.get('id', 'unknown')}")
+            
+            if failed_components:
+                hw_info['overall_status'] = 'warning'
+                hw_info['failed_components'] = failed_components
+            
+            logger.debug(f"DataDomain {self.ip_address} - Hardware status: {hw_info.get('overall_status')}")
+            return hw_info
+        except Exception as e:
+            logger.debug(f"Could not get hardware status for DataDomain {self.ip_address}: {e}")
+            return None
+    
+    def _get_service_status(self, headers, ssl_verify):
+        """Get system service status
+        
+        Returns:
+            list: List of services with their status
+        """
+        try:
+            data = self._make_api_request('/rest/v1.0/dd-systems/0/services', headers, ssl_verify)
+            if not data:
+                return []
+            
+            services = []
+            service_list = data.get('service', []) or data.get('services', []) or []
+            
+            if isinstance(service_list, list):
+                for svc in service_list:
+                    services.append({
+                        'name': svc.get('name', 'unknown'),
+                        'status': svc.get('status', 'unknown'),
+                        'enabled': svc.get('enabled', False)
+                    })
+            
+            logger.debug(f"DataDomain {self.ip_address} - Found {len(services)} services")
+            return services
+        except Exception as e:
+            logger.debug(f"Could not get service status for DataDomain {self.ip_address}: {e}")
+            return []
+    
     def get_health_status(self):
         try:
             # DataDomain REST API v1.0 with token authentication
@@ -1485,44 +1722,106 @@ class DellDataDomainClient(StorageClient):
             logger.debug(f"DataDomain {self.ip_address} - System: {system_name}, Model: {model}, "
                         f"Version: {os_version}, Compression: {compression_factor:.2f}x")
             
-            # Get management interface IPs
-            # DataDomain typically uses ethMa-ethMd for management interfaces in HA configurations
-            all_mgmt_ips = []
-            mgmt_interfaces = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
-            for iface in mgmt_interfaces:
-                try:
-                    iface_response = requests.get(
-                        f"{self.base_url}/rest/v1.0/dd-systems/0/networks/{iface}",
-                        headers=headers,
-                        verify=ssl_verify,
-                        timeout=10
-                    )
-                    
-                    if iface_response.status_code == 200:
-                        iface_data = iface_response.json()
-                        # Extract IP address from interface data
-                        ip_config = iface_data.get('ip_config', {})
-                        ip_address = ip_config.get('ip_address')
-                        if ip_address:
-                            all_mgmt_ips.append({
-                                'interface': iface,
-                                'ip_address': ip_address,
-                                'enabled': iface_data.get('enabled', False)
-                            })
-                            logger.debug(f"DataDomain {self.ip_address} - Interface {iface}: {ip_address}")
-                except Exception as iface_error:
-                    logger.debug(f"Could not get interface {iface} for DataDomain {self.ip_address}: {iface_error}")
+            # Gather comprehensive system information using helper methods
+            # Get HA status and partner node information
+            ha_status = self._get_ha_status(headers, ssl_verify)
             
+            # Get active alerts
+            active_alerts = self._get_active_alerts(headers, ssl_verify)
+            alert_count = len(active_alerts)
+            
+            # Get all network interfaces (includes management IPs)
+            network_interfaces = self._get_all_network_interfaces(headers, ssl_verify)
+            
+            # If network interfaces API didn't work, try the legacy method for management IPs
+            if not network_interfaces:
+                mgmt_interfaces = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
+                for iface in mgmt_interfaces:
+                    try:
+                        iface_response = requests.get(
+                            f"{self.base_url}/rest/v1.0/dd-systems/0/networks/{iface}",
+                            headers=headers,
+                            verify=ssl_verify,
+                            timeout=10
+                        )
+                        
+                        if iface_response.status_code == 200:
+                            iface_data = iface_response.json()
+                            ip_config = iface_data.get('ip_config', {})
+                            ip_address = ip_config.get('ip_address')
+                            if ip_address:
+                                network_interfaces.append({
+                                    'name': iface,
+                                    'ip_address': ip_address,
+                                    'enabled': iface_data.get('enabled', False)
+                                })
+                    except Exception as iface_error:
+                        logger.debug(f"Could not get interface {iface} for DataDomain {self.ip_address}: {iface_error}")
+            
+            # Get replication status
+            replication_status = self._get_replication_status(headers, ssl_verify)
+            
+            # Get hardware health status
+            hardware_status = self._get_hardware_status(headers, ssl_verify)
+            
+            # Get service status
+            service_status = self._get_service_status(headers, ssl_verify)
+            
+            # Determine overall hardware and cluster status based on gathered data
+            hardware_health = 'ok'
+            cluster_health = 'ok'
+            
+            # Check hardware status
+            if hardware_status and hardware_status.get('overall_status') == 'warning':
+                hardware_health = 'warning'
+            
+            # Check HA/cluster status
+            if ha_status:
+                ha_state = ha_status.get('state', '').lower()
+                if ha_state in ['failed', 'error', 'critical']:
+                    cluster_health = 'error'
+                elif ha_state in ['degraded', 'warning']:
+                    cluster_health = 'warning'
+            
+            # Check for critical alerts
+            critical_alerts = [a for a in active_alerts if a.get('severity', '').lower() in ['critical', 'major']]
+            if critical_alerts:
+                if hardware_health == 'ok':
+                    hardware_health = 'warning'
+            
+            # Build comprehensive response
             result = self._format_response(
                 status='online',
-                hardware='ok',
-                cluster='ok',
-                alerts=0,
+                hardware=hardware_health,
+                cluster=cluster_health,
+                alerts=alert_count,
                 total_tb=total_bytes / (1024**4),
                 used_tb=used_bytes / (1024**4),
                 os_version=os_version,
-                all_mgmt_ips=all_mgmt_ips if all_mgmt_ips else None
+                all_mgmt_ips=network_interfaces if network_interfaces else None
             )
+            
+            # Add DataDomain-specific information to result
+            if ha_status:
+                result['ha_status'] = ha_status
+            
+            if active_alerts:
+                result['active_alerts'] = active_alerts
+            
+            if replication_status:
+                result['replication_status'] = replication_status
+            
+            if hardware_status:
+                result['hardware_details'] = hardware_status
+            
+            if service_status:
+                result['services'] = service_status
+            
+            # Add additional system details
+            result['system_name'] = system_name
+            result['model'] = model
+            if compression_factor:
+                result['compression_factor'] = compression_factor
             
             # Include new token if one was generated
             if new_token_generated:
