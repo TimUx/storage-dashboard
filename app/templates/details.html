@@ -1052,26 +1052,20 @@ document.addEventListener('DOMContentLoaded', function() {
     const rediscoverForm = document.querySelector('form[action*="/rediscover"]');
     
     // Hide loading overlay and show content
-    // Small delay ensures smooth rendering on slower systems
-    setTimeout(function() {
-        if (loadingOverlay) {
-            loadingOverlay.classList.add('hidden');
-        }
-        if (detailContent) {
-            detailContent.classList.add('loaded');
-        }
-    }, 100);
+    if (loadingOverlay) {
+        loadingOverlay.classList.add('hidden');
+    }
+    if (detailContent) {
+        detailContent.classList.add('loaded');
+    }
     
     // Show loading overlay when rediscovery form is submitted
-    if (rediscoverForm) {
+    if (rediscoverForm && loadingOverlay) {
         rediscoverForm.addEventListener('submit', function() {
-            const loadingText = loadingOverlay ? loadingOverlay.querySelector('.loading-text') : null;
-            
-            if (loadingOverlay) {
-                loadingOverlay.classList.remove('hidden');
-                if (loadingText) {
-                    loadingText.textContent = 'System wird neu erkannt...';
-                }
+            const loadingText = loadingOverlay.querySelector('.loading-text');
+            loadingOverlay.classList.remove('hidden');
+            if (loadingText) {
+                loadingText.textContent = 'System wird neu erkannt...';
             }
         });
     }
