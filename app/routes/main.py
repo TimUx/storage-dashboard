@@ -80,7 +80,11 @@ def fetch_system_status(system, app):
                         elif isinstance(mgmt_ip_info, str):
                             # Fallback for backward compatibility if it's just a string
                             all_ips.add(mgmt_ip_info)
-                    system.set_all_ips(list(all_ips))
+                else:
+                    # Handle unexpected type - log warning and skip
+                    logger.warning(f"Unexpected type for all_mgmt_ips: {type(status['all_mgmt_ips'])}")
+                # Save the merged IPs regardless of the format
+                system.set_all_ips(list(all_ips))
             
             # Update site count if available
             if 'site_count' in status and status['site_count'] is not None:

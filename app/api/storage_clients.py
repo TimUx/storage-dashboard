@@ -11,6 +11,9 @@ import traceback
 
 logger = logging.getLogger(__name__)
 
+# Maximum length of response text to log (to avoid flooding logs with large responses)
+MAX_RESPONSE_LOG_LENGTH = 500
+
 # StorageGRID API health state constants
 # States that indicate a healthy grid/node
 STORAGEGRID_HEALTHY_GRID_STATES = {'healthy', 'ok', 'normal'}
@@ -991,7 +994,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 else:
                     logger.error(f"StorageGRID API error for {self.ip_address}: HTTP {response.status_code}")
                     try:
-                        logger.error(f"Response text: {response.text[:500]}")  # Log first 500 chars of response
+                        logger.error(f"Response text: {response.text[:MAX_RESPONSE_LOG_LENGTH]}")
                     except Exception:
                         logger.error("Response text unavailable")
                 return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
