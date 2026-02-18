@@ -93,12 +93,11 @@
     <p>Diese Anleitung beschreibt, wie Sie API-Zugriff für jedes unterstützte Storage-System einrichten.</p>
     
     <div class="note">
-        <strong>💡 Verwendete Bibliotheken:</strong>
-        <ul style="margin-top: 0.5rem;">
-            <li><strong>Pure Storage:</strong> Offizielle <code>py-pure-client</code> SDK</li>
-            <li><strong>NetApp ONTAP:</strong> Offizielle <code>netapp-ontap</code> SDK</li>
-            <li><strong>StorageGRID & DataDomain:</strong> Direkte REST API Integration (keine offiziellen Python SDKs verfügbar)</li>
-        </ul>
+        <strong>💡 API-Integration:</strong>
+        <p style="margin-top: 0.5rem; margin-bottom: 0;">
+            Alle Storage-Systeme werden über <strong>direkte REST API Calls</strong> mit der Python <code>requests</code> Bibliothek angebunden.
+            Es werden keine herstellerspezifischen SDKs verwendet, sondern standardmäßige HTTP/HTTPS Verbindungen zu den jeweiligen REST APIs.
+        </p>
     </div>
     
     <h2>1. Pure Storage</h2>
@@ -121,7 +120,7 @@
     </div>
     
     <div class="note">
-        <strong>Hinweis:</strong> Das Dashboard verwendet die offizielle <code>py-pure-client</code> Bibliothek für Pure Storage FlashArray REST API v2.
+        <strong>Hinweis:</strong> Das Dashboard verwendet direkte REST API Calls zur Pure Storage FlashArray REST API v2.
     </div>
     
     <h2>2. NetApp ONTAP 9</h2>
@@ -145,7 +144,7 @@
     </div>
     
     <div class="note">
-        <strong>Hinweis:</strong> Das Dashboard verwendet die offizielle <code>netapp-ontap</code> Python Client Library. Für produktive Umgebungen sollte eine dedizierte Read-Only-Rolle verwendet werden.
+        <strong>Hinweis:</strong> Das Dashboard verwendet direkte REST API Calls zur NetApp ONTAP REST API. Für produktive Umgebungen sollte eine dedizierte Read-Only-Rolle verwendet werden.
     </div>
     
     <h2>3. NetApp StorageGRID 11</h2>
@@ -163,28 +162,48 @@
         
         <p><strong>Schritt 2: API-Token generieren</strong></p>
         <ol>
-            <li>Nach dem Login navigieren Sie zu <strong>Help → API Documentation</strong></li>
-            <li>Alternativ können Sie den Token direkt über die Auth API erstellen:
-                <pre><code>POST https://&lt;storagegrid-ip&gt;/api/v3/authorize
-{
-  "username": "root",
-  "password": "your-password",
-  "cookie": true,
-  "csrfToken": true
-}</code></pre>
-            </li>
-            <li>Der Response enthält das Authorization Token im Header</li>
-            <li>Kopieren Sie den Bearer Token aus der Response</li>
+            <li>Nach dem Login navigieren Sie zu <strong>Users</strong></li>
+            <li>Wählen Sie Ihren Benutzer oder erstellen Sie einen Service-Account</li>
+            <li>Klicken Sie auf <strong>Generate Token</strong></li>
+            <li>Kopieren Sie den generierten Bearer Token</li>
+            <li>Der Token wird nur einmal angezeigt - speichern Sie ihn sicher!</li>
         </ol>
         
+        <div class="note">
+            <strong>Alternative (für API-Automatisierung):</strong> Sie können den Token auch direkt über die REST API erstellen:
+            <pre style="margin-top: 0.5rem;"><code>curl -X POST "https://&lt;storagegrid-ip&gt;/api/v3/authorize" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "root",
+    "password": "your-password",
+    "cookie": true,
+    "csrfToken": false
+  }' -k</code></pre>
+            <em>Hinweis: csrfToken=false ist korrekt für API-Zugriff ohne Browser-Session.</em>
+        </div>
+        
         <p><strong>Schritt 3: Token im Dashboard konfigurieren</strong></p>
+        
+        <p><strong>Option 1: Mit Bearer Token</strong></p>
         <ul>
             <li>Tragen Sie den Bearer Token im Feld <code>API Token</code> ein</li>
             <li>Lassen Sie Benutzername und Passwort leer</li>
         </ul>
         
+        <p><strong>Option 2: Mit Benutzername/Passwort (empfohlen)</strong></p>
+        <ul>
+            <li>Tragen Sie Benutzername und Passwort ein</li>
+            <li>Lassen Sie API Token leer</li>
+            <li>Das Dashboard generiert automatisch Tokens bei Bedarf</li>
+        </ul>
+        
         <div class="note">
-            <strong>Hinweis:</strong> Der Token hat eine begrenzte Gültigkeitsdauer. Bei Authentifizierungsfehlern muss ein neuer Token generiert werden.
+            <strong>Wichtige Hinweise:</strong>
+            <ul style="margin-top: 0.5rem; margin-bottom: 0;">
+                <li>Der Bearer Token hat eine begrenzte Gültigkeitsdauer (typischerweise 16 Stunden, kann je nach StorageGRID-Konfiguration variieren)</li>
+                <li>Bei Authentifizierungsfehlern muss ein neuer Token generiert werden</li>
+                <li><strong>Empfehlung:</strong> Verwenden Sie Benutzername/Passwort statt Token - das Dashboard generiert dann automatisch neue Tokens bei Bedarf</li>
+            </ul>
         </div>
     </div>
     
