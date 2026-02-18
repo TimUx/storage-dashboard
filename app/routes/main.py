@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 def extract_ips_from_mgmt_ips(all_mgmt_ips, system_name, system_ip):
     """Extract IP addresses from all_mgmt_ips data structure
     
-    Handles both dict format with 'ip' and 'dns_names' keys and legacy string format.
+    Handles multiple formats:
+    - Dict with 'ip' key (Pure Storage format)
+    - Dict with 'ip_address' key (DataDomain format)
+    - Legacy string format
     
     Args:
         all_mgmt_ips: List of management IP information (dicts or strings)
@@ -31,8 +34,14 @@ def extract_ips_from_mgmt_ips(all_mgmt_ips, system_name, system_ip):
         return ips
     
     for mgmt_ip_info in all_mgmt_ips:
-        if isinstance(mgmt_ip_info, dict) and 'ip' in mgmt_ip_info:
-            ips.add(mgmt_ip_info['ip'])
+        if isinstance(mgmt_ip_info, dict):
+            # Try 'ip' field first (Pure Storage format)
+            ip = mgmt_ip_info.get('ip')
+            if not ip:
+                # Fallback to 'ip_address' field (DataDomain format)
+                ip = mgmt_ip_info.get('ip_address')
+            if ip:
+                ips.add(ip)
         elif isinstance(mgmt_ip_info, str):
             # Fallback for backward compatibility if it's just a string
             ips.add(mgmt_ip_info)

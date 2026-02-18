@@ -757,6 +757,16 @@
                         <strong>IP Address:</strong> <span class="ip-badge">{{ nic.ip_address }}</span>
                     </div>
                     {% endif %}
+                    {% if nic.dns_names %}
+                    <div class="node-detail">
+                        <strong>DNS-Namen:</strong>
+                        <div class="dns-list">
+                            {% for dns_name in nic.dns_names %}
+                            <span class="dns-badge">{{ dns_name }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
                     {% if nic.netmask %}
                     <div class="node-detail">
                         <strong>Netmask:</strong> {{ nic.netmask }}
