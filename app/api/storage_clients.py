@@ -1338,11 +1338,11 @@ class NetAppStorageGRIDClient(StorageClient):
 
 
 class DellDataDomainClient(StorageClient):
-    """Dell DataDomain client - REST API v4
+    """Dell DataDomain client - REST API v1.0
     
-    Uses token-based authentication similar to StorageGRID.
-    Authentication endpoint: POST /api/v4/authorize
-    API calls use X-DD-AUTH-TOKEN header
+    Uses token-based authentication.
+    Authentication endpoint: POST /rest/v1.0/auth (port 3009)
+    Returns X-DD-AUTH-TOKEN in response header
     """
     
     def authenticate(self):
@@ -1363,30 +1363,29 @@ class DellDataDomainClient(StorageClient):
             
             auth_data = {
                 'username': self.username,
-                'password': self.password,
-                'cookie': True,
-                'csrfToken': False
+                'password': self.password
             }
             
-            logger.debug(f"Authenticating to DataDomain {self.ip_address}")
+            logger.debug(f"Authenticating to DataDomain {self.ip_address} via {self.base_url}")
             
             response = requests.post(
-                f"{self.base_url}/api/v4/authorize",
+                f"{self.base_url}/rest/v1.0/auth",
                 json=auth_data,
                 headers={'Content-Type': 'application/json'},
                 verify=ssl_verify,
                 timeout=10
             )
             
-            if response.status_code == 200:
-                auth_response = response.json()
-                token = auth_response.get('data')
+            if response.status_code == 201:
+                # Token is in response header, not body
+                token = response.headers.get('X-DD-AUTH-TOKEN')
                 
                 if token:
                     logger.debug(f"Successfully obtained session token for DataDomain {self.ip_address}")
                     return token
                 else:
-                    logger.error(f"Authentication response did not contain token: {auth_response}")
+                    logger.error(f"Authentication response did not contain X-DD-AUTH-TOKEN header")
+                    logger.error(f"Response headers: {dict(response.headers)}")
                     return None
             else:
                 logger.error(f"DataDomain authentication failed for {self.ip_address}: HTTP {response.status_code}")
@@ -1403,7 +1402,7 @@ class DellDataDomainClient(StorageClient):
     
     def get_health_status(self):
         try:
-            # DataDomain REST API v4 for authentication, v1.0 for data retrieval
+            # DataDomain REST API v1.0 with token authentication
             # If no token is configured, try to authenticate automatically
             new_token_generated = False
             if not self.token:
