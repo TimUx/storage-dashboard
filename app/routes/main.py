@@ -139,6 +139,10 @@ def index():
             grouped_systems[vendor] = []
         grouped_systems[vendor].append(item)
     
+    # Sort systems alphabetically within each vendor group
+    for vendor in grouped_systems:
+        grouped_systems[vendor].sort(key=lambda x: x['system']['name'].lower())
+    
     vendor_names = {
         'pure': 'Pure Storage',
         'netapp-ontap': 'NetApp ONTAP',
@@ -146,9 +150,13 @@ def index():
         'dell-datadomain': 'Dell DataDomain'
     }
     
+    # Define fixed vendor order
+    vendor_order = ['pure', 'netapp-ontap', 'netapp-storagegrid', 'dell-datadomain']
+    
     return render_template('dashboard.html', 
                          grouped_systems=grouped_systems,
-                         vendor_names=vendor_names)
+                         vendor_names=vendor_names,
+                         vendor_order=vendor_order)
 
 
 @bp.route('/systems/<int:system_id>/details')
