@@ -833,7 +833,11 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                 if isinstance(nic_list, list):
                     for nic in nic_list:
                         nic_name = nic.get('name')
+                        # Try 'address' field first (v2.0 API), then 'ip_config.ip_address' (v1.0 API)
                         nic_address = nic.get('address')
+                        if not nic_address:
+                            ip_config = nic.get('ip_config', {})
+                            nic_address = ip_config.get('ip_address')
                         
                         if nic_address:
                             nic_ips[nic_name] = nic_address
@@ -951,10 +955,12 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                     
                     # Add partner node if peer info is available
                     if peer_info and peer_info.get('nodeName'):
+                        # Use role from peer_info if available, otherwise default to 'standby'
+                        partner_role = peer_info.get('role', 'standby')
                         partner_node = {
                             'name': peer_info.get('nodeName'),
                             'status': peer_info.get('state', 'unknown'),
-                            'role': 'standby',
+                            'role': partner_role,
                             'type': 'DataDomain HA Node',
                             'ha_enabled': True,
                             'serial': peer_info.get('serialno'),
