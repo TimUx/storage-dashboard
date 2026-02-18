@@ -1045,32 +1045,27 @@
 </div>
 
 <script>
-// Hide loading overlay and show content when page is fully loaded
+// Initialize page when DOM is fully loaded
 document.addEventListener('DOMContentLoaded', function() {
-    // Add a small delay to ensure content is rendered
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const detailContent = document.getElementById('detail-content');
+    const rediscoverForm = document.querySelector('form[action*="/rediscover"]');
+    
+    // Hide loading overlay and show content
+    // Small delay ensures smooth rendering on slower systems
     setTimeout(function() {
-        const loadingOverlay = document.getElementById('loading-overlay');
-        const detailContent = document.getElementById('detail-content');
-        
-        // Hide loading overlay
         if (loadingOverlay) {
             loadingOverlay.classList.add('hidden');
         }
-        
-        // Show content
         if (detailContent) {
             detailContent.classList.add('loaded');
         }
     }, 100);
-});
-
-// Show loading overlay when rediscovery form is submitted
-document.addEventListener('DOMContentLoaded', function() {
-    const rediscoverForm = document.querySelector('form[action*="/rediscover"]');
+    
+    // Show loading overlay when rediscovery form is submitted
     if (rediscoverForm) {
         rediscoverForm.addEventListener('submit', function() {
-            const loadingOverlay = document.getElementById('loading-overlay');
-            const loadingText = loadingOverlay.querySelector('.loading-text');
+            const loadingText = loadingOverlay ? loadingOverlay.querySelector('.loading-text') : null;
             
             if (loadingOverlay) {
                 loadingOverlay.classList.remove('hidden');

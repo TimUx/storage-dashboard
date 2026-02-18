@@ -906,11 +906,9 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                             dns_names = reverse_dns_lookup(nic_address)
                             discovery_data['dns_names'].extend(dns_names)
                         
-                        # Identify management and cluster IPs
+                        # Identify primary management IP
                         if iface_name == 'ethMa' and not management_ip:
                             management_ip = nic_address
-                        elif ':' in iface_name and iface_name.startswith('ethMa:') and not cluster_ip:
-                            cluster_ip = nic_address
             except Exception as iface_error:
                 logger.debug(f"Could not get individual interface {iface_name} for DataDomain {ip_address}: {iface_error}")
         
