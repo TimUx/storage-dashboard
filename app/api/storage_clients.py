@@ -998,13 +998,13 @@ class NetAppStorageGRIDClient(StorageClient):
             # If no token is configured, try to authenticate automatically
             new_token_generated = False
             if not self.token:
-                logger.info(f"No API token configured for StorageGRID {self.ip_address}, attempting automatic authentication")
+                logger.debug(f"Attempting automatic authentication for StorageGRID {self.ip_address}")
                 self.token = self.authenticate()
                 if self.token:
                     new_token_generated = True
                 else:
                     return self._format_response(status='error', hardware='error', cluster='error', 
-                                                error='No API token configured and automatic authentication failed. Please check username and password.')
+                                                error='Authentication failed. Please check credentials.')
             
             headers = {
                 'Authorization': f'Bearer {self.token}',
@@ -1053,8 +1053,8 @@ class NetAppStorageGRIDClient(StorageClient):
             if response.status_code != 200:
                 error_msg = f'API error: {response.status_code}'
                 if response.status_code == 401:
-                    # Token expired or invalid - try to re-authenticate once
-                    logger.warning(f"StorageGRID authentication failed for {self.ip_address}: Invalid or expired API token, attempting re-authentication")
+                    # Token invalid - try to re-authenticate once
+                    logger.debug(f"Re-authenticating to StorageGRID {self.ip_address}")
                     
                     new_token = self.authenticate()
                     if new_token:
@@ -1071,12 +1071,12 @@ class NetAppStorageGRIDClient(StorageClient):
                         )
                         
                         if response.status_code != 200:
-                            error_msg = f'API error after re-authentication: {response.status_code}'
-                            logger.error(f"StorageGRID API error for {self.ip_address} after re-authentication: HTTP {response.status_code}")
+                            error_msg = f'API error: {response.status_code}'
+                            logger.error(f"StorageGRID API error for {self.ip_address}: HTTP {response.status_code}")
                             return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
                     else:
-                        error_msg = 'API error: 401 - Authentication failed. Token expired and re-authentication failed. Please check username and password.'
-                        logger.error(f"StorageGRID re-authentication failed for {self.ip_address}")
+                        error_msg = 'API error: 401 - Authentication failed. Please check credentials.'
+                        logger.error(f"StorageGRID authentication failed for {self.ip_address}")
                         return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
                 else:
                     logger.error(f"StorageGRID API error for {self.ip_address}: HTTP {response.status_code}")
