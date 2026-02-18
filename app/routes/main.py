@@ -103,6 +103,16 @@ def fetch_system_status(system, app):
             if 'api_version' in status and status['api_version']:
                 system.api_version = status['api_version']
             
+            # Update API token if a new one was generated (for StorageGRID)
+            if 'new_api_token' in status and status['new_api_token']:
+                system.api_token = status['new_api_token']
+                log_system_event(
+                    system_id=system.id,
+                    level='INFO',
+                    category='authentication',
+                    message=f'Auto-generated new API token for {system.name}'
+                )
+            
             # Update cluster type if MetroCluster is detected
             if status.get('is_metrocluster') and system.cluster_type != 'metrocluster':
                 system.cluster_type = 'metrocluster'

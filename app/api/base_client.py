@@ -84,7 +84,7 @@ class StorageClient(ABC):
                         is_metrocluster=False, controllers=None, array_connections=None,
                         metrocluster_info=None, metrocluster_nodes=None, metrocluster_dr_groups=None,
                         metrocluster_peers=None, site_count=None, is_active_cluster=None,
-                        sites_info=None, pods_info=None, all_mgmt_ips=None):
+                        sites_info=None, pods_info=None, all_mgmt_ips=None, new_api_token=None):
         """Format standard response"""
         percent = (used_tb / total_tb * 100) if total_tb > 0 else 0
         response = {
@@ -125,4 +125,6 @@ class StorageClient(ABC):
             response['pods_info'] = pods_info
         if all_mgmt_ips is not None:
             response['all_mgmt_ips'] = all_mgmt_ips
+        if new_api_token is not None:
+            response['new_api_token'] = new_api_token
         return response

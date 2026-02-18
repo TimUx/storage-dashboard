@@ -936,11 +936,75 @@ class NetAppStorageGRIDClient(StorageClient):
     Based on: https://webscalegmi.netapp.com/grid/apidocs.html
     """
     
+    def authenticate(self):
+        """Authenticate with StorageGRID and obtain API token
+        
+        Uses username and password to authenticate and retrieve an API token.
+        The token should be saved to the database for future use.
+        
+        Returns:
+            str: API token if successful, None if authentication fails
+        """
+        if not self.username or not self.password:
+            logger.error(f"Cannot authenticate to StorageGRID {self.ip_address}: username or password not configured")
+            return None
+        
+        try:
+            ssl_verify = get_ssl_verify(self.resolved_address)
+            
+            auth_data = {
+                'username': self.username,
+                'password': self.password,
+                'cookie': True,
+                'csrfToken': False
+            }
+            
+            logger.debug(f"Authenticating to StorageGRID {self.ip_address}")
+            
+            response = requests.post(
+                f"{self.base_url}/api/v4/authorize",
+                json=auth_data,
+                headers={'Content-Type': 'application/json'},
+                verify=ssl_verify,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                auth_response = response.json()
+                token = auth_response.get('data')
+                
+                if token:
+                    logger.debug(f"Successfully obtained API token for StorageGRID {self.ip_address}")
+                    return token
+                else:
+                    logger.error(f"Authentication response did not contain token data: {auth_response}")
+                    return None
+            else:
+                logger.error(f"StorageGRID authentication failed for {self.ip_address}: HTTP {response.status_code}")
+                try:
+                    logger.error(f"Response: {response.text[:MAX_RESPONSE_LOG_LENGTH]}")
+                except Exception:
+                    pass
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error authenticating to StorageGRID {self.ip_address}: {e}")
+            logger.error(traceback.format_exc())
+            return None
+    
     def get_health_status(self):
         try:
             # StorageGRID REST API v4
+            # If no token is configured, try to authenticate automatically
+            new_token_generated = False
             if not self.token:
-                return self._format_response(status='error', hardware='error', cluster='error', error='No API token configured')
+                logger.debug(f"Attempting automatic authentication for StorageGRID {self.ip_address}")
+                self.token = self.authenticate()
+                if self.token:
+                    new_token_generated = True
+                else:
+                    return self._format_response(status='error', hardware='error', cluster='error', 
+                                                error='Authentication failed. Please check credentials.')
             
             headers = {
                 'Authorization': f'Bearer {self.token}',
@@ -989,15 +1053,38 @@ class NetAppStorageGRIDClient(StorageClient):
             if response.status_code != 200:
                 error_msg = f'API error: {response.status_code}'
                 if response.status_code == 401:
-                    error_msg = 'API error: 401 - Authentication failed. Please check API token.'
-                    logger.error(f"StorageGRID authentication failed for {self.ip_address}: Invalid or expired API token")
+                    # Token invalid - try to re-authenticate once
+                    logger.debug(f"Re-authenticating to StorageGRID {self.ip_address}")
+                    
+                    new_token = self.authenticate()
+                    if new_token:
+                        self.token = new_token
+                        new_token_generated = True
+                        
+                        # Retry the request with new token
+                        headers['Authorization'] = f'Bearer {self.token}'
+                        response = requests.get(
+                            f"{self.base_url}/api/v4/grid/health/topology",
+                            headers=headers,
+                            verify=ssl_verify,
+                            timeout=10
+                        )
+                        
+                        if response.status_code != 200:
+                            error_msg = f'API error: {response.status_code}'
+                            logger.error(f"StorageGRID API error for {self.ip_address}: HTTP {response.status_code}")
+                            return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
+                    else:
+                        error_msg = 'API error: 401 - Authentication failed. Please check credentials.'
+                        logger.error(f"StorageGRID authentication failed for {self.ip_address}")
+                        return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
                 else:
                     logger.error(f"StorageGRID API error for {self.ip_address}: HTTP {response.status_code}")
                     try:
                         logger.error(f"Response text: {response.text[:MAX_RESPONSE_LOG_LENGTH]}")
                     except Exception:
                         logger.error("Response text unavailable")
-                return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
+                    return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
             
             # Get product version from grid config
             os_version = None
@@ -1241,7 +1328,8 @@ class NetAppStorageGRIDClient(StorageClient):
                 os_version=os_version,
                 controllers=nodes_info if nodes_info else None,
                 site_count=site_count,
-                sites_info=sites_info if sites_info else None
+                sites_info=sites_info if sites_info else None,
+                new_api_token=self.token if new_token_generated else None
             )
         except Exception as e:
             logger.error(f"Error getting StorageGRID health status for {self.ip_address}: {e}")
