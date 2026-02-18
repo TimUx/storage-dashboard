@@ -72,13 +72,15 @@ def fetch_system_status(system, app):
                 all_ips = set(system.get_all_ips() or [])
                 all_ips.add(system.ip_address)
                 # Extract IP addresses from all_mgmt_ips (list of dicts with 'ip' and 'dns_names')
-                for mgmt_ip_info in status['all_mgmt_ips']:
-                    if isinstance(mgmt_ip_info, dict) and 'ip' in mgmt_ip_info:
-                        all_ips.add(mgmt_ip_info['ip'])
-                    elif isinstance(mgmt_ip_info, str):
-                        # Fallback for backward compatibility if it's just a string
-                        all_ips.add(mgmt_ip_info)
-                system.set_all_ips(list(all_ips))
+                # Ensure all_mgmt_ips is iterable (list)
+                if isinstance(status['all_mgmt_ips'], (list, tuple)):
+                    for mgmt_ip_info in status['all_mgmt_ips']:
+                        if isinstance(mgmt_ip_info, dict) and 'ip' in mgmt_ip_info:
+                            all_ips.add(mgmt_ip_info['ip'])
+                        elif isinstance(mgmt_ip_info, str):
+                            # Fallback for backward compatibility if it's just a string
+                            all_ips.add(mgmt_ip_info)
+                    system.set_all_ips(list(all_ips))
             
             # Update site count if available
             if 'site_count' in status and status['site_count'] is not None:

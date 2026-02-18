@@ -990,7 +990,10 @@ class NetAppStorageGRIDClient(StorageClient):
                     logger.error(f"StorageGRID authentication failed for {self.ip_address}: Invalid or expired API token")
                 else:
                     logger.error(f"StorageGRID API error for {self.ip_address}: HTTP {response.status_code}")
-                    logger.error(f"Response text: {response.text[:500]}")  # Log first 500 chars of response
+                    try:
+                        logger.error(f"Response text: {response.text[:500]}")  # Log first 500 chars of response
+                    except Exception:
+                        logger.error("Response text unavailable")
                 return self._format_response(status='error', hardware='error', cluster='error', error=error_msg)
             
             # Get product version from grid config
