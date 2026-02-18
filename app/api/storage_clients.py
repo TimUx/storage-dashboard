@@ -1590,12 +1590,19 @@ class DellDataDomainClient(StorageClient):
                         'mtu': nic.get('mtu')
                     }
                     
-                    # Extract IP configuration
-                    ip_config = nic.get('ip_config', {})
-                    if ip_config:
-                        nic_info['ip_address'] = ip_config.get('ip_address')
-                        nic_info['netmask'] = ip_config.get('netmask')
-                        nic_info['gateway'] = ip_config.get('gateway')
+                    # Extract IP configuration - check both 'address' field and 'ip_config' object
+                    # v2.0 API can return IP in 'address' field directly
+                    if nic.get('address'):
+                        nic_info['ip_address'] = nic.get('address')
+                        nic_info['netmask'] = nic.get('netmask')
+                        nic_info['gateway'] = nic.get('gateway')
+                    else:
+                        # Fallback to ip_config object format
+                        ip_config = nic.get('ip_config', {})
+                        if ip_config:
+                            nic_info['ip_address'] = ip_config.get('ip_address')
+                            nic_info['netmask'] = ip_config.get('netmask')
+                            nic_info['gateway'] = ip_config.get('gateway')
                     
                     # Only include NICs with IP addresses
                     if nic_info.get('ip_address'):
@@ -1606,12 +1613,19 @@ class DellDataDomainClient(StorageClient):
                         nic_id = nic.get('id')
                         nic_detail = self._make_api_request(f'/rest/v2.0/dd-systems/0/networks/nics/{nic_id}', headers, ssl_verify)
                         if nic_detail:
-                            ip_config = nic_detail.get('ip_config', {})
-                            if ip_config.get('ip_address'):
-                                nic_info['ip_address'] = ip_config.get('ip_address')
-                                nic_info['netmask'] = ip_config.get('netmask')
-                                nic_info['gateway'] = ip_config.get('gateway')
+                            # Check for 'address' field first, then fallback to 'ip_config'
+                            if nic_detail.get('address'):
+                                nic_info['ip_address'] = nic_detail.get('address')
+                                nic_info['netmask'] = nic_detail.get('netmask')
+                                nic_info['gateway'] = nic_detail.get('gateway')
                                 nics.append(nic_info)
+                            else:
+                                ip_config = nic_detail.get('ip_config', {})
+                                if ip_config.get('ip_address'):
+                                    nic_info['ip_address'] = ip_config.get('ip_address')
+                                    nic_info['netmask'] = ip_config.get('netmask')
+                                    nic_info['gateway'] = ip_config.get('gateway')
+                                    nics.append(nic_info)
             
             # If we didn't get any NICs from the bulk API, try querying management interfaces individually
             if not nics:
@@ -1620,13 +1634,18 @@ class DellDataDomainClient(StorageClient):
                     try:
                         iface_data = self._make_api_request(f'/rest/v2.0/dd-systems/0/networks/nics/{iface_name}', headers, ssl_verify)
                         if iface_data:
-                            ip_config = iface_data.get('ip_config', {})
-                            if ip_config.get('ip_address'):
+                            # Check for 'address' field first, then fallback to 'ip_config'
+                            ip_address = iface_data.get('address')
+                            if not ip_address:
+                                ip_config = iface_data.get('ip_config', {})
+                                ip_address = ip_config.get('ip_address')
+                            
+                            if ip_address:
                                 nics.append({
                                     'name': iface_name,
-                                    'ip_address': ip_config.get('ip_address'),
-                                    'netmask': ip_config.get('netmask'),
-                                    'gateway': ip_config.get('gateway'),
+                                    'ip_address': ip_address,
+                                    'netmask': iface_data.get('netmask') or (iface_data.get('ip_config', {}).get('netmask')),
+                                    'gateway': iface_data.get('gateway') or (iface_data.get('ip_config', {}).get('gateway')),
                                     'enabled': iface_data.get('enabled', False),
                                     'link_status': iface_data.get('link_status', 'unknown'),
                                     'mtu': iface_data.get('mtu')
