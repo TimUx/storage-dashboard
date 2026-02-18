@@ -124,7 +124,7 @@ def migrate_app_settings_table():
     migrations_applied = []
     
     # Add timezone column if missing
-    if add_column_if_not_exists('app_settings', 'timezone', 'VARCHAR(50)'):
+    if add_column_if_not_exists('app_settings', 'timezone', ALLOWED_COLUMNS['timezone']):
         migrations_applied.append('timezone')
     
     return migrations_applied
