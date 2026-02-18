@@ -72,11 +72,18 @@ def create_app():
             db.create_all()
         except Exception as e:
             # Check if this is a "table already exists" error (race condition with other workers)
-            error_msg = str(e).lower()
-            if 'already exists' in error_msg:
-                app.logger.info("Database tables already exist (created by another worker)")
+            # SQLAlchemy wraps sqlite3 errors in sqlalchemy.exc.OperationalError
+            from sqlalchemy.exc import OperationalError
+            if isinstance(e, OperationalError):
+                # Check for "already exists" in the error message
+                error_msg = str(e).lower()
+                if 'already exists' in error_msg:
+                    app.logger.info("Database tables already exist (created by another worker)")
+                else:
+                    # Re-raise if it's a different OperationalError
+                    raise
             else:
-                # Re-raise if it's a different error
+                # Re-raise if it's not an OperationalError
                 raise
         
         # Run database migrations
