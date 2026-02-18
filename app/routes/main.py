@@ -160,10 +160,10 @@ def fetch_system_status(system, app):
             if 'site_count' in status and status['site_count'] is not None:
                 system.site_count = status['site_count']
                 # For StorageGRID, update cluster type based on site count
-                if system.vendor == 'netapp-storagegrid':
+                if system.vendor == 'netapp-storagegrid' and system.site_count and system.site_count > 0:
                     if system.site_count > 1:
                         system.cluster_type = 'multi-site'
-                    elif system.site_count == 1:
+                    else:  # site_count == 1
                         system.cluster_type = 'single-site'
             
             # Update cluster type based on ActiveCluster detection (for Pure Storage)
