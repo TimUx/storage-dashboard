@@ -70,7 +70,8 @@ def get_ssl_verify(target_address=None):
         if not ssl_verify_enabled:
             return False
         
-        # Try to get custom certificates
+        # Try to get custom certificates from the database
+        # Note: get_ssl_context() is defined later in this same module
         try:
             return get_ssl_context()
         except Exception:
