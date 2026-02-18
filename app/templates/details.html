@@ -352,9 +352,75 @@
         color: var(--itscare-blue-dark);
         text-decoration: underline;
     }
+
+    /* Loading overlay styles */
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.9);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        opacity: 1;
+        transition: opacity 0.3s ease;
+    }
+
+    .loading-overlay.hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .loading-spinner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .spinner {
+        border: 4px solid rgba(0, 152, 219, 0.2);
+        border-top: 4px solid var(--itscare-blue);
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+        color: var(--itscare-blue);
+        font-size: 1.1rem;
+        font-weight: 500;
+    }
+
+    /* Page content - initially hidden */
+    .detail-container {
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .detail-container.loaded {
+        opacity: 1;
+    }
 </style>
 
-<div class="detail-container">
+<!-- Loading overlay -->
+<div id="loading-overlay" class="loading-overlay">
+    <div class="loading-spinner">
+        <div class="spinner"></div>
+        <div class="loading-text">Daten werden geladen...</div>
+    </div>
+</div>
+
+<div class="detail-container" id="detail-content">
     <div class="action-buttons">
         <a href="/" class="btn btn-secondary">← Zurück zum Dashboard</a>
         <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
@@ -977,4 +1043,32 @@
     </div>
     {% endif %}
 </div>
+
+<script>
+// Initialize page when DOM is fully loaded
+document.addEventListener('DOMContentLoaded', function() {
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const detailContent = document.getElementById('detail-content');
+    const rediscoverForm = document.querySelector('form[action*="/rediscover"]');
+    
+    // Hide loading overlay and show content
+    if (loadingOverlay) {
+        loadingOverlay.classList.add('hidden');
+    }
+    if (detailContent) {
+        detailContent.classList.add('loaded');
+    }
+    
+    // Show loading overlay when rediscovery form is submitted
+    if (rediscoverForm && loadingOverlay) {
+        rediscoverForm.addEventListener('submit', function() {
+            const loadingText = loadingOverlay.querySelector('.loading-text');
+            loadingOverlay.classList.remove('hidden');
+            if (loadingText) {
+                loadingText.textContent = 'System wird neu erkannt...';
+            }
+        });
+    }
+});
+</script>
 {% endblock %}

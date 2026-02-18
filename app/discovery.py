@@ -857,6 +857,61 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
         except Exception as nic_error:
             logger.debug(f"Could not get network interfaces for DataDomain {ip_address}: {nic_error}")
         
+        # Always query management interfaces individually to ensure we capture all local IPs
+        # This ensures interfaces like ethMa (local IP on primary node) are not missed
+        # Track which interfaces were already found to avoid duplicates
+        management_interfaces = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
+        found_interfaces = set(nic_ips.keys())
+        
+        for iface_name in management_interfaces:
+            # Skip if we already found this interface from bulk API
+            if iface_name in found_interfaces:
+                continue
+                
+            try:
+                # Try v2.0 API first
+                iface_response = requests.get(
+                    f"{base_url}/rest/v2.0/dd-systems/0/networks/nics/{iface_name}",
+                    headers=headers,
+                    verify=ssl_verify_setting,
+                    timeout=API_TIMEOUT
+                )
+                
+                # If v2.0 fails, try v1.0 API
+                if iface_response.status_code != HTTP_OK:
+                    iface_response = requests.get(
+                        f"{base_url}/rest/v1.0/dd-systems/0/networks/{iface_name}",
+                        headers=headers,
+                        verify=ssl_verify_setting,
+                        timeout=API_TIMEOUT
+                    )
+                
+                if iface_response.status_code == HTTP_OK:
+                    iface_data = iface_response.json()
+                    
+                    # Check for 'address' field first (v2.0), then 'ip_config.ip_address' (v1.0)
+                    nic_address = iface_data.get('address')
+                    if not nic_address:
+                        ip_config = iface_data.get('ip_config', {})
+                        nic_address = ip_config.get('ip_address')
+                    
+                    if nic_address:
+                        logger.debug(f"DataDomain {ip_address} - Found IP {nic_address} for interface {iface_name} via individual query")
+                        nic_ips[iface_name] = nic_address
+                        
+                        if nic_address not in discovery_data['all_ips']:
+                            discovery_data['all_ips'].append(nic_address)
+                            
+                            # Perform DNS lookup for each IP
+                            dns_names = reverse_dns_lookup(nic_address)
+                            discovery_data['dns_names'].extend(dns_names)
+                        
+                        # Identify primary management IP
+                        if iface_name == 'ethMa' and not management_ip:
+                            management_ip = nic_address
+            except Exception as iface_error:
+                logger.debug(f"Could not get individual interface {iface_name} for DataDomain {ip_address}: {iface_error}")
+        
         # Step 4: Get HA (High Availability) status and partner node information
         ha_enabled = False
         try:
