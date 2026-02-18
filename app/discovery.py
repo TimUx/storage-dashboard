@@ -1,7 +1,10 @@
 """System discovery utilities for auto-detecting storage system details"""
 import socket
 import logging
+import requests
+import traceback
 from datetime import datetime
+from app.api.storage_clients import get_ssl_verify
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +16,10 @@ SHELF_CONTROLLER_PATTERN = '.SC'
 # API configuration constants
 PURE_API_VERSION = '2.4'
 API_TIMEOUT = 10  # seconds
+
+# HTTP status codes
+HTTP_OK = 200
+HTTP_CREATED = 201  # DataDomain API returns 201 for successful authentication
 
 # StorageGRID constants
 UNKNOWN_SITE = 'Unknown Site'
@@ -71,7 +78,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 verify=ssl_verify,
                 timeout=API_TIMEOUT
             )
-            if version_response.status_code == 200:
+            if version_response.status_code == HTTP_OK:
                 data = version_response.json()
                 versions = data.get('version', [])
                 if versions:
@@ -111,7 +118,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
             timeout=API_TIMEOUT
         )
         
-        if arrays_response.status_code == 200:
+        if arrays_response.status_code == HTTP_OK:
             # Detect cluster type (HA is default for Pure)
             discovery_data['cluster_type'] = 'ha'
         
@@ -125,7 +132,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if controllers_response.status_code == 200:
+            if controllers_response.status_code == HTTP_OK:
                 controllers_data = controllers_response.json()
                 controller_items = controllers_data.get('items', [])
                 
@@ -155,7 +162,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                             timeout=API_TIMEOUT
                         )
                         
-                        if network_interfaces_response.status_code == 200:
+                        if network_interfaces_response.status_code == HTTP_OK:
                             interfaces_data = network_interfaces_response.json()
                             interface_items = interfaces_data.get('items', [])
                             
@@ -190,7 +197,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if pods_response.status_code == 200:
+            if pods_response.status_code == HTTP_OK:
                 pods_data = pods_response.json()
                 pod_items = pods_data.get('items', [])
                 
@@ -272,7 +279,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if cluster_response.status_code == 200:
+            if cluster_response.status_code == HTTP_OK:
                 cluster_data = cluster_response.json()
                 
                 # Check for MetroCluster using dedicated endpoint
@@ -287,7 +294,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                         timeout=API_TIMEOUT
                     )
                     
-                    if mc_response.status_code == 200:
+                    if mc_response.status_code == HTTP_OK:
                         mc_data = mc_response.json()
                         
                         # Check if response contains error (no MetroCluster)
@@ -320,7 +327,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if nodes_response.status_code == 200:
+            if nodes_response.status_code == HTTP_OK:
                 nodes_data = nodes_response.json()
                 node_list = nodes_data.get('records', [])
                 discovery_data['node_count'] = len(node_list)
@@ -349,7 +356,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                             timeout=API_TIMEOUT
                         )
                         
-                        if node_detail_response.status_code == 200:
+                        if node_detail_response.status_code == HTTP_OK:
                             node_detail = node_detail_response.json()
                             
                             management_interfaces = node_detail.get('management_interfaces', [])
@@ -447,7 +454,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if node_health_response.status_code == 200:
+            if node_health_response.status_code == HTTP_OK:
                 node_health_data = node_health_response.json()
                 # Response format: {"data": [{node_details}, ...]}
                 nodes_list = node_health_data.get('data', [])
@@ -506,7 +513,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                     timeout=API_TIMEOUT
                 )
                 
-                if nodes_response.status_code == 200:
+                if nodes_response.status_code == HTTP_OK:
                     nodes_data = nodes_response.json()
                     # Response format: {"data": [{node_details}, ...]}
                     nodes_list = nodes_data.get('data', [])
@@ -521,7 +528,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                             timeout=API_TIMEOUT
                         )
                         
-                        if service_ids_response.status_code == 200:
+                        if service_ids_response.status_code == HTTP_OK:
                             service_ids_data = service_ids_response.json()
                             services = service_ids_data.get('data', [])
                             
@@ -609,7 +616,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                     timeout=API_TIMEOUT
                 )
                 
-                if node_health_response.status_code == 200:
+                if node_health_response.status_code == HTTP_OK:
                     node_health_data = node_health_response.json()
                     nodes_list = node_health_data.get('data', [])
                     
@@ -648,7 +655,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                         timeout=API_TIMEOUT
                     )
                     
-                    if topology_response.status_code == 200:
+                    if topology_response.status_code == HTTP_OK:
                         topology_data = topology_response.json()
                         
                         # Parse hierarchical topology structure
@@ -711,9 +718,6 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
     
     Returns dict with cluster info, HA status, node details, etc.
     """
-    import requests
-    from app.api.storage_clients import get_ssl_verify
-    
     try:
         discovery_data = {
             'cluster_type': None,
@@ -751,7 +755,8 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if auth_response.status_code != 201:
+            # DataDomain API returns HTTP 201 Created for successful authentication
+            if auth_response.status_code != HTTP_CREATED:
                 logger.error(f"DataDomain authentication failed for {ip_address}: HTTP {auth_response.status_code}")
                 return {
                     'error': f'Authentication failed: HTTP {auth_response.status_code}',
@@ -792,7 +797,7 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if system_response.status_code == 200:
+            if system_response.status_code == HTTP_OK:
                 system_data = system_response.json()
                 discovery_data['os_version'] = system_data.get('version')
                 system_name = system_data.get('name')
@@ -813,7 +818,7 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
             )
             
             # If API v1 fails, fallback to REST v1.0
-            if ha_response.status_code != 200:
+            if ha_response.status_code != HTTP_OK:
                 ha_response = requests.get(
                     f"{base_url}/rest/v1.0/dd-systems/0/ha",
                     headers=headers,
@@ -821,7 +826,7 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                     timeout=API_TIMEOUT
                 )
             
-            if ha_response.status_code == 200:
+            if ha_response.status_code == HTTP_OK:
                 ha_data = ha_response.json()
                 
                 # Check if HA is enabled
@@ -927,7 +932,7 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if nics_response.status_code == 200:
+            if nics_response.status_code == HTTP_OK:
                 nics_data = nics_response.json()
                 nic_list = nics_data.get('nics') or nics_data.get('nic', [])
                 
