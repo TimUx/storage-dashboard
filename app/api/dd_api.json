@@ -1,0 +1,266 @@
+{
+  "api_version": "1.0",
+  "base_path": "/rest/v1.0",
+  "authentication": {
+    "endpoint": "/rest/v1.0/auth",
+    "method": "POST",
+    "request_body": {
+      "username": "string",
+      "password": "string"
+    },
+    "response_header": "X-DD-AUTH-TOKEN",
+    "description": "Authenticate and obtain session token"
+  },
+  "endpoints": {
+    "system": {
+      "path": "/rest/v1.0/system",
+      "method": "GET",
+      "description": "Get system information including version, model, capacity, compression",
+      "response_fields": [
+        "name",
+        "version",
+        "model",
+        "serial_number",
+        "physical_capacity",
+        "logical_capacity",
+        "compression_factor",
+        "deduplication_factor"
+      ]
+    },
+    "dd_systems": {
+      "path": "/rest/v1.0/dd-systems/0",
+      "method": "GET",
+      "description": "Get DD system details including HA/cluster configuration",
+      "response_fields": [
+        "id",
+        "name",
+        "serial_number",
+        "model",
+        "version"
+      ]
+    },
+    "ha_status": {
+      "path": "/rest/v1.0/dd-systems/0/ha",
+      "method": "GET",
+      "description": "Get High Availability status and configuration",
+      "response_fields": [
+        "enabled",
+        "state",
+        "role",
+        "partner_name",
+        "partner_address",
+        "partner_status",
+        "failover_status"
+      ]
+    },
+    "alerts": {
+      "path": "/rest/v1.0/dd-systems/0/alerts",
+      "method": "GET",
+      "description": "Get active alerts and warnings",
+      "query_params": {
+        "filter": "active",
+        "severity": "all"
+      },
+      "response_fields": [
+        "id",
+        "severity",
+        "category",
+        "message",
+        "timestamp",
+        "state"
+      ]
+    },
+    "services": {
+      "path": "/rest/v1.0/dd-systems/0/services",
+      "method": "GET",
+      "description": "Get status of system services",
+      "response_fields": [
+        "name",
+        "status",
+        "enabled"
+      ]
+    },
+    "storage_units": {
+      "path": "/rest/v1.0/dd-systems/0/storage-units",
+      "method": "GET",
+      "description": "Get storage unit information",
+      "response_fields": [
+        "name",
+        "id",
+        "status",
+        "pre_comp_used",
+        "pre_comp_total",
+        "post_comp_used",
+        "post_comp_total"
+      ]
+    },
+    "filesystems": {
+      "path": "/rest/v1.0/dd-systems/0/file-systems",
+      "method": "GET",
+      "description": "Get filesystem information",
+      "response_fields": [
+        "name",
+        "id",
+        "status",
+        "pre_comp_used",
+        "pre_comp_avail",
+        "post_comp_used"
+      ]
+    },
+    "networks": {
+      "path": "/rest/v1.0/dd-systems/0/networks",
+      "method": "GET",
+      "description": "Get all network interfaces",
+      "response_fields": [
+        "id",
+        "name",
+        "enabled",
+        "ip_config",
+        "link_status"
+      ]
+    },
+    "network_interface": {
+      "path": "/rest/v1.0/dd-systems/0/networks/{interface_name}",
+      "method": "GET",
+      "description": "Get specific network interface details",
+      "path_params": {
+        "interface_name": "Interface name (e.g., ethMa, ethMb, ethV0)"
+      },
+      "response_fields": [
+        "id",
+        "name",
+        "enabled",
+        "ip_config",
+        "link_status",
+        "mtu"
+      ]
+    },
+    "replication": {
+      "path": "/rest/v1.0/dd-systems/0/replication",
+      "method": "GET",
+      "description": "Get replication status and configuration",
+      "response_fields": [
+        "contexts",
+        "pairs",
+        "status"
+      ]
+    },
+    "replication_contexts": {
+      "path": "/rest/v1.0/dd-systems/0/replication/contexts",
+      "method": "GET",
+      "description": "Get replication context information",
+      "response_fields": [
+        "id",
+        "name",
+        "state",
+        "direction",
+        "remote_host",
+        "remote_user"
+      ]
+    },
+    "mtrees": {
+      "path": "/rest/v1.0/dd-systems/0/mtrees",
+      "method": "GET",
+      "description": "Get MTree information",
+      "response_fields": [
+        "name",
+        "id",
+        "status",
+        "tenant_unit",
+        "pre_comp_used"
+      ]
+    },
+    "protocols": {
+      "path": "/rest/v1.0/dd-systems/0/protocols",
+      "method": "GET",
+      "description": "Get enabled protocols (NFS, CIFS, DD Boost, etc.)",
+      "response_fields": [
+        "nfs",
+        "cifs",
+        "dd_boost",
+        "vtl"
+      ]
+    },
+    "hardware": {
+      "path": "/rest/v1.0/dd-systems/0/hardware",
+      "method": "GET",
+      "description": "Get hardware component status",
+      "response_fields": [
+        "chassis",
+        "controllers",
+        "disks",
+        "power_supplies",
+        "fans",
+        "temperatures"
+      ]
+    },
+    "disks": {
+      "path": "/rest/v1.0/dd-systems/0/disks",
+      "method": "GET",
+      "description": "Get disk information and status",
+      "response_fields": [
+        "id",
+        "serial_number",
+        "state",
+        "tier",
+        "capacity",
+        "model"
+      ]
+    },
+    "stats": {
+      "path": "/rest/v1.0/dd-systems/0/stats",
+      "method": "GET",
+      "description": "Get system statistics",
+      "query_params": {
+        "metrics": "cpu,memory,throughput",
+        "interval": "current"
+      },
+      "response_fields": [
+        "cpu_avg",
+        "cpu_busy",
+        "memory_used",
+        "memory_total",
+        "throughput"
+      ]
+    },
+    "licenses": {
+      "path": "/rest/v1.0/dd-systems/0/licenses",
+      "method": "GET",
+      "description": "Get license information",
+      "response_fields": [
+        "feature",
+        "status",
+        "expiration",
+        "capacity"
+      ]
+    }
+  },
+  "common_management_interfaces": [
+    "ethMa",
+    "ethMb",
+    "ethMc",
+    "ethMd"
+  ],
+  "alert_severities": [
+    "critical",
+    "major",
+    "minor",
+    "warning",
+    "info"
+  ],
+  "ha_states": [
+    "enabled",
+    "disabled",
+    "active",
+    "standby",
+    "failed",
+    "unknown"
+  ],
+  "notes": {
+    "port": 3009,
+    "protocol": "https",
+    "authentication_required": true,
+    "token_header": "X-DD-AUTH-TOKEN",
+    "timeout_recommended": 10
+  }
+}
