@@ -1355,6 +1355,9 @@ class DellDataDomainClient(StorageClient):
     # Critical alert severity levels
     CRITICAL_ALERT_SEVERITIES = ['critical', 'major']
     
+    # Management network interfaces to check when bulk API fails
+    MANAGEMENT_INTERFACES = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
+    
     def authenticate(self):
         """Authenticate with DataDomain and obtain session token
         
@@ -1462,12 +1465,19 @@ class DellDataDomainClient(StorageClient):
             dict: HA status information or None
         """
         try:
-            data = self._make_api_request('/rest/v1.0/dd-systems/0/ha', headers, ssl_verify)
+            # Try both API v1 and REST v1.0 endpoints for HA information
+            # API v1 provides more structured data with HaSysInfo schema
+            data = self._make_api_request('/api/v1/dd-systems/0/ha', headers, ssl_verify)
+            
+            # If API v1 fails, fallback to REST v1.0
+            if not data:
+                data = self._make_api_request('/rest/v1.0/dd-systems/0/ha', headers, ssl_verify)
+            
             if not data:
                 return None
             
-            # Extract haInfo section if present (API v2.0 format)
-            # If not present, use the entire data object (API v1.0 format)
+            # Extract haInfo section if present (API v1/v2.0 format with HaSysInfo wrapper)
+            # If not present, use the entire data object (REST v1.0 format)
             ha_section = data.get('haInfo', data)
             
             ha_info = {
@@ -1475,9 +1485,10 @@ class DellDataDomainClient(StorageClient):
                 'state': ha_section.get('state', 'unknown'),
                 'role': ha_section.get('role', 'unknown'),
                 'mode': ha_section.get('mode'),
+                'node_name': ha_section.get('nodeName'),  # Current node's name
                 'origin_hostname': ha_section.get('originHostname'),
                 'system_id': ha_section.get('systemId'),
-                'partner_name': data.get('partner_name'),
+                'partner_name': data.get('partner_name'),  # Will be populated from peer info if not present
                 'partner_address': data.get('partner_address'),
                 'partner_status': data.get('partner_status'),
                 'failover_status': data.get('failover_status')
@@ -1491,7 +1502,8 @@ class DellDataDomainClient(StorageClient):
                     'serial_no': peer_info.get('serialno'),
                     'ip': peer_info.get('ip'),
                     'node_name': peer_info.get('nodeName'),
-                    'state': peer_info.get('state')
+                    'state': peer_info.get('state'),
+                    'origin_hostname': peer_info.get('originHostname')
                 }
                 # Use peer info to populate partner fields if not already set
                 if not ha_info['partner_name'] and peer_info.get('nodeName'):
@@ -1501,9 +1513,14 @@ class DellDataDomainClient(StorageClient):
                 if not ha_info['partner_status'] and peer_info.get('state'):
                     ha_info['partner_status'] = peer_info.get('state')
             
+            # Extract failover history if available
+            failover_history = data.get('failoverHistory', [])
+            if failover_history:
+                ha_info['failover_history'] = failover_history
+            
             logger.debug(f"DataDomain {self.ip_address} - HA Status: {ha_info.get('state')}, "
                         f"Role: {ha_info.get('role')}, Mode: {ha_info.get('mode')}, "
-                        f"Partner: {ha_info.get('partner_name')}")
+                        f"Node: {ha_info.get('node_name')}, Partner: {ha_info.get('partner_name')}")
             
             return ha_info
         except Exception as e:
@@ -1632,6 +1649,27 @@ class DellDataDomainClient(StorageClient):
                                 nic_info['netmask'] = ip_config.get('netmask')
                                 nic_info['gateway'] = ip_config.get('gateway')
                                 nics.append(nic_info)
+            
+            # If we didn't get any NICs from the bulk API, try querying management interfaces individually
+            if not nics:
+                logger.debug(f"DataDomain {self.ip_address} - No NICs from bulk API, trying individual management interfaces")
+                for iface_name in self.MANAGEMENT_INTERFACES:
+                    try:
+                        iface_data = self._make_api_request(f'/rest/v2.0/dd-systems/0/networks/nics/{iface_name}', headers, ssl_verify)
+                        if iface_data:
+                            ip_config = iface_data.get('ip_config', {})
+                            if ip_config.get('ip_address'):
+                                nics.append({
+                                    'name': iface_name,
+                                    'ip_address': ip_config.get('ip_address'),
+                                    'netmask': ip_config.get('netmask'),
+                                    'gateway': ip_config.get('gateway'),
+                                    'enabled': iface_data.get('enabled', False),
+                                    'link_status': iface_data.get('link_status', 'unknown'),
+                                    'mtu': iface_data.get('mtu')
+                                })
+                    except Exception as e:
+                        logger.debug(f"Could not get individual NIC {iface_name} for DataDomain {self.ip_address}: {e}")
             
             logger.debug(f"DataDomain {self.ip_address} - Found {len(nics)} NICs from v2.0 API")
             return nics
@@ -1841,8 +1879,7 @@ class DellDataDomainClient(StorageClient):
             
             # If network interfaces API didn't work, try the legacy method for management IPs
             if not network_interfaces:
-                mgmt_interfaces = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
-                for iface in mgmt_interfaces:
+                for iface in self.MANAGEMENT_INTERFACES:
                     try:
                         iface_response = requests.get(
                             f"{self.base_url}/rest/v1.0/dd-systems/0/networks/{iface}",
