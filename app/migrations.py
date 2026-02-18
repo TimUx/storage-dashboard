@@ -2,6 +2,7 @@
 import sqlite3
 import logging
 from app import db
+from app.constants import VENDOR_DELL_DATADOMAIN, VENDOR_DEFAULT_PORTS
 import re
 
 logger = logging.getLogger(__name__)
@@ -113,25 +114,32 @@ def migrate_storage_systems_table():
 
 
 def migrate_datadomain_port():
-    """Update existing DataDomain systems to use port 3009 if they're using the default port 443"""
+    """Update existing DataDomain systems to use port 3009 if they're using the default port 443
+    
+    Uses constants from app.constants to ensure consistency with the rest of the application.
+    """
     try:
         from app.models import StorageSystem
         
+        # Get the correct DataDomain port from constants
+        correct_port = VENDOR_DEFAULT_PORTS[VENDOR_DELL_DATADOMAIN]
+        
         # Find all DataDomain systems using port 443 (incorrect default)
-        datadomain_systems = StorageSystem.query.filter_by(vendor='dell-datadomain', port=443).all()
+        # Note: We check for 443 specifically as that was the old default
+        datadomain_systems = StorageSystem.query.filter_by(vendor=VENDOR_DELL_DATADOMAIN, port=443).all()
         
         if not datadomain_systems:
-            logger.info("No DataDomain systems found with port 443, skipping port migration.")
+            logger.info(f"No {VENDOR_DELL_DATADOMAIN} systems found with port 443, skipping port migration.")
             return 0
         
         count = 0
         for system in datadomain_systems:
-            logger.info(f"Updating DataDomain system '{system.name}' ({system.ip_address}) from port 443 to 3009")
-            system.port = 3009
+            logger.info(f"Updating DataDomain system '{system.name}' ({system.ip_address}) from port 443 to {correct_port}")
+            system.port = correct_port
             count += 1
         
         db.session.commit()
-        logger.info(f"Successfully updated {count} DataDomain system(s) to use port 3009")
+        logger.info(f"Successfully updated {count} DataDomain system(s) to use port {correct_port}")
         return count
         
     except Exception as e:
