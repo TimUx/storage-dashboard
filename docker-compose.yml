@@ -26,6 +26,9 @@ services:
       
       # SSL verification for storage APIs
       - SSL_VERIFY=${SSL_VERIFY:-false}
+      
+      # Timezone configuration (Europe/Berlin = MEZ/MESZ)
+      - TZ=${TZ:-Europe/Berlin}
     
     # Volumes for data persistence
     volumes:

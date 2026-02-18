@@ -40,10 +40,25 @@ def create_app():
     # Register custom Jinja2 filters
     @app.template_filter('format_datetime')
     def format_datetime_filter(dt, format='%d.%m.%Y %H:%M'):
-        """Format datetime safely"""
+        """Format datetime safely with timezone conversion"""
         if dt is None:
             return '-'
         if isinstance(dt, datetime):
+            # Convert from UTC to configured timezone
+            try:
+                from app.models import AppSettings
+                import pytz
+                
+                settings = AppSettings.query.first()
+                if settings and settings.timezone:
+                    # Assume dt is in UTC, convert to configured timezone
+                    utc_dt = dt.replace(tzinfo=pytz.UTC)
+                    target_tz = pytz.timezone(settings.timezone)
+                    local_dt = utc_dt.astimezone(target_tz)
+                    return local_dt.strftime(format)
+            except Exception:
+                # Fallback to UTC if conversion fails
+                pass
             return dt.strftime(format)
         return str(dt)
     
