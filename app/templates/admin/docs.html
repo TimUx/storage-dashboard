@@ -163,28 +163,47 @@
         
         <p><strong>Schritt 2: API-Token generieren</strong></p>
         <ol>
-            <li>Nach dem Login navigieren Sie zu <strong>Help → API Documentation</strong></li>
-            <li>Alternativ können Sie den Token direkt über die Auth API erstellen:
-                <pre><code>POST https://&lt;storagegrid-ip&gt;/api/v3/authorize
-{
-  "username": "root",
-  "password": "your-password",
-  "cookie": true,
-  "csrfToken": true
-}</code></pre>
-            </li>
-            <li>Der Response enthält das Authorization Token im Header</li>
-            <li>Kopieren Sie den Bearer Token aus der Response</li>
+            <li>Nach dem Login navigieren Sie zu <strong>Users</strong></li>
+            <li>Wählen Sie Ihren Benutzer oder erstellen Sie einen Service-Account</li>
+            <li>Klicken Sie auf <strong>Generate Token</strong></li>
+            <li>Kopieren Sie den generierten Bearer Token</li>
+            <li>Der Token wird nur einmal angezeigt - speichern Sie ihn sicher!</li>
         </ol>
         
+        <div class="note">
+            <strong>Alternative:</strong> Sie können den Token auch direkt über die REST API erstellen:
+            <pre style="margin-top: 0.5rem;"><code>curl -X POST "https://&lt;storagegrid-ip&gt;/api/v3/authorize" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "root",
+    "password": "your-password",
+    "cookie": true,
+    "csrfToken": false
+  }' -k</code></pre>
+        </div>
+        
         <p><strong>Schritt 3: Token im Dashboard konfigurieren</strong></p>
+        
+        <p><strong>Option 1: Mit Bearer Token</strong></p>
         <ul>
             <li>Tragen Sie den Bearer Token im Feld <code>API Token</code> ein</li>
             <li>Lassen Sie Benutzername und Passwort leer</li>
         </ul>
         
+        <p><strong>Option 2: Mit Benutzername/Passwort (empfohlen)</strong></p>
+        <ul>
+            <li>Tragen Sie Benutzername und Passwort ein</li>
+            <li>Lassen Sie API Token leer</li>
+            <li>Das Dashboard generiert automatisch Tokens bei Bedarf</li>
+        </ul>
+        
         <div class="note">
-            <strong>Hinweis:</strong> Der Token hat eine begrenzte Gültigkeitsdauer. Bei Authentifizierungsfehlern muss ein neuer Token generiert werden.
+            <strong>Wichtige Hinweise:</strong>
+            <ul style="margin-top: 0.5rem; margin-bottom: 0;">
+                <li>Der Bearer Token hat eine begrenzte Gültigkeitsdauer (Standard: 16 Stunden)</li>
+                <li>Bei Authentifizierungsfehlern muss ein neuer Token generiert werden</li>
+                <li><strong>Empfehlung:</strong> Verwenden Sie Benutzername/Passwort statt Token - das Dashboard generiert dann automatisch neue Tokens bei Bedarf</li>
+            </ul>
         </div>
     </div>
     
