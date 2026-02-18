@@ -1467,15 +1467,16 @@ class DellDataDomainClient(StorageClient):
                 return None
             
             # Extract haInfo section if present (API v2.0 format)
-            ha_data = data.get('haInfo', data)
+            # If not present, use the entire data object (API v1.0 format)
+            ha_section = data.get('haInfo', data)
             
             ha_info = {
                 'enabled': data.get('enabled', False),
-                'state': ha_data.get('state', 'unknown'),
-                'role': ha_data.get('role', 'unknown'),
-                'mode': ha_data.get('mode'),
-                'origin_hostname': ha_data.get('originHostname'),
-                'system_id': ha_data.get('systemId'),
+                'state': ha_section.get('state', 'unknown'),
+                'role': ha_section.get('role', 'unknown'),
+                'mode': ha_section.get('mode'),
+                'origin_hostname': ha_section.get('originHostname'),
+                'system_id': ha_section.get('systemId'),
                 'partner_name': data.get('partner_name'),
                 'partner_address': data.get('partner_address'),
                 'partner_status': data.get('partner_status'),
@@ -1483,7 +1484,7 @@ class DellDataDomainClient(StorageClient):
             }
             
             # Extract peer information if available
-            peer_info = ha_data.get('peerInfo', {})
+            peer_info = ha_section.get('peerInfo', {})
             if peer_info:
                 ha_info['peer'] = {
                     'chassis_no': peer_info.get('chassisno'),
@@ -1556,7 +1557,10 @@ class DellDataDomainClient(StorageClient):
                 return []
             
             interfaces = []
-            network_list = data.get('network', []) or data.get('networks', []) or []
+            # Try multiple possible field names for network list
+            network_list = data.get('network')
+            if network_list is None:
+                network_list = data.get('networks', [])
             
             if isinstance(network_list, list):
                 for iface in network_list:
@@ -1592,7 +1596,10 @@ class DellDataDomainClient(StorageClient):
                 return self._get_all_network_interfaces(headers, ssl_verify)
             
             nics = []
-            nic_list = data.get('nics', []) or data.get('nic', []) or []
+            # Try multiple possible field names for NIC list
+            nic_list = data.get('nics')
+            if nic_list is None:
+                nic_list = data.get('nic', [])
             
             if isinstance(nic_list, list):
                 for nic in nic_list:
@@ -1856,7 +1863,6 @@ class DellDataDomainClient(StorageClient):
                                 })
                     except Exception as iface_error:
                         logger.debug(f"Could not get interface {iface} for DataDomain {self.ip_address}: {iface_error}")
-            
             
             # Get replication status
             replication_status = self._get_replication_status(headers, ssl_verify)
