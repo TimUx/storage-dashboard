@@ -1,6 +1,7 @@
 """API clients for different storage vendors"""
 from app.api.base_client import StorageClient
 from app.discovery import reverse_dns_lookup
+from app.constants import VENDOR_DEFAULT_PORTS
 from flask import current_app
 import requests
 import warnings
@@ -1556,20 +1557,13 @@ def get_client(vendor, ip_address, port=None, username=None, password=None, toke
         'dell-datadomain': DellDataDomainClient
     }
     
-    # Default ports for each vendor
-    default_ports = {
-        'pure': 443,
-        'netapp-ontap': 443,
-        'netapp-storagegrid': 443,
-        'dell-datadomain': 3009  # DataDomain REST API uses port 3009
-    }
-    
     client_class = clients.get(vendor)
     if not client_class:
         raise ValueError(f"Unknown vendor: {vendor}")
     
     # Use vendor-specific default port if not specified
+    # VENDOR_DEFAULT_PORTS is imported from app.constants (single source of truth)
     if port is None:
-        port = default_ports.get(vendor, 443)
+        port = VENDOR_DEFAULT_PORTS.get(vendor, 443)
     
     return client_class(ip_address, port, username, password, token)

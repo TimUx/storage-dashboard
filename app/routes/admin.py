@@ -4,6 +4,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 from app import db
 from app.models import StorageSystem, Certificate, AdminUser, AppSettings
 from app.discovery import auto_discover_system
+from app.constants import VENDOR_DEFAULT_PORTS, VENDOR_PORT_DESCRIPTIONS
 from datetime import datetime
 import logging
 import io
@@ -11,15 +12,6 @@ import json
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 logger = logging.getLogger(__name__)
-
-# Vendor-specific default ports
-# This is the single source of truth for default ports
-VENDOR_DEFAULT_PORTS = {
-    'pure': 443,
-    'netapp-ontap': 443,
-    'netapp-storagegrid': 443,
-    'dell-datadomain': 3009  # DataDomain REST API uses port 3009
-}
 
 
 # Authentication routes
@@ -127,7 +119,9 @@ def new_system():
             logger.error(f'Error adding system: {e}', exc_info=True)
             flash(f'Error adding system: {str(e)}', 'error')
     
-    return render_template('admin/form.html', system=None, action='Create', vendor_ports=VENDOR_DEFAULT_PORTS)
+    return render_template('admin/form.html', system=None, action='Create', 
+                         vendor_ports=VENDOR_DEFAULT_PORTS, 
+                         vendor_port_descriptions=VENDOR_PORT_DESCRIPTIONS)
 
 
 @bp.route('/systems/<int:system_id>/edit', methods=['GET', 'POST'])
@@ -159,7 +153,9 @@ def edit_system(system_id):
         except Exception as e:
             flash(f'Error updating system: {str(e)}', 'error')
     
-    return render_template('admin/form.html', system=system, action='Edit', vendor_ports=VENDOR_DEFAULT_PORTS)
+    return render_template('admin/form.html', system=system, action='Edit', 
+                         vendor_ports=VENDOR_DEFAULT_PORTS, 
+                         vendor_port_descriptions=VENDOR_PORT_DESCRIPTIONS)
 
 
 @bp.route('/systems/<int:system_id>/rediscover', methods=['POST'])

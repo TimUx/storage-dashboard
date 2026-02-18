@@ -257,17 +257,15 @@
 
 <script>
 // Auto-set port based on vendor selection
-// Vendor port configuration is passed from the backend
+// Vendor port configuration is passed from the backend (single source of truth)
 const vendorPorts = {{ vendor_ports | tojson }};
+const vendorPortDescriptions = {{ vendor_port_descriptions | tojson }};
 
-// Generate hint messages for each vendor
+// Generate hint messages for each vendor using backend data
 const vendorHints = {};
 for (const [vendor, port] of Object.entries(vendorPorts)) {
-    if (port === 3009) {
-        vendorHints[vendor] = `Standard: ${port} (DataDomain REST API)`;
-    } else {
-        vendorHints[vendor] = `Standard: ${port} (HTTPS)`;
-    }
+    const description = vendorPortDescriptions[vendor] || 'HTTPS';
+    vendorHints[vendor] = `Standard: ${port} (${description})`;
 }
 
 document.getElementById('vendor').addEventListener('change', function() {
