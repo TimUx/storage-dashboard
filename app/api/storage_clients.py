@@ -1673,9 +1673,11 @@ class DellDataDomainClient(StorageClient):
                 ip_address = nic.get('ip_address')
                 if ip_address:
                     dns_names = reverse_dns_lookup(ip_address)
-                    # Keep all existing fields plus add 'ip' and 'dns_names' for consistency
+                    # Maintain both 'ip_address' (for template display) and 'ip' (for extract_ips_from_mgmt_ips)
+                    # This dual format ensures compatibility with both DataDomain-specific template code
+                    # and the generic IP extraction function used by all vendors
                     nic_with_dns = nic.copy()
-                    nic_with_dns['ip'] = ip_address  # Add 'ip' field for extract_ips_from_mgmt_ips
+                    nic_with_dns['ip'] = ip_address  # Add 'ip' field for extract_ips_from_mgmt_ips compatibility
                     nic_with_dns['dns_names'] = dns_names
                     nics_with_dns.append(nic_with_dns)
                     if dns_names:
