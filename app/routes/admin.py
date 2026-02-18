@@ -106,6 +106,17 @@ def new_system():
                 system.set_dns_names(discovery_result.get('dns_names', []))
                 system.set_all_ips(discovery_result.get('all_ips', []))
                 system.set_node_details(discovery_result.get('node_details', []))
+                
+                # Save HA info if present (for DataDomain)
+                if discovery_result.get('ha_info'):
+                    system.set_ha_info(discovery_result.get('ha_info'))
+                
+                # Save OS version and API version if present
+                if discovery_result.get('os_version'):
+                    system.os_version = discovery_result.get('os_version')
+                if discovery_result.get('api_version'):
+                    system.api_version = discovery_result.get('api_version')
+                
                 system.last_discovery = datetime.utcnow()
                 
                 flash(f'System added and discovered successfully! Found {system.node_count or 0} nodes.', 'success')
@@ -187,6 +198,17 @@ def rediscover_system(system_id):
             system.set_dns_names(discovery_result.get('dns_names', []))
             system.set_all_ips(discovery_result.get('all_ips', []))
             system.set_node_details(discovery_result.get('node_details', []))
+            
+            # Save HA info if present (for DataDomain)
+            if discovery_result.get('ha_info'):
+                system.set_ha_info(discovery_result.get('ha_info'))
+            
+            # Save OS version and API version if present
+            if discovery_result.get('os_version'):
+                system.os_version = discovery_result.get('os_version')
+            if discovery_result.get('api_version'):
+                system.api_version = discovery_result.get('api_version')
+            
             system.last_discovery = datetime.utcnow()
             system.discovery_error = None
             
@@ -239,6 +261,17 @@ def rediscover_all_systems():
                 system.set_dns_names(discovery_result.get('dns_names', []))
                 system.set_all_ips(discovery_result.get('all_ips', []))
                 system.set_node_details(discovery_result.get('node_details', []))
+                
+                # Save HA info if present (for DataDomain)
+                if discovery_result.get('ha_info'):
+                    system.set_ha_info(discovery_result.get('ha_info'))
+                
+                # Save OS version and API version if present
+                if discovery_result.get('os_version'):
+                    system.os_version = discovery_result.get('os_version')
+                if discovery_result.get('api_version'):
+                    system.api_version = discovery_result.get('api_version')
+                
                 system.last_discovery = datetime.utcnow()
                 system.discovery_error = None
                 success_count += 1
