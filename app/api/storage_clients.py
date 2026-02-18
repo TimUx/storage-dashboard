@@ -1346,6 +1346,15 @@ class DellDataDomainClient(StorageClient):
     Returns X-DD-AUTH-TOKEN in response header
     """
     
+    # Alert state constants for filtering active alerts
+    ACTIVE_ALERT_STATES = ['active', 'new', 'unresolved']
+    
+    # Hardware component failure states
+    FAILED_COMPONENT_STATES = ['failed', 'error', 'critical']
+    
+    # Critical alert severity levels
+    CRITICAL_ALERT_SEVERITIES = ['critical', 'major']
+    
     def authenticate(self):
         """Authenticate with DataDomain and obtain session token
         
@@ -1401,13 +1410,15 @@ class DellDataDomainClient(StorageClient):
             logger.error(traceback.format_exc())
             return None
     
-    def _make_api_request(self, endpoint, headers=None, ssl_verify=None):
+    def _make_api_request(self, endpoint, method='GET', headers=None, ssl_verify=None, data=None):
         """Make an API request to DataDomain
         
         Args:
             endpoint: API endpoint path (e.g., '/rest/v1.0/dd-systems/0/ha')
+            method: HTTP method (GET, POST, PUT, DELETE)
             headers: HTTP headers (will add auth token)
             ssl_verify: SSL verification setting
+            data: Request body data (for POST/PUT)
             
         Returns:
             dict: Response JSON data or None on error
@@ -1421,12 +1432,19 @@ class DellDataDomainClient(StorageClient):
             ssl_verify = get_ssl_verify(self.resolved_address)
         
         try:
-            response = requests.get(
-                f"{self.base_url}{endpoint}",
-                headers=headers,
-                verify=ssl_verify,
-                timeout=10
-            )
+            url = f"{self.base_url}{endpoint}"
+            
+            if method.upper() == 'GET':
+                response = requests.get(url, headers=headers, verify=ssl_verify, timeout=10)
+            elif method.upper() == 'POST':
+                response = requests.post(url, headers=headers, json=data, verify=ssl_verify, timeout=10)
+            elif method.upper() == 'PUT':
+                response = requests.put(url, headers=headers, json=data, verify=ssl_verify, timeout=10)
+            elif method.upper() == 'DELETE':
+                response = requests.delete(url, headers=headers, verify=ssl_verify, timeout=10)
+            else:
+                logger.error(f"Unsupported HTTP method: {method}")
+                return None
             
             if response.status_code == 200:
                 return response.json()
@@ -1484,8 +1502,8 @@ class DellDataDomainClient(StorageClient):
             
             if isinstance(alert_list, list):
                 for alert in alert_list:
-                    # Only include active alerts
-                    if alert.get('state', '').lower() in ['active', 'new', 'unresolved']:
+                    # Only include active alerts (using class constant)
+                    if alert.get('state', '').lower() in self.ACTIVE_ALERT_STATES:
                         alerts.append({
                             'id': alert.get('id'),
                             'severity': alert.get('severity', 'unknown'),
@@ -1591,13 +1609,13 @@ class DellDataDomainClient(StorageClient):
                 'overall_status': 'ok'  # Will be updated based on component status
             }
             
-            # Check for failed components
+            # Check for failed components (using class constant)
             failed_components = []
             for component_type in ['power_supplies', 'fans', 'controllers']:
                 components = data.get(component_type, [])
                 if isinstance(components, list):
                     for comp in components:
-                        if comp.get('status', '').lower() in ['failed', 'error', 'critical']:
+                        if comp.get('status', '').lower() in self.FAILED_COMPONENT_STATES:
                             failed_components.append(f"{component_type}:{comp.get('id', 'unknown')}")
             
             if failed_components:
@@ -1783,8 +1801,9 @@ class DellDataDomainClient(StorageClient):
                 elif ha_state in ['degraded', 'warning']:
                     cluster_health = 'warning'
             
-            # Check for critical alerts
-            critical_alerts = [a for a in active_alerts if a.get('severity', '').lower() in ['critical', 'major']]
+            # Check for critical alerts (using class constant)
+            critical_alerts = [a for a in active_alerts 
+                             if a.get('severity', '').lower() in self.CRITICAL_ALERT_SEVERITIES]
             if critical_alerts:
                 if hardware_health == 'ok':
                     hardware_health = 'warning'
