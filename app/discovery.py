@@ -1,7 +1,10 @@
 """System discovery utilities for auto-detecting storage system details"""
 import socket
 import logging
+import requests
+import traceback
 from datetime import datetime
+from app.api.storage_clients import get_ssl_verify
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +16,10 @@ SHELF_CONTROLLER_PATTERN = '.SC'
 # API configuration constants
 PURE_API_VERSION = '2.4'
 API_TIMEOUT = 10  # seconds
+
+# HTTP status codes
+HTTP_OK = 200
+HTTP_CREATED = 201  # DataDomain API returns 201 for successful authentication
 
 # StorageGRID constants
 UNKNOWN_SITE = 'Unknown Site'
@@ -71,7 +78,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 verify=ssl_verify,
                 timeout=API_TIMEOUT
             )
-            if version_response.status_code == 200:
+            if version_response.status_code == HTTP_OK:
                 data = version_response.json()
                 versions = data.get('version', [])
                 if versions:
@@ -111,7 +118,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
             timeout=API_TIMEOUT
         )
         
-        if arrays_response.status_code == 200:
+        if arrays_response.status_code == HTTP_OK:
             # Detect cluster type (HA is default for Pure)
             discovery_data['cluster_type'] = 'ha'
         
@@ -125,7 +132,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if controllers_response.status_code == 200:
+            if controllers_response.status_code == HTTP_OK:
                 controllers_data = controllers_response.json()
                 controller_items = controllers_data.get('items', [])
                 
@@ -155,7 +162,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                             timeout=API_TIMEOUT
                         )
                         
-                        if network_interfaces_response.status_code == 200:
+                        if network_interfaces_response.status_code == HTTP_OK:
                             interfaces_data = network_interfaces_response.json()
                             interface_items = interfaces_data.get('items', [])
                             
@@ -190,7 +197,7 @@ def discover_pure_storage(ip_address, api_token, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if pods_response.status_code == 200:
+            if pods_response.status_code == HTTP_OK:
                 pods_data = pods_response.json()
                 pod_items = pods_data.get('items', [])
                 
@@ -272,7 +279,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if cluster_response.status_code == 200:
+            if cluster_response.status_code == HTTP_OK:
                 cluster_data = cluster_response.json()
                 
                 # Check for MetroCluster using dedicated endpoint
@@ -287,7 +294,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                         timeout=API_TIMEOUT
                     )
                     
-                    if mc_response.status_code == 200:
+                    if mc_response.status_code == HTTP_OK:
                         mc_data = mc_response.json()
                         
                         # Check if response contains error (no MetroCluster)
@@ -320,7 +327,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if nodes_response.status_code == 200:
+            if nodes_response.status_code == HTTP_OK:
                 nodes_data = nodes_response.json()
                 node_list = nodes_data.get('records', [])
                 discovery_data['node_count'] = len(node_list)
@@ -349,7 +356,7 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                             timeout=API_TIMEOUT
                         )
                         
-                        if node_detail_response.status_code == 200:
+                        if node_detail_response.status_code == HTTP_OK:
                             node_detail = node_detail_response.json()
                             
                             management_interfaces = node_detail.get('management_interfaces', [])
@@ -447,7 +454,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                 timeout=API_TIMEOUT
             )
             
-            if node_health_response.status_code == 200:
+            if node_health_response.status_code == HTTP_OK:
                 node_health_data = node_health_response.json()
                 # Response format: {"data": [{node_details}, ...]}
                 nodes_list = node_health_data.get('data', [])
@@ -506,7 +513,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                     timeout=API_TIMEOUT
                 )
                 
-                if nodes_response.status_code == 200:
+                if nodes_response.status_code == HTTP_OK:
                     nodes_data = nodes_response.json()
                     # Response format: {"data": [{node_details}, ...]}
                     nodes_list = nodes_data.get('data', [])
@@ -521,7 +528,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                             timeout=API_TIMEOUT
                         )
                         
-                        if service_ids_response.status_code == 200:
+                        if service_ids_response.status_code == HTTP_OK:
                             service_ids_data = service_ids_response.json()
                             services = service_ids_data.get('data', [])
                             
@@ -609,7 +616,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                     timeout=API_TIMEOUT
                 )
                 
-                if node_health_response.status_code == 200:
+                if node_health_response.status_code == HTTP_OK:
                     node_health_data = node_health_response.json()
                     nodes_list = node_health_data.get('data', [])
                     
@@ -648,7 +655,7 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
                         timeout=API_TIMEOUT
                     )
                     
-                    if topology_response.status_code == 200:
+                    if topology_response.status_code == HTTP_OK:
                         topology_data = topology_response.json()
                         
                         # Parse hierarchical topology structure
@@ -707,12 +714,10 @@ def discover_storagegrid(ip_address, api_token, ssl_verify=False):
 
 def discover_datadomain(ip_address, username, password, ssl_verify=False):
     """
-    Discover Dell DataDomain details via API
+    Discover Dell DataDomain details via REST API v1.0
     
-    Returns dict with system info
+    Returns dict with cluster info, HA status, node details, etc.
     """
-    import requests
-    
     try:
         discovery_data = {
             'cluster_type': None,
@@ -721,17 +726,243 @@ def discover_datadomain(ip_address, username, password, ssl_verify=False):
             'dns_names': reverse_dns_lookup(ip_address),
             'all_ips': [ip_address],
             'node_details': [],
-            'partner_info': None
+            'ha_info': None,
+            'os_version': None,
+            'api_version': None
         }
         
-        # DataDomain REST API discovery
-        # This would require proper authentication and API calls
-        logger.info(f"DataDomain discovery not fully implemented for {ip_address}")
+        base_url = f"https://{ip_address}:3009"
+        
+        # Determine SSL verification setting
+        if ssl_verify is False:
+            # Use custom SSL verification based on configured certificates
+            ssl_verify_setting = get_ssl_verify(ip_address)
+        else:
+            ssl_verify_setting = ssl_verify
+        
+        # Step 1: Authenticate and obtain session token
+        auth_data = {
+            'username': username,
+            'password': password
+        }
+        
+        try:
+            auth_response = requests.post(
+                f"{base_url}/rest/v1.0/auth",
+                json=auth_data,
+                headers={'Content-Type': 'application/json'},
+                verify=ssl_verify_setting,
+                timeout=API_TIMEOUT
+            )
+            
+            # DataDomain API returns HTTP 201 Created for successful authentication
+            if auth_response.status_code != HTTP_CREATED:
+                logger.error(f"DataDomain authentication failed for {ip_address}: HTTP {auth_response.status_code}")
+                return {
+                    'error': f'Authentication failed: HTTP {auth_response.status_code}',
+                    'dns_names': discovery_data['dns_names'],
+                    'all_ips': discovery_data['all_ips']
+                }
+            
+            # Extract token from response header
+            token = auth_response.headers.get('X-DD-AUTH-TOKEN')
+            if not token:
+                logger.error(f"Authentication response did not contain X-DD-AUTH-TOKEN header")
+                return {
+                    'error': 'Authentication failed: No token in response',
+                    'dns_names': discovery_data['dns_names'],
+                    'all_ips': discovery_data['all_ips']
+                }
+                
+        except Exception as auth_error:
+            logger.error(f"Error authenticating to DataDomain {ip_address}: {auth_error}")
+            return {
+                'error': f'Authentication error: {str(auth_error)}',
+                'dns_names': discovery_data['dns_names'],
+                'all_ips': discovery_data['all_ips']
+            }
+        
+        # Prepare headers for subsequent requests
+        headers = {
+            'X-DD-AUTH-TOKEN': token,
+            'Accept': 'application/json'
+        }
+        
+        # Step 2: Get system information
+        try:
+            system_response = requests.get(
+                f"{base_url}/rest/v1.0/system",
+                headers=headers,
+                verify=ssl_verify_setting,
+                timeout=API_TIMEOUT
+            )
+            
+            if system_response.status_code == HTTP_OK:
+                system_data = system_response.json()
+                discovery_data['os_version'] = system_data.get('version')
+                system_name = system_data.get('name')
+                
+                logger.info(f"DataDomain {ip_address} - System: {system_name}, Version: {discovery_data['os_version']}")
+        except Exception as sys_error:
+            logger.debug(f"Could not get system info for DataDomain {ip_address}: {sys_error}")
+        
+        # Step 3: Get HA (High Availability) status and partner node information
+        ha_enabled = False
+        try:
+            # Try API v1 first (more structured data)
+            ha_response = requests.get(
+                f"{base_url}/api/v1/dd-systems/0/ha",
+                headers=headers,
+                verify=ssl_verify_setting,
+                timeout=API_TIMEOUT
+            )
+            
+            # If API v1 fails, fallback to REST v1.0
+            if ha_response.status_code != HTTP_OK:
+                ha_response = requests.get(
+                    f"{base_url}/rest/v1.0/dd-systems/0/ha",
+                    headers=headers,
+                    verify=ssl_verify_setting,
+                    timeout=API_TIMEOUT
+                )
+            
+            if ha_response.status_code == HTTP_OK:
+                ha_data = ha_response.json()
+                
+                # Check if HA is enabled
+                ha_enabled = ha_data.get('enabled', False)
+                
+                # Extract haInfo section if present (API v1/v2.0 format)
+                ha_section = ha_data.get('haInfo', ha_data)
+                
+                if ha_enabled:
+                    discovery_data['cluster_type'] = 'ha'
+                    discovery_data['node_count'] = 2  # HA clusters have 2 nodes
+                    
+                    # Build HA info dict
+                    ha_info = {
+                        'enabled': True,
+                        'state': ha_section.get('state', 'unknown'),
+                        'role': ha_section.get('role', 'unknown'),
+                        'mode': ha_section.get('mode'),
+                        'node_name': ha_section.get('nodeName'),
+                        'origin_hostname': ha_section.get('originHostname'),
+                        'system_id': ha_section.get('systemId')
+                    }
+                    
+                    # Extract peer (partner) information
+                    peer_info = ha_section.get('peerInfo', {})
+                    if peer_info:
+                        ha_info['peer'] = {
+                            'chassis_no': peer_info.get('chassisno'),
+                            'serial_no': peer_info.get('serialno'),
+                            'ip': peer_info.get('ip'),
+                            'node_name': peer_info.get('nodeName'),
+                            'state': peer_info.get('state'),
+                            'origin_hostname': peer_info.get('originHostname')
+                        }
+                        ha_info['partner_name'] = peer_info.get('nodeName')
+                        ha_info['partner_address'] = peer_info.get('ip')
+                        ha_info['partner_status'] = peer_info.get('state')
+                        
+                        # Add partner IP to all_ips list
+                        if peer_info.get('ip'):
+                            discovery_data['all_ips'].append(peer_info.get('ip'))
+                    
+                    discovery_data['ha_info'] = ha_info
+                    
+                    # Create node details for current node and partner node
+                    current_node = {
+                        'name': ha_info.get('node_name') or system_name or 'Current Node',
+                        'status': ha_info.get('state', 'unknown'),
+                        'role': ha_info.get('role', 'unknown'),
+                        'type': 'DataDomain HA Node',
+                        'ips': [ip_address]
+                    }
+                    if discovery_data['os_version']:
+                        current_node['version'] = discovery_data['os_version']
+                    
+                    discovery_data['node_details'].append(current_node)
+                    
+                    # Add partner node if peer info is available
+                    if peer_info and peer_info.get('nodeName'):
+                        partner_node = {
+                            'name': peer_info.get('nodeName'),
+                            'status': peer_info.get('state', 'unknown'),
+                            'role': 'partner',
+                            'type': 'DataDomain HA Node',
+                            'serial': peer_info.get('serialno'),
+                            'ips': [peer_info.get('ip')] if peer_info.get('ip') else []
+                        }
+                        discovery_data['node_details'].append(partner_node)
+                    
+                    logger.info(f"DataDomain {ip_address} - HA Cluster detected: {ha_info.get('state')}, "
+                               f"Node: {ha_info.get('node_name')}, Partner: {ha_info.get('partner_name')}")
+                else:
+                    # HA not enabled - single node system
+                    discovery_data['cluster_type'] = 'local'
+                    discovery_data['node_count'] = 1
+                    
+                    # Still create a node entry for the current system
+                    current_node = {
+                        'name': system_name or 'DataDomain',
+                        'status': 'online',
+                        'type': 'DataDomain Single Node',
+                        'ips': [ip_address]
+                    }
+                    if discovery_data['os_version']:
+                        current_node['version'] = discovery_data['os_version']
+                    
+                    discovery_data['node_details'].append(current_node)
+                    
+                    logger.info(f"DataDomain {ip_address} - Single node system (HA not enabled)")
+        except Exception as ha_error:
+            logger.debug(f"Could not get HA info for DataDomain {ip_address}: {ha_error}")
+            # If HA check failed, assume single node
+            discovery_data['cluster_type'] = 'local'
+            discovery_data['node_count'] = 1
+        
+        # Step 4: Get network interfaces to collect all IPs
+        try:
+            # Try v2.0 NICs API
+            nics_response = requests.get(
+                f"{base_url}/rest/v2.0/dd-systems/0/networks/nics",
+                headers=headers,
+                verify=ssl_verify_setting,
+                timeout=API_TIMEOUT
+            )
+            
+            if nics_response.status_code == HTTP_OK:
+                nics_data = nics_response.json()
+                nic_list = nics_data.get('nics') or nics_data.get('nic', [])
+                
+                if isinstance(nic_list, list):
+                    for nic in nic_list:
+                        ip_config = nic.get('ip_config', {})
+                        ip_address_nic = ip_config.get('ip_address')
+                        
+                        if ip_address_nic and ip_address_nic not in discovery_data['all_ips']:
+                            discovery_data['all_ips'].append(ip_address_nic)
+                            
+                            # Perform DNS lookup for each IP
+                            dns_names = reverse_dns_lookup(ip_address_nic)
+                            discovery_data['dns_names'].extend(dns_names)
+        except Exception as nic_error:
+            logger.debug(f"Could not get network interfaces for DataDomain {ip_address}: {nic_error}")
+        
+        # Deduplicate DNS names and IPs
+        discovery_data['dns_names'] = list(set(discovery_data['dns_names']))
+        discovery_data['all_ips'] = list(set(discovery_data['all_ips']))
+        
+        logger.info(f"DataDomain discovery completed for {ip_address}: "
+                   f"Type: {discovery_data['cluster_type']}, Nodes: {discovery_data['node_count']}")
         
         return discovery_data
         
     except Exception as e:
         logger.error(f"DataDomain discovery error for {ip_address}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {
             'error': str(e),
             'dns_names': reverse_dns_lookup(ip_address),

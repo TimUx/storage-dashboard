@@ -509,7 +509,7 @@
     </div>
 
     <!-- Cluster Information -->
-    {% if system.cluster_type or system.node_count or system.site_count or partner_cluster or system.get_metrocluster_info() %}
+    {% if system.cluster_type or system.node_count or system.site_count or partner_cluster or system.get_metrocluster_info() or (system.vendor == 'dell-datadomain' and system.get_ha_info()) %}
     <div class="detail-card">
         <h2>🔗 Cluster-Information</h2>
         
@@ -593,6 +593,27 @@
             <span class="detail-label">Partner Cluster:</span>
             <span class="detail-value">{{ mc_info.partner_cluster_name }}</span>
         </div>
+        {% endif %}
+        {% endif %}
+        
+        <!-- DataDomain HA Status (Basic Info in Cluster Section) -->
+        {% if system.vendor == 'dell-datadomain' and system.cluster_type == 'ha' %}
+        {% set ha_info = system.get_ha_info() %}
+        {% if ha_info %}
+        <div class="detail-row">
+            <span class="detail-label">HA Status:</span>
+            <span class="detail-value">
+                <span class="status-badge status-{{ 'ok' if ha_info.enabled else 'unknown' }}">
+                    {{ 'Enabled' if ha_info.enabled else 'Disabled' }}
+                </span>
+            </span>
+        </div>
+        {% if ha_info.partner_name %}
+        <div class="detail-row">
+            <span class="detail-label">Partner Node:</span>
+            <span class="detail-value">{{ ha_info.partner_name }}</span>
+        </div>
+        {% endif %}
         {% endif %}
         {% endif %}
     </div>
