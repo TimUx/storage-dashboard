@@ -257,30 +257,28 @@
 
 <script>
 // Auto-set port based on vendor selection
+// Vendor port configuration is passed from the backend
+const vendorPorts = {{ vendor_ports | tojson }};
+
+// Generate hint messages for each vendor
+const vendorHints = {};
+for (const [vendor, port] of Object.entries(vendorPorts)) {
+    if (port === 3009) {
+        vendorHints[vendor] = `Standard: ${port} (DataDomain REST API)`;
+    } else {
+        vendorHints[vendor] = `Standard: ${port} (HTTPS)`;
+    }
+}
+
 document.getElementById('vendor').addEventListener('change', function() {
     const vendor = this.value;
     const portInput = document.getElementById('port');
     const portHint = document.getElementById('port-hint');
     
-    // Default ports for different vendors
-    const vendorPorts = {
-        'pure': 443,
-        'netapp-ontap': 443,
-        'netapp-storagegrid': 443,
-        'dell-datadomain': 3009
-    };
-    
-    const vendorHints = {
-        'pure': 'Standard: 443 (HTTPS)',
-        'netapp-ontap': 'Standard: 443 (HTTPS)',
-        'netapp-storagegrid': 'Standard: 443 (HTTPS)',
-        'dell-datadomain': 'Standard: 3009 (DataDomain REST API)'
-    };
-    
     if (vendor in vendorPorts) {
         // Only auto-set if the current value is empty or is one of the standard ports
         const currentPort = parseInt(portInput.value);
-        const standardPorts = [443, 3009];
+        const standardPorts = Object.values(vendorPorts).map(p => parseInt(p));
         
         if (!portInput.value || standardPorts.includes(currentPort)) {
             portInput.value = vendorPorts[vendor];

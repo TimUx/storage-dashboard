@@ -12,6 +12,15 @@ import json
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 logger = logging.getLogger(__name__)
 
+# Vendor-specific default ports
+# This is the single source of truth for default ports
+VENDOR_DEFAULT_PORTS = {
+    'pure': 443,
+    'netapp-ontap': 443,
+    'netapp-storagegrid': 443,
+    'dell-datadomain': 3009  # DataDomain REST API uses port 3009
+}
+
 
 # Authentication routes
 
@@ -68,13 +77,7 @@ def new_system():
             vendor = request.form['vendor']
             
             # Determine default port based on vendor if not specified
-            default_ports = {
-                'pure': 443,
-                'netapp-ontap': 443,
-                'netapp-storagegrid': 443,
-                'dell-datadomain': 3009
-            }
-            default_port = default_ports.get(vendor, 443)
+            default_port = VENDOR_DEFAULT_PORTS.get(vendor, 443)
             port = int(request.form.get('port', default_port))
             
             # Create system with basic info
@@ -124,7 +127,7 @@ def new_system():
             logger.error(f'Error adding system: {e}', exc_info=True)
             flash(f'Error adding system: {str(e)}', 'error')
     
-    return render_template('admin/form.html', system=None, action='Create')
+    return render_template('admin/form.html', system=None, action='Create', vendor_ports=VENDOR_DEFAULT_PORTS)
 
 
 @bp.route('/systems/<int:system_id>/edit', methods=['GET', 'POST'])
@@ -138,13 +141,7 @@ def edit_system(system_id):
             vendor = request.form['vendor']
             
             # Determine default port based on vendor if not specified
-            default_ports = {
-                'pure': 443,
-                'netapp-ontap': 443,
-                'netapp-storagegrid': 443,
-                'dell-datadomain': 3009
-            }
-            default_port = default_ports.get(vendor, 443)
+            default_port = VENDOR_DEFAULT_PORTS.get(vendor, 443)
             port = int(request.form.get('port', default_port))
             
             system.name = request.form['name']
@@ -162,7 +159,7 @@ def edit_system(system_id):
         except Exception as e:
             flash(f'Error updating system: {str(e)}', 'error')
     
-    return render_template('admin/form.html', system=system, action='Edit')
+    return render_template('admin/form.html', system=system, action='Edit', vendor_ports=VENDOR_DEFAULT_PORTS)
 
 
 @bp.route('/systems/<int:system_id>/rediscover', methods=['POST'])
