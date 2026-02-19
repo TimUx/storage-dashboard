@@ -54,7 +54,6 @@ def create_app():
     
     # Enable WAL mode for SQLite to improve concurrency
     if database_url.startswith('sqlite'):
-        @app.before_first_request
         def enable_sqlite_wal():
             """Enable WAL mode for SQLite to reduce locking"""
             try:
@@ -65,6 +64,13 @@ def create_app():
                 app.logger.info("SQLite WAL mode enabled for better concurrency")
             except Exception as e:
                 app.logger.warning(f"Could not enable SQLite WAL mode: {e}")
+        
+        # Register the function to run after app context is set up
+        with app.app_context():
+            try:
+                enable_sqlite_wal()
+            except Exception as e:
+                app.logger.warning(f"Could not enable SQLite WAL mode during init: {e}")
     
     login_manager.init_app(app)
     login_manager.login_view = 'admin.login'
