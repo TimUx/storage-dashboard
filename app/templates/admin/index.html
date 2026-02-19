@@ -125,6 +125,65 @@ tbody tr:hover {
     color: #7f8c8d;
 }
 
+.tag-badge {
+    display: inline-block;
+    background: #e8f4fd;
+    color: #2980b9;
+    border-radius: 12px;
+    padding: 0.15rem 0.6rem;
+    font-size: 0.78rem;
+    margin: 0.1rem 0.1rem;
+    white-space: nowrap;
+}
+
+.filter-bar {
+    background: white;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 1rem 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.filter-bar form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.filter-group label {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #555;
+}
+
+.filter-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.filter-tag-label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 15px;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.filter-tag-label input { width: auto; margin: 0; }
+.filter-tag-label.active { background: #d0eaf8; border-color: #3498db; color: #2980b9; }
+
 /* Loading Overlay */
 .loading-overlay {
     position: fixed;
@@ -193,11 +252,42 @@ tbody tr:hover {
         </form>
         <a href="/admin/logs" class="btn btn-warning">📋 System Logs</a>
         <a href="/admin/settings" class="btn btn-warning">⚙️ Einstellungen</a>
+        <a href="{{ url_for('admin.tags') }}" class="btn btn-warning">🏷️ Tags</a>
         <a href="/admin/import" class="btn btn-primary">📥 Importieren</a>
         <a href="/admin/export" class="btn btn-primary">📤 Exportieren</a>
         <a href="/admin/systems/new" class="btn btn-primary">+ Neues System</a>
     </div>
 </div>
+
+{% if tag_groups %}
+<div class="filter-bar">
+    <form method="GET" action="{{ url_for('admin.index') }}" id="filter-form">
+        {% for group in tag_groups %}
+        {% set group_tags = group.tags.all() %}
+        {% if group_tags %}
+        <div class="filter-group">
+            <label>{{ group.name }}</label>
+            <div class="filter-tags">
+                {% for tag in group_tags | sort(attribute='name') %}
+                <label class="filter-tag-label {{ 'active' if tag.id in selected_tag_ids else '' }}">
+                    <input type="checkbox" name="tag" value="{{ tag.id }}"
+                           {{ 'checked' if tag.id in selected_tag_ids else '' }}
+                           onchange="document.getElementById('filter-form').submit()">
+                    {{ tag.name }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% if selected_tag_ids %}
+        <div class="filter-group" style="justify-content: flex-end;">
+            <a href="{{ url_for('admin.index') }}" class="btn btn-sm btn-secondary" style="align-self: flex-end;">Filter zurücksetzen</a>
+        </div>
+        {% endif %}
+    </form>
+</div>
+{% endif %}
 
 {% if systems %}
 <table>
@@ -207,6 +297,7 @@ tbody tr:hover {
             <th>Hersteller</th>
             <th>IP Adresse</th>
             <th>Cluster Info</th>
+            <th>Tags</th>
             <th>Status</th>
             <th>Aktionen</th>
         </tr>
@@ -240,6 +331,11 @@ tbody tr:hover {
                 {% if system.last_discovery %}
                 <br><small class="cluster-info">Erkannt: {{ system.last_discovery.strftime('%d.%m.%Y %H:%M') }}</small>
                 {% endif %}
+            </td>
+            <td>
+                {% for tag in system.tags | sort(attribute='name') %}
+                <span class="tag-badge" title="{{ tag.group.name }}">{{ tag.name }}</span>
+                {% endfor %}
             </td>
             <td>
                 <span class="status-indicator status-{{ 'enabled' if system.enabled else 'disabled' }}"></span>

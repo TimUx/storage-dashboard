@@ -6,6 +6,62 @@ from flask_login import UserMixin
 from app.crypto_utils import encrypt_value, decrypt_value
 import json
 
+
+# Many-to-many junction table for StorageSystem <-> Tag
+storage_system_tags = db.Table(
+    'storage_system_tags',
+    db.Column('system_id', db.Integer, db.ForeignKey('storage_systems.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('tag_id', db.Integer, db.ForeignKey('tags.id', ondelete='CASCADE'), primary_key=True)
+)
+
+
+class TagGroup(db.Model):
+    """Tag group model – groups related tags together (e.g. 'Storage Art', 'Landschaft')"""
+    __tablename__ = 'tag_groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    description = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    tags = db.relationship('Tag', backref='group', lazy='dynamic', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'tags': [t.to_dict() for t in self.tags.order_by(Tag.name)],
+        }
+
+    def __repr__(self):
+        return f'<TagGroup {self.name}>'
+
+
+class Tag(db.Model):
+    """Tag model – individual label that can be assigned to storage systems"""
+    __tablename__ = 'tags'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    group_id = db.Column(db.Integer, db.ForeignKey('tag_groups.id', ondelete='CASCADE'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('name', 'group_id', name='uq_tag_name_group'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'group_id': self.group_id,
+            'group_name': self.group.name if self.group else None,
+        }
+
+    def __repr__(self):
+        return f'<Tag {self.name} ({self.group.name if self.group else "?"})>'
+
+
 class StorageSystem(db.Model):
     """Storage system model"""
     __tablename__ = 'storage_systems'
@@ -39,6 +95,10 @@ class StorageSystem(db.Model):
     # Partner cluster reference (for MetroCluster, Active-Cluster)
     partner_cluster_id = db.Column(db.Integer, db.ForeignKey('storage_systems.id', ondelete='SET NULL'))
     partner_cluster = db.relationship('StorageSystem', remote_side=[id], backref='partners')
+
+    # Tags (many-to-many)
+    tags = db.relationship('Tag', secondary=storage_system_tags, lazy='subquery',
+                           backref=db.backref('systems', lazy=True))
     
     # Discovery metadata
     last_discovery = db.Column(db.DateTime)
@@ -213,7 +273,8 @@ class StorageSystem(db.Model):
             'last_discovery': self.last_discovery.isoformat() if self.last_discovery else None,
             'has_credentials': bool(self.api_username or self.api_token),
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'tags': [t.to_dict() for t in self.tags],
         }
     
     def __repr__(self):
