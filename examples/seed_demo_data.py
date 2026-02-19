@@ -39,7 +39,8 @@ DEMO_SYSTEMS = [
         'port': 443,
         'tags': {'Storage Art': 'Block', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ITS'},
         'total_tb': 800.0,
-        'used_tb': 568.0,   # 71 %
+        'used_tb': 568.0,       # 71 %
+        'provisioned_tb': 1600.0,  # 200 % – typical overprovisioning for block
     },
     {
         'name': 'Pure-Block-PROD-ERZ-01',
@@ -48,7 +49,8 @@ DEMO_SYSTEMS = [
         'port': 443,
         'tags': {'Storage Art': 'Block', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ERZ'},
         'total_tb': 600.0,
-        'used_tb': 378.0,   # 63 %
+        'used_tb': 378.0,       # 63 %
+        'provisioned_tb': 900.0,   # 150 %
     },
     {
         'name': 'Pure-Block-PROD-EH-01',
@@ -57,7 +59,8 @@ DEMO_SYSTEMS = [
         'port': 443,
         'tags': {'Storage Art': 'Block', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'EH'},
         'total_tb': 455.0,
-        'used_tb': 41.0,    # 9 %
+        'used_tb': 41.0,        # 9 %
+        'provisioned_tb': 500.0,   # 110 %
     },
     {
         'name': 'Pure-Block-TEST-ITS-01',
@@ -66,7 +69,8 @@ DEMO_SYSTEMS = [
         'port': 443,
         'tags': {'Storage Art': 'Block', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ITS'},
         'total_tb': 350.0,
-        'used_tb': 245.0,   # 70 %
+        'used_tb': 245.0,       # 70 %
+        'provisioned_tb': 600.0,   # 171 %
     },
     {
         'name': 'Pure-Block-TEST-ERZ-01',
@@ -75,7 +79,8 @@ DEMO_SYSTEMS = [
         'port': 443,
         'tags': {'Storage Art': 'Block', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ERZ'},
         'total_tb': 250.0,
-        'used_tb': 178.0,   # 71 %
+        'used_tb': 178.0,       # 71 %
+        'provisioned_tb': 380.0,   # 152 %
     },
     # ── File ───────────────────────────────────────────────────────────────
     {
@@ -85,7 +90,8 @@ DEMO_SYSTEMS = [
         'port': 443,
         'tags': {'Storage Art': 'File', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ITS'},
         'total_tb': 1200.0,
-        'used_tb': 756.0,   # 63 %
+        'used_tb': 756.0,       # 63 %
+        'provisioned_tb': 3600.0,  # 300 % – NFS/CIFS thin provisioning typical
     },
     {
         'name': 'NetApp-File-PROD-ERZ-01',
@@ -94,7 +100,8 @@ DEMO_SYSTEMS = [
         'port': 443,
         'tags': {'Storage Art': 'File', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ERZ'},
         'total_tb': 800.0,
-        'used_tb': 432.0,   # 54 %
+        'used_tb': 432.0,       # 54 %
+        'provisioned_tb': 2000.0,  # 250 %
     },
     {
         'name': 'NetApp-File-TEST-ITS-01',
@@ -103,7 +110,8 @@ DEMO_SYSTEMS = [
         'port': 443,
         'tags': {'Storage Art': 'File', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ITS'},
         'total_tb': 300.0,
-        'used_tb': 132.0,   # 44 %
+        'used_tb': 132.0,       # 44 %
+        'provisioned_tb': 600.0,   # 200 %
     },
     {
         'name': 'NetApp-File-TEST-ERZ-01',
@@ -112,7 +120,8 @@ DEMO_SYSTEMS = [
         'port': 443,
         'tags': {'Storage Art': 'File', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ERZ'},
         'total_tb': 200.0,
-        'used_tb': 82.0,    # 41 %
+        'used_tb': 82.0,        # 41 %
+        'provisioned_tb': 350.0,   # 175 %
     },
     # ── Archiv ─────────────────────────────────────────────────────────────
     {
@@ -271,6 +280,8 @@ def seed(reset=False):
             free_tb = round(total_tb - used_tb, 2)
             pct_used = round(used_tb / total_tb * 100, 1) if total_tb > 0 else 0.0
             pct_free = round(100.0 - pct_used, 1)
+            provisioned_tb = sdef.get('provisioned_tb')  # None for non-Block/File types
+            pct_provisioned = round(provisioned_tb / total_tb * 100, 1) if provisioned_tb is not None and total_tb > 0 else None
 
             # Upsert current snapshot
             snap = CapacitySnapshot.query.filter_by(system_id=system.id).first()
@@ -283,10 +294,13 @@ def seed(reset=False):
             snap.free_tb = free_tb
             snap.percent_used = pct_used
             snap.percent_free = pct_free
+            snap.provisioned_tb = provisioned_tb
+            snap.percent_provisioned = pct_provisioned
             snap.error = None
 
-            # Generate 2-year daily history (linear growth → current used)
-            # Assume systems started ~40 % used 2 years ago
+            # Generate 2-year daily history (linear growth → current used).
+            # For provisioned_tb we hold the current value constant (it changes
+            # rarely in practice compared to actual usage growth).
             start_used = round(used_tb * 0.40, 2)
             daily_values = _growth_curve(start_used, used_tb, history_days)
 
@@ -305,6 +319,7 @@ def seed(reset=False):
                         used_tb=day_used,
                         free_tb=day_free,
                         percent_used=day_pct,
+                        provisioned_tb=provisioned_tb,
                     )
                     db.session.add(hist)
                 else:
@@ -312,6 +327,7 @@ def seed(reset=False):
                     hist.used_tb = day_used
                     hist.free_tb = day_free
                     hist.percent_used = day_pct
+                    hist.provisioned_tb = provisioned_tb
 
         db.session.commit()
         print()

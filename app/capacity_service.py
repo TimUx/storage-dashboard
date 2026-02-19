@@ -168,10 +168,15 @@ def _accumulate(row, other):
         row['total_tb'] += other.get('total_tb', 0.0) or 0.0
         row['used_tb'] += other.get('used_tb', 0.0) or 0.0
         row['free_tb'] += other.get('free_tb', 0.0) or 0.0
+        provisioned = other.get('provisioned_tb')
+        if provisioned is not None:
+            row['provisioned_tb'] = (row['provisioned_tb'] or 0.0) + provisioned
     else:
         row['total_tb'] += other.total_tb or 0.0
         row['used_tb'] += other.used_tb or 0.0
         row['free_tb'] += other.free_tb or 0.0
+        if hasattr(other, 'provisioned_tb') and other.provisioned_tb is not None:
+            row['provisioned_tb'] = (row['provisioned_tb'] or 0.0) + other.provisioned_tb
 
 
 def _finalize(row):
@@ -180,12 +185,16 @@ def _finalize(row):
     if total > 0:
         row['percent_used'] = round(row['used_tb'] / total * 100, 1)
         row['percent_free'] = round(row['free_tb'] / total * 100, 1)
+        if row['provisioned_tb'] is not None:
+            row['percent_provisioned'] = round(row['provisioned_tb'] / total * 100, 1)
     else:
         row['percent_used'] = 0.0
         row['percent_free'] = 0.0
     row['total_tb'] = round(row['total_tb'], 2)
     row['used_tb'] = round(row['used_tb'], 2)
     row['free_tb'] = round(row['free_tb'], 2)
+    if row['provisioned_tb'] is not None:
+        row['provisioned_tb'] = round(row['provisioned_tb'], 2)
     return row
 
 
@@ -369,6 +378,7 @@ def build_details(systems, snapshots):
             'total_tb': 0.0, 'used_tb': 0.0, 'free_tb': 0.0,
             'provisioned_tb': None,
             'percent_used': 0.0, 'percent_free': 0.0,
+            'percent_provisioned': None,
             'error': None,
         }
         if snap:
@@ -377,6 +387,8 @@ def build_details(systems, snapshots):
             row['free_tb'] = round(snap.free_tb or 0.0, 2)
             row['percent_used'] = snap.percent_used or 0.0
             row['percent_free'] = snap.percent_free or 0.0
+            row['provisioned_tb'] = round(snap.provisioned_tb, 2) if snap.provisioned_tb is not None else None
+            row['percent_provisioned'] = snap.percent_provisioned
             row['error'] = snap.error
 
         for art in arts:

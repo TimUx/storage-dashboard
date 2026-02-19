@@ -367,32 +367,61 @@ function pctBarHtml(pct) {
     </div>`;
 }
 
-function tableHeader(extraCols) {
-    return `<thead><tr>
-        <th>${extraCols.label}</th>
+/** Bar for provisioned % – may exceed 100 %; bar capped at 100 % width. */
+const PROV_HIGH_THRESHOLD   = 150;  // >= 150 % → red
+const PROV_MEDIUM_THRESHOLD = 100;  // >= 100 % → orange
+
+function pctBarHtmlProv(pct) {
+    if (pct == null) return '–';
+    const p = parseFloat(pct);
+    const barWidth = Math.min(p, 100);
+    const cls = p >= PROV_HIGH_THRESHOLD ? 'high' : p >= PROV_MEDIUM_THRESHOLD ? 'medium' : 'low';
+    return `<div class="pct-bar-wrap">
+        <div class="pct-bar"><div class="pct-bar-fill ${cls}" style="width:${barWidth}%"></div></div>
+        <span>${p.toFixed(1)} %</span>
+    </div>`;
+}
+
+/** True when any row or the total row contains a provisioned_tb value. */
+function hasProvisioned(rows, totalRow) {
+    return (totalRow && totalRow.provisioned_tb != null) ||
+           rows.some(r => r.provisioned_tb != null);
+}
+
+function tableHeader(label, showProvisioned) {
+    let cols = `<th>${label}</th>
         <th>Gesamt [TB]</th>
         <th>Genutzt [TB]</th>
         <th>Frei [TB]</th>
         <th>Genutzt [%]</th>
-        <th>Frei [%]</th>
-    </tr></thead>`;
+        <th>Frei [%]</th>`;
+    if (showProvisioned) {
+        cols += `<th>Provisioniert [TB]</th><th>Provisioniert [%]</th>`;
+    }
+    return `<thead><tr>${cols}</tr></thead>`;
 }
 
-function rowHtml(label, row, isTotalRow) {
+function rowHtml(label, row, isTotalRow, showProvisioned) {
     const cls = isTotalRow ? ' class="total-row"' : '';
-    return `<tr${cls}>
+    let html = `<tr${cls}>
         <td>${label}</td>
         <td>${fmt(row.total_tb)}</td>
         <td>${fmt(row.used_tb)}</td>
         <td>${fmt(row.free_tb)}</td>
         <td>${pctBarHtml(row.percent_used)}</td>
-        <td>${pctBarHtml(row.percent_free)}</td>
-    </tr>`;
+        <td>${pctBarHtml(row.percent_free)}</td>`;
+    if (showProvisioned) {
+        html += `<td>${fmt(row.provisioned_tb)}</td>
+        <td>${pctBarHtmlProv(row.percent_provisioned)}</td>`;
+    }
+    html += '</tr>';
+    return html;
 }
 
 function buildSection(title, subtitle, rows, totalRow) {
-    const rowsHtml = rows.map(r => rowHtml(r.label, r, false)).join('');
-    const totalHtml = rowHtml('Total', totalRow, true);
+    const showProvisioned = hasProvisioned(rows, totalRow);
+    const rowsHtml = rows.map(r => rowHtml(r.label, r, false, showProvisioned)).join('');
+    const totalHtml = rowHtml('Total', totalRow, true, showProvisioned);
     return `<div class="cap-section">
         <div class="cap-section-header">
             <span>${title}</span>
@@ -400,7 +429,7 @@ function buildSection(title, subtitle, rows, totalRow) {
         </div>
         <div class="cap-table-wrap">
             <table class="cap-table">
-                ${tableHeader({label: 'Gruppe'})}
+                ${tableHeader('Gruppe', showProvisioned)}
                 <tbody>${rowsHtml}${totalHtml}</tbody>
             </table>
         </div>
@@ -451,9 +480,10 @@ function renderDetails(data) {
         return;
     }
     el.innerHTML = data.map(g => {
+        const showProvisioned = g.systems.some(s => s.provisioned_tb != null);
         const rows = g.systems.map(s => {
             const errBadge = s.error ? `<span class="err-badge" title="${escHtml(s.error)}">Fehler</span>` : '';
-            return `<tr>
+            let row = `<tr>
                 <td>${escHtml(s.system_name)}${errBadge}</td>
                 <td>${escHtml(s.environment)}</td>
                 <td>${escHtml(s.department)}</td>
@@ -461,23 +491,30 @@ function renderDetails(data) {
                 <td>${fmt(s.used_tb)}</td>
                 <td>${fmt(s.free_tb)}</td>
                 <td>${pctBarHtml(s.percent_used)}</td>
-                <td>${pctBarHtml(s.percent_free)}</td>
-            </tr>`;
+                <td>${pctBarHtml(s.percent_free)}</td>`;
+            if (showProvisioned) {
+                row += `<td>${fmt(s.provisioned_tb)}</td>
+                <td>${pctBarHtmlProv(s.percent_provisioned)}</td>`;
+            }
+            row += '</tr>';
+            return row;
         }).join('');
-        return `<div class="cap-section">
-            <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
-            <div class="cap-table-wrap">
-                <table class="cap-table">
-                    <thead><tr>
-                        <th>System</th>
+        let headerCols = `<th>System</th>
                         <th>Umgebung</th>
                         <th>Tätigkeitsfeld</th>
                         <th>Gesamt [TB]</th>
                         <th>Genutzt [TB]</th>
                         <th>Frei [TB]</th>
                         <th>Genutzt [%]</th>
-                        <th>Frei [%]</th>
-                    </tr></thead>
+                        <th>Frei [%]</th>`;
+        if (showProvisioned) {
+            headerCols += `<th>Provisioniert [TB]</th><th>Provisioniert [%]</th>`;
+        }
+        return `<div class="cap-section">
+            <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
+            <div class="cap-table-wrap">
+                <table class="cap-table">
+                    <thead><tr>${headerCols}</tr></thead>
                     <tbody>${rows}</tbody>
                 </table>
             </div>
