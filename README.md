@@ -19,8 +19,9 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
-- **Auto-Refresh**: Automatische Aktualisierung des Dashboards alle 45 Sekunden (konfigurierbar)
-- **Multithreading**: Parallele Abfrage aller Systeme für schnelle Performance
+- **Schnelles Laden**: Asynchrone Dashboard-Anzeige mit sofortiger UI-Darstellung und dynamischer Datenaktualisierung
+- **Auto-Refresh**: Automatische Aktualisierung des Dashboards alle 45 Sekunden (konfigurierbar) ohne Seiten-Reload
+- **Hochleistungs-Multithreading**: Parallele Abfrage von bis zu 32 Systemen gleichzeitig für schnelle Performance
 - **Modernes Design**: ITScare Corporate Design mit farbigen Accents und modernen UI-Elementen
 - **CLI Interface**: Zugriff auf Dashboard-Daten über die Kommandozeile (lokal und remote)
 - **Admin-Bereich**: Verwaltung von Storage-Systemen mit Namen, IPs und API-Credentials
@@ -137,10 +138,11 @@ python run.py
 Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
 
 **Dashboard-Features:**
-- **Auto-Refresh**: Aktivieren Sie die Auto-Refresh-Funktion, um das Dashboard automatisch alle 45 Sekunden zu aktualisieren
+- **Schnelles Laden**: Dashboard-UI erscheint sofort, Daten werden im Hintergrund geladen (siehe [ASYNC_LOADING.md](ASYNC_LOADING.md))
+- **Auto-Refresh**: Aktivieren Sie die Auto-Refresh-Funktion, um das Dashboard automatisch alle 45 Sekunden zu aktualisieren (ohne Seiten-Reload)
 - **Filter**: Nutzen Sie die Filteroptionen, um gezielt nach Systemen zu suchen
 - **Ansichten**: Wechseln Sie zwischen Card-View (Kacheln) und Table-View (Tabelle)
-- **Multithreading**: Alle Systeme werden parallel abgefragt für optimale Performance
+- **Hochleistungs-Multithreading**: Alle Systeme werden parallel abgefragt (bis zu 32 gleichzeitig) für optimale Performance
 
 Für Produktivumgebungen mit Gunicorn:
 
