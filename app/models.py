@@ -361,6 +361,48 @@ class AppSettings(db.Model):
     max_logs_per_system = db.Column(db.Integer, default=1000)  # Maximum logs per system
     log_retention_days = db.Column(db.Integer, default=30)  # Days to keep logs
     min_log_level = db.Column(db.String(20), default='INFO')  # Minimum log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+    # Pure1 API credentials (all encrypted)
+    _pure1_display_name = db.Column('pure1_display_name', db.Text)
+    _pure1_app_id = db.Column('pure1_app_id', db.Text)
+    _pure1_private_key = db.Column('pure1_private_key', db.Text)
+    _pure1_public_key = db.Column('pure1_public_key', db.Text)
+
+    @property
+    def pure1_display_name(self):
+        """Decrypt and return Pure1 display name"""
+        return decrypt_value(self._pure1_display_name) if self._pure1_display_name else None
+
+    @pure1_display_name.setter
+    def pure1_display_name(self, value):
+        self._pure1_display_name = encrypt_value(value) if value else None
+
+    @property
+    def pure1_app_id(self):
+        """Decrypt and return Pure1 App ID"""
+        return decrypt_value(self._pure1_app_id) if self._pure1_app_id else None
+
+    @pure1_app_id.setter
+    def pure1_app_id(self, value):
+        self._pure1_app_id = encrypt_value(value) if value else None
+
+    @property
+    def pure1_private_key(self):
+        """Decrypt and return Pure1 private key (PEM)"""
+        return decrypt_value(self._pure1_private_key) if self._pure1_private_key else None
+
+    @pure1_private_key.setter
+    def pure1_private_key(self, value):
+        self._pure1_private_key = encrypt_value(value) if value else None
+
+    @property
+    def pure1_public_key(self):
+        """Decrypt and return Pure1 public key (PEM)"""
+        return decrypt_value(self._pure1_public_key) if self._pure1_public_key else None
+
+    @pure1_public_key.setter
+    def pure1_public_key(self, value):
+        self._pure1_public_key = encrypt_value(value) if value else None
     
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
