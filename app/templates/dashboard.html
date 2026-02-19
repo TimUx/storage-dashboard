@@ -41,7 +41,6 @@ body {
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
     margin: 0.5rem 0 1rem 0;
-    overflow: hidden;
     border-bottom: 4px solid var(--itscare-red);
 }
 
@@ -479,6 +478,7 @@ body {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.85rem;
+    table-layout: fixed;
 }
 
 .systems-table thead {
@@ -508,38 +508,22 @@ body {
 
 .systems-table .status-cell {
     text-align: center;
-    width: 100px;
 }
 
 .systems-table .capacity-cell {
-    min-width: 150px;
-    width: 150px;
 }
 
-/* Standardized column widths for consistent alignment */
-.systems-table th:nth-child(1),
-.systems-table td:nth-child(1) {
-    min-width: 140px; /* Name */
+/* Column text overflow handling for fixed-layout table */
+.systems-table th,
+.systems-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.systems-table th:nth-child(3),
-.systems-table td:nth-child(3) {
-    min-width: 110px; /* IP */
-}
-
-.systems-table th:nth-child(9),
-.systems-table td:nth-child(9) {
-    min-width: 140px; /* Kapazität */
-}
-
-.systems-table th:nth-child(10),
+.systems-table .capacity-cell,
 .systems-table td:nth-child(10) {
-    min-width: 100px; /* Tags */
-}
-
-.systems-table th:nth-child(11),
-.systems-table td:nth-child(11) {
-    white-space: nowrap; /* Aktionen */
+    white-space: normal;
 }
 
 .error-message {
@@ -1171,6 +1155,19 @@ body.table-view .systems-table {
         <!-- Table View -->
         <div class="systems-table">
             <table>
+                <colgroup>
+                    <col style="width: 15%">  <!-- Name -->
+                    <col style="width: 10%">  <!-- Cluster-Typ -->
+                    <col style="width: 10%">  <!-- IP -->
+                    <col style="width: 10%">  <!-- OS Version -->
+                    <col style="width: 7%">   <!-- Status -->
+                    <col style="width: 8%">   <!-- Hardware -->
+                    <col style="width: 8%">   <!-- Cluster -->
+                    <col style="width: 6%">   <!-- Alerts -->
+                    <col style="width: 14%">  <!-- Kapazität -->
+                    <col style="width: 8%">   <!-- Tags -->
+                    <col style="width: 4%">   <!-- Aktionen -->
+                </colgroup>
                 <thead>
                     <tr>
                         <th>Name</th>
