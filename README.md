@@ -136,6 +136,46 @@ DATABASE_URL=sqlite:///storage_dashboard.db
 FLASK_ENV=production
 ```
 
+## Admin-Benutzer erstellen
+
+Der Admin-Bereich (`/admin`) ist durch eine Anmeldung geschützt. Vor der ersten Nutzung muss ein Admin-Benutzer angelegt werden.
+
+### Manuelle Installation
+
+```bash
+python cli.py admin create-user
+```
+
+Sie werden nach Benutzername und Passwort gefragt:
+
+```
+Username: admin
+Password:
+Repeat for confirmation:
+✓ Admin-Benutzer 'admin' erfolgreich erstellt.
+```
+
+### Container-Deployment (Docker / Podman / nerdctl)
+
+```bash
+# Mit Docker
+docker exec -it storage-dashboard python cli.py admin create-user
+
+# Mit Podman
+podman exec -it storage-dashboard python cli.py admin create-user
+
+# Mit nerdctl
+nerdctl exec -it storage-dashboard python cli.py admin create-user
+```
+
+### Vorhandene Benutzer anzeigen
+
+```bash
+python cli.py admin list-users
+```
+
+Nach der Benutzererstellung ist der Admin-Bereich unter `http://localhost:5000/admin` erreichbar. Melden Sie sich mit dem erstellten Benutzernamen und Passwort an.
+
 ## Verwendung
 
 ### Web-Dashboard starten
