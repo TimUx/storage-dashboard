@@ -178,6 +178,50 @@ def migrate_datadomain_port():
         raise
 
 
+def seed_initial_tags():
+    """Seed initial tag groups and tags if they don't exist yet"""
+    from app.models import TagGroup, Tag
+
+    initial_data = [
+        {
+            'name': 'Storage Art',
+            'description': 'Art des Storage Systems',
+            'tags': ['Block', 'File', 'Object', 'Archiv', 'Backup'],
+        },
+        {
+            'name': 'Landschaft',
+            'description': 'Betriebsumgebung',
+            'tags': ['Produktion', 'Test/Dev'],
+        },
+        {
+            'name': 'Themenzugehörigkeit',
+            'description': 'Thematische Zuordnung',
+            'tags': ['ERZ', 'EGK', 'OGS', 'EH', 'KNG', 'ITS', 'TSY'],
+        },
+    ]
+
+    seeded = []
+    for group_data in initial_data:
+        group = TagGroup.query.filter_by(name=group_data['name']).first()
+        if not group:
+            group = TagGroup(name=group_data['name'], description=group_data['description'])
+            db.session.add(group)
+            db.session.flush()  # get the id
+            logger.info(f"Created tag group: {group_data['name']}")
+            seeded.append(group_data['name'])
+
+        for tag_name in group_data['tags']:
+            existing_tag = Tag.query.filter_by(name=tag_name, group_id=group.id).first()
+            if not existing_tag:
+                db.session.add(Tag(name=tag_name, group_id=group.id))
+                logger.info(f"Created tag: {tag_name} in group {group_data['name']}")
+
+    if seeded:
+        db.session.commit()
+        logger.info(f"Seeded {len(seeded)} tag group(s)")
+    return seeded
+
+
 def run_all_migrations():
     """Run all pending database migrations"""
     logger.info("Starting database migrations...")
@@ -202,6 +246,15 @@ def run_all_migrations():
         if 'app_settings' in inspector.get_table_names():
             migrations = migrate_app_settings_table()
             all_migrations.extend(migrations)
+        
+        # Seed initial tags if tag_groups table exists
+        if 'tag_groups' in inspector.get_table_names():
+            try:
+                seeded = seed_initial_tags()
+                if seeded:
+                    all_migrations.extend([f'seed_tag_group:{g}' for g in seeded])
+            except Exception as e:
+                logger.warning(f"Tag seeding failed (non-critical): {e}")
         
         if all_migrations:
             logger.info(f"Applied {len(all_migrations)} migrations: {', '.join(all_migrations)}")

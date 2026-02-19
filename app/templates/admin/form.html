@@ -248,6 +248,32 @@
             <small>Deaktivierte Systeme werden nicht im Dashboard angezeigt</small>
         </div>
         
+        {% if tag_groups %}
+        <div class="credential-section">
+            <h3>Tags</h3>
+            <small style="display:block; margin-bottom: 1rem; color: #7f8c8d;">Tags zuweisen, um das System zu kategorisieren und zu filtern. Innerhalb einer Gruppe können mehrere Tags ausgewählt werden.</small>
+            {% for group in tag_groups %}
+            {% set group_tags = group.tags.all() %}
+            {% if group_tags %}
+            <div style="margin-bottom: 1rem;">
+                <strong style="color: #2c3e50; font-size: 0.95rem;">{{ group.name }}</strong>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem;">
+                    {% for tag in group_tags | sort(attribute='name') %}
+                    <label style="display: flex; align-items: center; gap: 0.35rem; background: #f8f9fa; border: 1px solid #ddd; border-radius: 20px; padding: 0.3rem 0.75rem; cursor: pointer; font-size: 0.9rem;">
+                        <input type="checkbox" name="tags" value="{{ tag.id }}"
+                               style="width: auto; margin: 0;"
+                               {{ 'checked' if system and tag in system.tags else '' }}>
+                        {{ tag.name }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+            <small><a href="{{ url_for('admin.tags') }}">Tags verwalten →</a></small>
+        </div>
+        {% endif %}
+        
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Speichern</button>
             <a href="/admin" class="btn btn-secondary">Abbrechen</a>
