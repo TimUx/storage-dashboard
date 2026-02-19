@@ -251,7 +251,7 @@
         {% if tag_groups %}
         <div class="credential-section">
             <h3>Tags</h3>
-            <small style="display:block; margin-bottom: 1rem; color: #7f8c8d;">Tags zuweisen, um das System zu kategorisieren und zu filtern</small>
+            <small style="display:block; margin-bottom: 1rem; color: #7f8c8d;">Tags zuweisen, um das System zu kategorisieren und zu filtern. Innerhalb einer Gruppe können mehrere Tags ausgewählt werden.</small>
             {% for group in tag_groups %}
             {% set group_tags = group.tags.all() %}
             {% if group_tags %}

@@ -266,7 +266,7 @@ tbody tr:hover {
         {% set group_tags = group.tags.all() %}
         {% if group_tags %}
         <div class="filter-group">
-            <label>{{ group.name }}</label>
+            <label title="Mehrere Tags innerhalb einer Gruppe wirken als ODER-Filter">{{ group.name }}</label>
             <div class="filter-tags">
                 {% for tag in group_tags | sort(attribute='name') %}
                 <label class="filter-tag-label {{ 'active' if tag.id in selected_tag_ids else '' }}">
@@ -286,6 +286,7 @@ tbody tr:hover {
         </div>
         {% endif %}
     </form>
+    <small style="color:#95a5a6; margin-top: 0.5rem; display:block;">Mehrere Tags in derselben Gruppe: ODER-Verknüpfung &nbsp;|&nbsp; Tags aus verschiedenen Gruppen: UND-Verknüpfung</small>
 </div>
 {% endif %}
 

@@ -60,12 +60,20 @@ def logout():
 @login_required
 def index():
     """Admin dashboard"""
-    # Tag filter
+    # Tag filter: OR within same group, AND across groups
     tag_ids = request.args.getlist('tag', type=int)
     query = StorageSystem.query
     if tag_ids:
-        for tid in tag_ids:
-            query = query.filter(StorageSystem.tags.any(Tag.id == tid))
+        # Load the selected tags to know their groups
+        selected_tags = Tag.query.filter(Tag.id.in_(tag_ids)).all()
+        # Group tag IDs by their group_id
+        from collections import defaultdict
+        group_to_tag_ids = defaultdict(list)
+        for t in selected_tags:
+            group_to_tag_ids[t.group_id].append(t.id)
+        # AND across groups, OR within each group
+        for ids in group_to_tag_ids.values():
+            query = query.filter(StorageSystem.tags.any(Tag.id.in_(ids)))
     systems = query.all()
     tag_groups = TagGroup.query.order_by(TagGroup.name).all()
     return render_template('admin/index.html', systems=systems, tag_groups=tag_groups, selected_tag_ids=tag_ids)
