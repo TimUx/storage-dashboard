@@ -1,6 +1,6 @@
 # Container Deployment Guide
 
-Diese Anleitung beschreibt die Verwendung des Storage Dashboard als Podman/Docker Container.
+Diese Anleitung beschreibt die Verwendung des Storage Dashboard als Podman/Docker/nerdctl Container.
 
 ## Voraussetzungen
 
@@ -22,9 +22,68 @@ sudo apt-get update
 sudo apt-get install podman podman-compose
 ```
 
+### containerd + nerdctl Installation (Alternative)
+
+**SUSE Linux Enterprise / openSUSE:**
+```bash
+# containerd installieren
+sudo zypper install containerd
+
+# nerdctl herunterladen und installieren
+NERDCTL_VERSION=1.7.6
+wget https://github.com/containerd/nerdctl/releases/download/v${NERDCTL_VERSION}/nerdctl-${NERDCTL_VERSION}-linux-amd64.tar.gz
+sudo tar Cxzvf /usr/local/bin nerdctl-${NERDCTL_VERSION}-linux-amd64.tar.gz
+
+# containerd starten und aktivieren
+sudo systemctl enable --now containerd
+```
+
+**Ubuntu / Debian:**
+```bash
+# containerd installieren
+sudo apt-get update
+sudo apt-get install containerd
+
+# nerdctl herunterladen und installieren
+NERDCTL_VERSION=1.7.6
+wget https://github.com/containerd/nerdctl/releases/download/v${NERDCTL_VERSION}/nerdctl-${NERDCTL_VERSION}-linux-amd64.tar.gz
+sudo tar Cxzvf /usr/local/bin nerdctl-${NERDCTL_VERSION}-linux-amd64.tar.gz
+
+# containerd starten und aktivieren
+sudo systemctl enable --now containerd
+```
+
+**Red Hat / CentOS / Fedora:**
+```bash
+# containerd installieren
+sudo dnf install containerd
+
+# nerdctl herunterladen und installieren
+NERDCTL_VERSION=1.7.6
+wget https://github.com/containerd/nerdctl/releases/download/v${NERDCTL_VERSION}/nerdctl-${NERDCTL_VERSION}-linux-amd64.tar.gz
+sudo tar Cxzvf /usr/local/bin nerdctl-${NERDCTL_VERSION}-linux-amd64.tar.gz
+
+# containerd starten und aktivieren
+sudo systemctl enable --now containerd
+```
+
+**nerdctl compose Plugin (für docker-compose Kompatibilität):**
+
+nerdctl unterstützt `docker-compose.yml` nativ. Für erweiterte Funktionen:
+```bash
+# BuildKit installieren (optional, für erweiterte Build-Features)
+sudo systemctl enable --now buildkit
+
+# CNI Plugins installieren (für Netzwerke)
+CNI_VERSION=1.3.0
+sudo mkdir -p /opt/cni/bin
+wget https://github.com/containernetworking/plugins/releases/download/v${CNI_VERSION}/cni-plugins-linux-amd64-v${CNI_VERSION}.tgz
+sudo tar Cxzvf /opt/cni/bin cni-plugins-linux-amd64-v${CNI_VERSION}.tgz
+```
+
 ### Docker Installation (Alternative)
 
-Falls Sie Docker statt Podman verwenden möchten:
+Falls Sie Docker statt Podman oder nerdctl verwenden möchten:
 ```bash
 # Siehe: https://docs.docker.com/engine/install/
 ```
@@ -71,6 +130,22 @@ podman run -d \
   --name storage-dashboard \
   -p 5000:5000 \
   -v storage-data:/app/data:Z \
+  -e SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
+  -e SSL_VERIFY=false \
+  storage-dashboard:latest
+```
+
+**Mit nerdctl:**
+```bash
+# Container bauen und starten mit compose
+nerdctl compose up -d
+
+# Oder mit nerdctl direkt:
+nerdctl build -t storage-dashboard:latest .
+nerdctl run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data \
   -e SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
   -e SSL_VERIFY=false \
   storage-dashboard:latest
@@ -123,6 +198,9 @@ python3 remote-cli.py --url http://localhost:5000 systems
 # Podman
 podman exec storage-dashboard python /app/remote-cli.py dashboard
 
+# nerdctl
+nerdctl exec storage-dashboard python /app/remote-cli.py dashboard
+
 # Docker
 docker exec storage-dashboard python /app/remote-cli.py dashboard
 ```
@@ -158,6 +236,18 @@ podman logs storage-dashboard
 podman logs -f storage-dashboard
 ```
 
+**nerdctl:**
+```bash
+# Container-Status anzeigen
+nerdctl ps
+
+# Logs anzeigen
+nerdctl logs storage-dashboard
+
+# Logs live verfolgen
+nerdctl logs -f storage-dashboard
+```
+
 **Docker:**
 ```bash
 # Container-Status anzeigen
@@ -179,6 +269,13 @@ podman-compose restart
 podman restart storage-dashboard
 ```
 
+**nerdctl:**
+```bash
+nerdctl compose restart
+# oder
+nerdctl restart storage-dashboard
+```
+
 **Docker:**
 ```bash
 docker-compose restart
@@ -193,6 +290,13 @@ docker restart storage-dashboard
 podman-compose down
 # oder
 podman stop storage-dashboard
+```
+
+**nerdctl:**
+```bash
+nerdctl compose down
+# oder
+nerdctl stop storage-dashboard
 ```
 
 **Docker:**
@@ -211,10 +315,14 @@ git pull
 # Container neu bauen und starten
 podman-compose up -d --build
 # oder
+nerdctl compose up -d --build
+# oder
 docker-compose up -d --build
 
 # Nach dem Update: Datenbank-Migrationen ausführen (wichtig!)
 podman exec -it storage-dashboard python cli.py migrate
+# oder
+nerdctl exec -it storage-dashboard python cli.py migrate
 # oder
 docker exec -it storage-dashboard python cli.py migrate
 ```
@@ -227,8 +335,13 @@ docker exec -it storage-dashboard python cli.py migrate
 # Mit spezifischem Tag
 podman build -t storage-dashboard:v1.0 .
 
+# Mit nerdctl
+nerdctl build -t storage-dashboard:v1.0 .
+
 # Für andere Plattformen (z.B. ARM)
 podman build --platform linux/arm64 -t storage-dashboard:arm64 .
+# oder
+nerdctl build --platform linux/arm64 -t storage-dashboard:arm64 .
 ```
 
 ### Persistente Daten sichern
@@ -239,13 +352,19 @@ podman build --platform linux/arm64 -t storage-dashboard:arm64 .
 podman run --rm \
   -v storage-data:/data:ro \
   -v $(pwd):/backup \
-  alpine tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
+  docker.io/alpine:3.19 tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
+
+# nerdctl
+nerdctl run --rm \
+  -v storage-data:/data:ro \
+  -v $(pwd):/backup \
+  docker.io/alpine:3.19 tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
 
 # Docker
 docker run --rm \
   -v storage-data:/data:ro \
   -v $(pwd):/backup \
-  alpine tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
+  docker.io/alpine:3.19 tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
 ```
 
 **Backup wiederherstellen:**
@@ -254,13 +373,19 @@ docker run --rm \
 podman run --rm \
   -v storage-data:/data \
   -v $(pwd):/backup \
-  alpine sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
+  docker.io/alpine:3.19 sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
+
+# nerdctl
+nerdctl run --rm \
+  -v storage-data:/data \
+  -v $(pwd):/backup \
+  docker.io/alpine:3.19 sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
 
 # Docker
 docker run --rm \
   -v storage-data:/data \
   -v $(pwd):/backup \
-  alpine sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
+  docker.io/alpine:3.19 sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
 ```
 
 ### Container im Host-Netzwerk betreiben
@@ -273,6 +398,16 @@ podman run -d \
   --name storage-dashboard \
   --network host \
   -v storage-data:/app/data:Z \
+  --env-file .env \
+  storage-dashboard:latest
+```
+
+**nerdctl:**
+```bash
+nerdctl run -d \
+  --name storage-dashboard \
+  --network host \
+  -v storage-data:/app/data \
   --env-file .env \
   storage-dashboard:latest
 ```
@@ -297,7 +432,14 @@ ports:
 
 Oder beim manuellen Start:
 ```bash
+# Podman
 podman run -d -p 8080:5000 ...
+
+# nerdctl
+nerdctl run -d -p 8080:5000 ...
+
+# Docker
+docker run -d -p 8080:5000 ...
 ```
 
 ## Systemd Integration
@@ -329,20 +471,70 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now storage-dashboard.service
 ```
 
+### Container als Systemd-Service (nerdctl)
+
+nerdctl kann auch mit systemd integriert werden, jedoch ohne automatische Unit-Generierung:
+
+```bash
+# Manuelle Systemd-Unit erstellen
+sudo nano /etc/systemd/system/storage-dashboard.service
+```
+
+Fügen Sie folgenden Inhalt ein:
+
+```ini
+[Unit]
+Description=Storage Dashboard Container
+After=network-online.target containerd.service
+Wants=network-online.target
+Requires=containerd.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5s
+ExecStartPre=-/usr/local/bin/nerdctl stop storage-dashboard
+ExecStartPre=-/usr/local/bin/nerdctl rm storage-dashboard
+ExecStart=/usr/local/bin/nerdctl run --rm \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data \
+  --env-file /opt/storage-dashboard/.env \
+  ghcr.io/timux/storage-dashboard:latest
+ExecStop=/usr/local/bin/nerdctl stop storage-dashboard
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Service aktivieren:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now storage-dashboard.service
+```
+
 ### Service-Verwaltung
 
 ```bash
 # Status prüfen
-systemctl --user status storage-dashboard
+systemctl --user status storage-dashboard  # für Podman User-Service
+# oder
+sudo systemctl status storage-dashboard     # für System-Service
 
 # Neu starten
 systemctl --user restart storage-dashboard
+# oder
+sudo systemctl restart storage-dashboard
 
 # Stoppen
 systemctl --user stop storage-dashboard
+# oder
+sudo systemctl stop storage-dashboard
 
 # Logs anzeigen
 journalctl --user -u storage-dashboard -f
+# oder
+sudo journalctl -u storage-dashboard -f
 ```
 
 ## Fehlerbehebung
@@ -352,12 +544,24 @@ journalctl --user -u storage-dashboard -f
 ```bash
 # Logs prüfen
 podman logs storage-dashboard
+# oder
+nerdctl logs storage-dashboard
+# oder
+docker logs storage-dashboard
 
 # Container-Konfiguration prüfen
 podman inspect storage-dashboard
+# oder
+nerdctl inspect storage-dashboard
+# oder
+docker inspect storage-dashboard
 
 # Container interaktiv starten
 podman run -it --rm --entrypoint /bin/bash storage-dashboard:latest
+# oder
+nerdctl run -it --rm --entrypoint /bin/bash storage-dashboard:latest
+# oder
+docker run -it --rm --entrypoint /bin/bash storage-dashboard:latest
 ```
 
 ### Datenbankprobleme
@@ -367,10 +571,16 @@ podman run -it --rm --entrypoint /bin/bash storage-dashboard:latest
 # Führen Sie die Datenbank-Migrationen aus
 podman exec -it storage-dashboard python cli.py migrate
 # oder
+nerdctl exec -it storage-dashboard python cli.py migrate
+# oder
 docker exec -it storage-dashboard python cli.py migrate
 
 # Datenbank neu initialisieren (ACHTUNG: Löscht alle Daten!)
 podman exec -it storage-dashboard python -c "from app import create_app, db; app = create_app(); app.app_context().push(); db.drop_all(); db.create_all()"
+# oder
+nerdctl exec -it storage-dashboard python -c "from app import create_app, db; app = create_app(); app.app_context().push(); db.drop_all(); db.create_all()"
+# oder
+docker exec -it storage-dashboard python -c "from app import create_app, db; app = create_app(); app.app_context().push(); db.drop_all(); db.create_all()"
 ```
 
 ### Berechtigungsprobleme mit Volumes
@@ -384,15 +594,39 @@ podman run -d -v storage-data:/app/data:Z ...
 # z = shared volume
 ```
 
+Bei nerdctl auf SELinux-Systemen:
+```bash
+# nerdctl unterstützt SELinux-Labels nicht direkt
+# Verwenden Sie stattdessen:
+sudo chcon -Rt container_file_t /var/lib/containerd/volumes/storage-data
+# oder deaktivieren Sie SELinux für den Container (nicht empfohlen)
+```
+
+**Hinweis:** Für SELinux-Umgebungen wird Podman empfohlen, da es native SELinux-Label-Unterstützung bietet.
+
 ### Netzwerkprobleme
 
 ```bash
-# Netzwerkkonfiguration prüfen
+# Podman: Netzwerkkonfiguration prüfen
 podman network ls
 podman network inspect bridge
 
 # Container-Netzwerk prüfen
 podman inspect storage-dashboard | grep -A 10 NetworkSettings
+
+# nerdctl: Netzwerkkonfiguration prüfen
+nerdctl network ls
+nerdctl network inspect bridge
+
+# Container-Netzwerk prüfen
+nerdctl inspect storage-dashboard | grep -A 10 NetworkSettings
+
+# Docker: Netzwerkkonfiguration prüfen
+docker network ls
+docker network inspect bridge
+
+# Container-Netzwerk prüfen
+docker inspect storage-dashboard | grep -A 10 NetworkSettings
 ```
 
 ## GitHub Container Registry
@@ -409,7 +643,7 @@ Das Storage Dashboard wird automatisch als Docker Image auf GitHub Container Reg
 #### Image herunterladen und starten
 
 ```bash
-# Image herunterladen
+# Podman: Image herunterladen
 podman pull ghcr.io/timux/storage-dashboard:latest
 
 # Container starten
@@ -417,6 +651,20 @@ podman run -d \
   --name storage-dashboard \
   -p 5000:5000 \
   -v storage-data:/app/data:Z \
+  --env-file .env \
+  ghcr.io/timux/storage-dashboard:latest
+```
+
+**Mit nerdctl:**
+```bash
+# Image herunterladen
+nerdctl pull ghcr.io/timux/storage-dashboard:latest
+
+# Container starten
+nerdctl run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data \
   --env-file .env \
   ghcr.io/timux/storage-dashboard:latest
 ```
@@ -432,13 +680,15 @@ docker run -d \
   ghcr.io/timux/storage-dashboard:latest
 ```
 
-#### Docker-Compose mit GitHub Image
+#### Docker-Compose / Podman-Compose / nerdctl compose mit GitHub Image
 
 Die Datei `docker-compose.yml` ist bereits für die Verwendung des GitHub-Images konfiguriert:
 
 ```bash
 # Starten mit vorgefertigtem Image
 podman-compose up -d
+# oder
+nerdctl compose up -d
 # oder
 docker-compose up -d
 ```
@@ -461,6 +711,10 @@ services:
 Dann:
 ```bash
 podman-compose up -d --build
+# oder
+nerdctl compose up -d --build
+# oder
+docker-compose up -d --build
 ```
 
 ### GitHub Action: Image automatisch bauen
@@ -477,11 +731,30 @@ Das Image wird dann automatisch gebaut und unter `ghcr.io/timux/storage-dashboar
 
 **Verwendung eines spezifischen Tags:**
 ```bash
+# Podman
 podman pull ghcr.io/timux/storage-dashboard:v1.0.0
 podman run -d \
   --name storage-dashboard \
   -p 5000:5000 \
   -v storage-data:/app/data:Z \
+  --env-file .env \
+  ghcr.io/timux/storage-dashboard:v1.0.0
+
+# nerdctl
+nerdctl pull ghcr.io/timux/storage-dashboard:v1.0.0
+nerdctl run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data \
+  --env-file .env \
+  ghcr.io/timux/storage-dashboard:v1.0.0
+
+# Docker
+docker pull ghcr.io/timux/storage-dashboard:v1.0.0
+docker run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data \
   --env-file .env \
   ghcr.io/timux/storage-dashboard:v1.0.0
 ```
@@ -491,7 +764,7 @@ podman run -d \
 ### Image in Registry hochladen
 
 ```bash
-# Tag erstellen
+# Podman: Tag erstellen
 podman tag storage-dashboard:latest registry.example.com/storage-dashboard:latest
 
 # Login in Registry
@@ -499,16 +772,53 @@ podman login registry.example.com
 
 # Image hochladen
 podman push registry.example.com/storage-dashboard:latest
+
+# nerdctl: Tag erstellen
+nerdctl tag storage-dashboard:latest registry.example.com/storage-dashboard:latest
+
+# Login in Registry
+nerdctl login registry.example.com
+
+# Image hochladen
+nerdctl push registry.example.com/storage-dashboard:latest
+
+# Docker: Tag erstellen
+docker tag storage-dashboard:latest registry.example.com/storage-dashboard:latest
+
+# Login in Registry
+docker login registry.example.com
+
+# Image hochladen
+docker push registry.example.com/storage-dashboard:latest
 ```
 
 ### Image von Registry herunterladen
 
 ```bash
+# Podman
 podman pull registry.example.com/storage-dashboard:latest
 podman run -d \
   --name storage-dashboard \
   -p 5000:5000 \
   -v storage-data:/app/data:Z \
+  --env-file .env \
+  registry.example.com/storage-dashboard:latest
+
+# nerdctl
+nerdctl pull registry.example.com/storage-dashboard:latest
+nerdctl run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data \
+  --env-file .env \
+  registry.example.com/storage-dashboard:latest
+
+# Docker
+docker pull registry.example.com/storage-dashboard:latest
+docker run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data \
   --env-file .env \
   registry.example.com/storage-dashboard:latest
 ```
