@@ -112,14 +112,14 @@ def cleanup_old_logs(system_id, max_logs=None):
         deleted_excess = 0
         if total_logs > max_logs:
             # Get IDs of logs to delete (keep only the newest max_logs)
-            logs_to_delete_ids = db.session.query(SystemLog.id).filter_by(system_id=system_id)\
+            logs_to_delete_result = db.session.query(SystemLog.id).filter_by(system_id=system_id)\
                 .order_by(SystemLog.timestamp.desc())\
                 .offset(max_logs)\
                 .all()
             
-            if logs_to_delete_ids:
-                # Extract IDs from the tuples and bulk delete
-                ids_list = [log_id[0] for log_id in logs_to_delete_ids]
+            if logs_to_delete_result:
+                # Extract IDs from the query result tuples and bulk delete
+                ids_list = [log_id[0] for log_id in logs_to_delete_result]
                 deleted_excess = SystemLog.query.filter(SystemLog.id.in_(ids_list)).delete(synchronize_session=False)
         
         if deleted_old > 0 or deleted_excess > 0:
