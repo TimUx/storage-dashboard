@@ -138,23 +138,29 @@ def create_app():
     with app.app_context():
         # Create tables if they don't exist
         # Handle race condition when multiple workers try to create tables simultaneously
-        try:
-            db.create_all()
-        except Exception as e:
-            # Check if this is a "table already exists" error (race condition with other workers)
-            # SQLAlchemy wraps sqlite3 errors in sqlalchemy.exc.OperationalError
-            from sqlalchemy.exc import OperationalError
-            if isinstance(e, OperationalError):
-                # Check for "already exists" in the error message
+        # Retry on connection errors to handle cases where the database is not yet ready
+        from sqlalchemy.exc import OperationalError
+        import time
+        max_retries = 5
+        retry_delay = 2
+        for attempt in range(1, max_retries + 1):
+            try:
+                db.create_all()
+                break
+            except OperationalError as e:
                 error_msg = str(e).lower()
                 if 'already exists' in error_msg:
                     app.logger.info("Database tables already exist (created by another worker)")
+                    break
+                if attempt < max_retries:
+                    app.logger.warning(
+                        f"Database not ready (attempt {attempt}/{max_retries}): {e}. "
+                        f"Retrying in {retry_delay}s..."
+                    )
+                    time.sleep(retry_delay)
                 else:
-                    # Re-raise if it's a different OperationalError
+                    app.logger.error(f"Could not connect to database after {max_retries} attempts: {e}")
                     raise
-            else:
-                # Re-raise if it's not an OperationalError
-                raise
         
         # Run database migrations
         try:
