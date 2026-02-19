@@ -314,6 +314,26 @@ body {
     border: 1px solid rgba(106, 106, 106, 0.3);
 }
 
+.tag-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    background: rgba(0, 152, 219, 0.12);
+    color: var(--itscare-blue);
+    border: 1px solid rgba(0, 152, 219, 0.3);
+    margin: 0.1rem 0.1rem 0 0;
+    white-space: nowrap;
+}
+
+.system-tags {
+    margin-top: 0.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.1rem;
+}
+
 .system-ip {
     color: var(--text-light);
     font-size: 0.75rem;
@@ -890,6 +910,20 @@ body.table-view .systems-table {
                             <option value="single-site">Single-Site</option>
                         </select>
                     </div>
+                    {% if tag_groups %}
+                    <div class="filter-group">
+                        <label for="tag-filter">Tags</label>
+                        <select id="tag-filter" multiple onchange="applyFilters()" style="min-height: 2rem; min-width: 160px;">
+                            {% for group in tag_groups %}
+                            <optgroup label="{{ group.name }}">
+                                {% for tag in group.tags.order_by('name') %}
+                                <option value="{{ tag.id }}">{{ tag.name }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
                     <div class="filter-group">
                         <label for="search-filter">Suche</label>
                         <input type="text" id="search-filter" placeholder="Name, IP, DNS..." oninput="applyFilters()">
@@ -960,7 +994,8 @@ body.table-view .systems-table {
                  data-cluster-type="{{ system.cluster_type or '' }}"
                  data-name="{{ system.name }}"
                  data-ip="{{ system.ip_address }}"
-                 data-dns="{{ dns_names[0] if dns_names else '' }}">
+                 data-dns="{{ dns_names[0] if dns_names else '' }}"
+                 data-tags="{{ system.tags | map(attribute='id') | join(',') if system.tags else '' }}">
                 <div class="system-header">
                     <div class="system-name">
                         <a href="https://{% if dns_names %}{{ dns_names[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" 
@@ -1047,6 +1082,14 @@ body.table-view .systems-table {
                 </div>
                 {% endif %}
                 
+                {% if system.tags %}
+                <div class="system-tags">
+                    {% for tag in system.tags %}
+                    <span class="tag-badge" title="{{ tag.group.name if tag.group else '' }}">{{ tag.name }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
                 <div class="card-actions">
                     <a href="/systems/{{ system.id }}/details" class="detail-btn">📊 Details</a>
                 </div>
@@ -1068,6 +1111,7 @@ body.table-view .systems-table {
                         <th>Cluster</th>
                         <th class="status-cell">Alerts</th>
                         <th class="capacity-cell">Kapazität</th>
+                        <th>Tags</th>
                         <th>Aktionen</th>
                     </tr>
                 </thead>
@@ -1082,7 +1126,8 @@ body.table-view .systems-table {
                         data-cluster-type="{{ system.cluster_type or '' }}"
                         data-name="{{ system.name }}"
                         data-ip="{{ system.ip_address }}"
-                        data-dns="{{ dns_names[0] if dns_names else '' }}">
+                        data-dns="{{ dns_names[0] if dns_names else '' }}"
+                        data-tags="{{ system.tags | map(attribute='id') | join(',') if system.tags else '' }}">
                         <td>
                             <a href="https://{% if dns_names %}{{ dns_names[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" 
                                class="webui-link" title="Zur WebUI öffnen" style="font-weight: bold;">
@@ -1149,6 +1194,15 @@ body.table-view .systems-table {
                                      style="width: {{ status.capacity_percent }}%"></div>
                             </div>
                             <div class="capacity-text">{{ "%.1f"|format(status.capacity_percent) }}%</div>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td>
+                            {% if system.tags %}
+                            <div class="system-tags">
+                                {% for tag in system.tags %}
+                                <span class="tag-badge" title="{{ tag.group.name if tag.group else '' }}">{{ tag.name }}</span>
+                                {% endfor %}
+                            </div>
                             {% else %}-{% endif %}
                         </td>
                         <td>
@@ -1640,6 +1694,12 @@ function applyFilters() {
     const clusterFilter = document.getElementById('cluster-filter').value.toLowerCase();
     const searchFilter = document.getElementById('search-filter').value.toLowerCase();
     
+    // Collect selected tag IDs (multi-select)
+    const tagFilterEl = document.getElementById('tag-filter');
+    const selectedTagIds = tagFilterEl
+        ? Array.from(tagFilterEl.selectedOptions).map(o => o.value)
+        : [];
+    
     // Get all system cards and table rows
     const systemCards = document.querySelectorAll('.system-card');
     const tableRows = document.querySelectorAll('.systems-table tbody tr');
@@ -1655,6 +1715,7 @@ function applyFilters() {
         const name = card.dataset.name || '';
         const ip = card.dataset.ip || '';
         const dns = card.dataset.dns || '';
+        const cardTags = card.dataset.tags ? card.dataset.tags.split(',') : [];
         
         const matchVendor = !vendorFilter || vendor.includes(vendorFilter);
         const matchStatus = !statusFilter || status === statusFilter;
@@ -1663,8 +1724,10 @@ function applyFilters() {
             name.toLowerCase().includes(searchFilter) ||
             ip.includes(searchFilter) ||
             dns.toLowerCase().includes(searchFilter);
+        const matchTags = selectedTagIds.length === 0 ||
+            selectedTagIds.every(id => cardTags.includes(id));
         
-        if (matchVendor && matchStatus && matchCluster && matchSearch) {
+        if (matchVendor && matchStatus && matchCluster && matchSearch && matchTags) {
             card.style.display = '';
             visibleCount++;
         } else {
@@ -1680,6 +1743,7 @@ function applyFilters() {
         const name = row.dataset.name || '';
         const ip = row.dataset.ip || '';
         const dns = row.dataset.dns || '';
+        const rowTags = row.dataset.tags ? row.dataset.tags.split(',') : [];
         
         const matchVendor = !vendorFilter || vendor.includes(vendorFilter);
         const matchStatus = !statusFilter || status === statusFilter;
@@ -1688,8 +1752,10 @@ function applyFilters() {
             name.toLowerCase().includes(searchFilter) ||
             ip.includes(searchFilter) ||
             dns.toLowerCase().includes(searchFilter);
+        const matchTags = selectedTagIds.length === 0 ||
+            selectedTagIds.every(id => rowTags.includes(id));
         
-        if (matchVendor && matchStatus && matchCluster && matchSearch) {
+        if (matchVendor && matchStatus && matchCluster && matchSearch && matchTags) {
             row.style.display = '';
         } else {
             row.style.display = 'none';
@@ -1719,6 +1785,10 @@ function resetFilters() {
     document.getElementById('status-filter').value = '';
     document.getElementById('cluster-filter').value = '';
     document.getElementById('search-filter').value = '';
+    const tagFilterEl = document.getElementById('tag-filter');
+    if (tagFilterEl) {
+        Array.from(tagFilterEl.options).forEach(o => o.selected = false);
+    }
     applyFilters();
 }
 </script>
