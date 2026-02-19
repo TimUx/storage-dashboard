@@ -120,7 +120,6 @@
             </div>
         </div>
         <div class="group-card-body">
-            {% set group_tags = group.tags.order_by_tag_name() if group.tags.order_by_tag_name is defined else group.tags.all() %}
             {% set all_tags = group.tags.all() %}
             {% if all_tags %}
             <div class="tags-list">

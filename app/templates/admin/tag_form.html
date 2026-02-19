@@ -75,8 +75,9 @@
                 <option value="">-- Bitte wählen --</option>
                 {% for group in tag_groups %}
                 <option value="{{ group.id }}"
-                    {% if tag and tag.group_id == group.id %}selected{% endif %}
-                    {% if request.args.get('group_id') == group.id|string and not tag %}selected{% endif %}>
+                    {% if tag %}
+                        {% if tag.group_id == group.id %}selected{% endif %}
+                    {% elif request.args.get('group_id') == group.id|string %}selected{% endif %}>
                     {{ group.name }}
                 </option>
                 {% endfor %}
