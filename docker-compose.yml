@@ -1,6 +1,30 @@
 version: '3.8'
 
 services:
+  # PostgreSQL database service
+  postgres:
+    image: postgres:16-alpine
+    container_name: storage-dashboard-db
+    restart: unless-stopped
+    
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-storage_dashboard}
+      - POSTGRES_USER=${POSTGRES_USER:-dashboard}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env file}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    
+    networks:
+      - dashboard-network
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dashboard}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
   storage-dashboard:
     # Use pre-built image from GitHub Container Registry
     # To build locally instead, uncomment the 'build' section and comment out the image line
@@ -10,6 +34,11 @@ services:
     #   dockerfile: Dockerfile
     container_name: storage-dashboard
     restart: unless-stopped
+    
+    # Depend on database
+    depends_on:
+      postgres:
+        condition: service_healthy
     
     # Port mapping
     ports:
@@ -21,8 +50,11 @@ services:
       - FLASK_ENV=production
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env file}
       
-      # Database configuration
-      - DATABASE_URL=sqlite:////app/data/storage_dashboard.db
+      # Database configuration - PostgreSQL (recommended for production)
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-dashboard}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-storage_dashboard}
+      
+      # Alternative: SQLite (not recommended for production with multiple workers)
+      # - DATABASE_URL=sqlite:////app/data/storage_dashboard.db
       
       # SSL verification for storage APIs
       - SSL_VERIFY=${SSL_VERIFY:-false}
@@ -30,9 +62,9 @@ services:
       # Timezone configuration (Europe/Berlin = MEZ/MESZ)
       - TZ=${TZ:-Europe/Berlin}
     
-    # Volumes for data persistence
+    # Volumes for data persistence (only needed if using SQLite)
     volumes:
-      # Database persistence
+      # Optional: Database persistence for SQLite
       - storage-data:/app/data
       
       # Optional: Mount .env file for additional configuration
@@ -62,6 +94,8 @@ services:
 
 # Named volumes for data persistence
 volumes:
+  postgres-data:
+    driver: local
   storage-data:
     driver: local
 
