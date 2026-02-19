@@ -3,7 +3,7 @@
 ## Issue: Dashboard Loading Performance
 
 **Problem (German):**
-> Beim öffnen des Dashboards dauert es ziemlich lange, bis dieses engültig angezeigt wird. Woran liegt das und kann man dies verbessern?
+> Beim öffnen des Dashboards dauert es ziemlich lange, bis dieses endgültig angezeigt wird. Woran liegt das und kann man dies verbessern?
 >
 > Könnte man das Dashboard ansich schon anzeigen, vielleicht auch ein Ladesymbol anzeigen und dann im Hintergrund die informationen abrufen/aufbereiten und das Dashboard dann dynmisch aktuallisieren?
 >
