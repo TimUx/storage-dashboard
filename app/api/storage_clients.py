@@ -74,6 +74,17 @@ class PureStorageClient(StorageClient):
     # FlashArray REST API version (will be detected dynamically)
     API_VERSION = '2.4'
     
+    # Hardware component statuses that indicate an error condition
+    HW_ERROR_STATES = frozenset(('critical', 'unhealthy', 'failed'))
+    # Drive statuses that indicate an error condition
+    DRIVE_ERROR_STATES = frozenset(('failed', 'unhealthy', 'missing', 'unrecognized'))
+    # Statuses that are considered healthy/normal (no action needed)
+    HW_OK_STATES = frozenset(('ok', 'healthy', 'normal', 'identifying'))
+    DRIVE_OK_STATES = frozenset(('healthy', 'ok', 'identifying', 'recovering', 'updating', 'unadmitted'))
+    # Statuses that mean the slot/bay is empty (skip entirely)
+    HW_SKIP_STATES = frozenset(('', 'unused', 'not_installed'))
+    DRIVE_SKIP_STATES = frozenset(('', 'empty', 'unused'))
+    
     def detect_api_version(self):
         """Detect the API version supported by the FlashArray"""
         try:
@@ -330,7 +341,9 @@ class PureStorageClient(StorageClient):
             
             # Get hardware status
             # REST API v2: GET /api/2.x/hardware
+            # Types: bay, ct (controller), ch (chassis), eth, fan, fb, fc, fm, ib, iom, nvb, pwr, sas, sh (shelf), tmp (temperature)
             hardware_status = 'ok'
+            hardware_details = {'components': [], 'drives': []}
             try:
                 hardware_response = requests.get(
                     f"{self.base_url}/api/{api_version}/hardware",
@@ -343,15 +356,87 @@ class PureStorageClient(StorageClient):
                     hardware_data = hardware_response.json()
                     items = hardware_data.get('items', [])
                     
-                    # Check if any hardware component is not OK
                     for hw in items:
-                        status = hw.get('status', '').lower()
-                        if status not in ['ok', 'healthy', 'normal', '']:
-                            hardware_status = 'warning'
-                            logger.warning(f"Hardware issue on {self.ip_address}: {hw.get('name')} is {status}")
-                            break
+                        hw_name = hw.get('name', '')
+                        hw_type = hw.get('type', '')
+                        hw_status = hw.get('status', '').lower()
+                        hw_temp = hw.get('temperature')
+                        hw_details_msg = hw.get('details', '')
+                        
+                        # Only record non-empty slots/bays and components with notable status
+                        if hw_status in self.HW_SKIP_STATES:
+                            continue
+                        
+                        component_info = {
+                            'name': hw_name,
+                            'type': hw_type,
+                            'status': hw_status,
+                        }
+                        if hw_temp is not None:
+                            component_info['temperature'] = hw_temp
+                        if hw_details_msg:
+                            component_info['details'] = hw_details_msg
+                        
+                        hardware_details['components'].append(component_info)
+                        
+                        # critical/unhealthy/failed = error, other non-ok states = warning
+                        if hw_status in self.HW_ERROR_STATES:
+                            hardware_status = 'error'
+                            logger.warning(f"Hardware error on {self.ip_address}: {hw_name} ({hw_type}) is {hw_status}")
+                        elif hw_status not in self.HW_OK_STATES:
+                            if hardware_status != 'error':
+                                hardware_status = 'warning'
+                            logger.warning(f"Hardware issue on {self.ip_address}: {hw_name} ({hw_type}) is {hw_status}")
             except Exception as hw_error:
                 logger.warning(f"Could not get hardware status for {self.ip_address}: {hw_error}")
+            
+            # Check drive status
+            # REST API v2: GET /api/2.x/drives
+            try:
+                drives_response = requests.get(
+                    f"{self.base_url}/api/{api_version}/drives",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if drives_response.status_code == 200:
+                    drives_data = drives_response.json()
+                    drive_items = drives_data.get('items', [])
+                    
+                    for drive in drive_items:
+                        drive_name = drive.get('name', '')
+                        drive_status = drive.get('status', '').lower()
+                        drive_type = drive.get('type', '')
+                        drive_capacity = drive.get('capacity')
+                        drive_details_msg = drive.get('details', '')
+                        
+                        # Skip empty bays
+                        if drive_status in self.DRIVE_SKIP_STATES:
+                            continue
+                        
+                        drive_info = {
+                            'name': drive_name,
+                            'type': drive_type,
+                            'status': drive_status,
+                        }
+                        if drive_capacity:
+                            drive_info['capacity_bytes'] = drive_capacity
+                        if drive_details_msg:
+                            drive_info['details'] = drive_details_msg
+                        
+                        hardware_details['drives'].append(drive_info)
+                        
+                        # failed/unhealthy/missing/unrecognized drives = error
+                        if drive_status in self.DRIVE_ERROR_STATES:
+                            hardware_status = 'error'
+                            logger.warning(f"Drive error on {self.ip_address}: {drive_name} is {drive_status}")
+                        elif drive_status not in self.DRIVE_OK_STATES:
+                            if hardware_status != 'error':
+                                hardware_status = 'warning'
+                            logger.warning(f"Drive issue on {self.ip_address}: {drive_name} is {drive_status}")
+            except Exception as drive_error:
+                logger.warning(f"Could not get drive status for {self.ip_address}: {drive_error}")
             
             # Get alerts
             # REST API v2: GET /api/2.x/alerts?filter=state='open'
@@ -500,7 +585,8 @@ class PureStorageClient(StorageClient):
                 is_active_cluster=is_active_cluster,
                 site_count=site_count,
                 pods_info=pods_info if pods_info else None,
-                all_mgmt_ips=mgmt_ips_with_dns if mgmt_ips_with_dns else None
+                all_mgmt_ips=mgmt_ips_with_dns if mgmt_ips_with_dns else None,
+                hardware_details=hardware_details if (hardware_details.get('components') or hardware_details.get('drives')) else None
             )
                 
         except Exception as e:
@@ -857,9 +943,56 @@ class NetAppONTAPClient(StorageClient):
                 # Log the error but continue with 0 capacity
                 logger.warning(f"Could not get aggregate space info for {self.ip_address}: {aggr_error}")
             
+            # Get hardware status from node controller info
+            # REST API: GET /api/cluster/nodes?fields=controller.failed_power_supply.count,controller.failed_fan.count,controller.over_temperature
+            hardware_status = 'ok'
+            hardware_details = []
+            try:
+                hw_nodes_response = requests.get(
+                    f"{self.base_url}/api/cluster/nodes",
+                    auth=auth,
+                    headers=headers,
+                    params={'fields': 'name,controller.failed_power_supply.count,controller.failed_fan.count,controller.over_temperature'},
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                
+                if hw_nodes_response.status_code == 200:
+                    hw_nodes_data = hw_nodes_response.json()
+                    records = hw_nodes_data.get('records', [])
+                    
+                    for node in records:
+                        node_name = node.get('name', 'unknown')
+                        controller = node.get('controller', {})
+                        if not isinstance(controller, dict):
+                            continue
+                        
+                        failed_psu_info = controller.get('failed_power_supply', {})
+                        failed_fan_info = controller.get('failed_fan', {})
+                        failed_psus = failed_psu_info.get('count', 0) if isinstance(failed_psu_info, dict) else 0
+                        failed_fans = failed_fan_info.get('count', 0) if isinstance(failed_fan_info, dict) else 0
+                        over_temp = controller.get('over_temperature', False)
+                        
+                        node_hw = {
+                            'node': node_name,
+                            'failed_power_supplies': failed_psus,
+                            'failed_fans': failed_fans,
+                            'over_temperature': over_temp,
+                        }
+                        hardware_details.append(node_hw)
+                        
+                        if failed_psus > 0 or failed_fans > 0 or over_temp:
+                            hardware_status = 'error'
+                            logger.warning(
+                                f"Hardware error on ONTAP node {node_name} ({self.ip_address}): "
+                                f"failed_PSU={failed_psus}, failed_fans={failed_fans}, over_temp={over_temp}"
+                            )
+            except Exception as hw_error:
+                logger.warning(f"Could not get hardware status for ONTAP {self.ip_address}: {hw_error}")
+            
             return self._format_response(
                 status='online',
-                hardware='ok',
+                hardware=hardware_status,
                 cluster='ok',
                 alerts=0,
                 total_tb=total_bytes / (1024**4),
@@ -870,7 +1003,8 @@ class NetAppONTAPClient(StorageClient):
                 metrocluster_nodes=metrocluster_nodes if metrocluster_nodes else None,
                 metrocluster_dr_groups=metrocluster_dr_groups if metrocluster_dr_groups else None,
                 metrocluster_peers=metrocluster_peers if metrocluster_peers else None,
-                controllers=metrocluster_nodes if metrocluster_nodes else cluster_nodes  # Use MetroCluster nodes if available, otherwise regular cluster nodes
+                controllers=metrocluster_nodes if metrocluster_nodes else cluster_nodes,
+                hardware_details=hardware_details if hardware_details else None
             )
         except Exception as e:
             logger.error(f"Error getting NetApp ONTAP health status for {self.ip_address}: {e}")
@@ -1748,18 +1882,45 @@ class DellDataDomainClient(StorageClient):
                 'overall_status': 'ok'  # Will be updated based on component status
             }
             
-            # Check for failed components (using class constant)
+            # Check for failed components and distinguish error vs warning
+            # Error states (using class constant): failed, error, critical
+            # Warning states: degraded, warning, unknown
             failed_components = []
+            warning_components = []
+            warning_states = ['degraded', 'warning']
+            
             for component_type in ['power_supplies', 'fans', 'controllers']:
                 components = data.get(component_type, [])
                 if isinstance(components, list):
                     for comp in components:
-                        if comp.get('status', '').lower() in self.FAILED_COMPONENT_STATES:
-                            failed_components.append(f"{component_type}:{comp.get('id', 'unknown')}")
+                        comp_status = comp.get('status', '').lower()
+                        comp_id = comp.get('id', 'unknown')
+                        if comp_status in self.FAILED_COMPONENT_STATES:
+                            failed_components.append(f"{component_type}:{comp_id}")
+                        elif comp_status in warning_states:
+                            warning_components.append(f"{component_type}:{comp_id}")
+            
+            # Also check disk status via dedicated disk API
+            disk_data = self._make_api_request('/api/v1/dd-systems/0/storage/disks', headers, ssl_verify)
+            if disk_data:
+                disk_list = disk_data.get('diskInfo', []) or []
+                hw_info['disk_count'] = len(disk_list)
+                for disk in disk_list:
+                    disk_status = disk.get('status', '').upper()
+                    disk_id = disk.get('id', disk.get('device', 'unknown'))
+                    # ERROR and FAILED are critical disk states
+                    if disk_status in ('ERROR', 'FAILED'):
+                        failed_components.append(f"disk:{disk_id}")
+                    # ABSENT/POWERED_OFF/NOT_INSTALLED can indicate issues
+                    elif disk_status in ('UNKNOWN', 'FOREIGN', 'INVALID'):
+                        warning_components.append(f"disk:{disk_id}")
             
             if failed_components:
-                hw_info['overall_status'] = 'warning'
+                hw_info['overall_status'] = 'error'
                 hw_info['failed_components'] = failed_components
+            elif warning_components:
+                hw_info['overall_status'] = 'warning'
+                hw_info['warning_components'] = warning_components
             
             logger.debug(f"DataDomain {self.ip_address} - Hardware status: {hw_info.get('overall_status')}")
             return hw_info
@@ -1929,9 +2090,13 @@ class DellDataDomainClient(StorageClient):
             hardware_health = 'ok'
             cluster_health = 'ok'
             
-            # Check hardware status
-            if hardware_status and hardware_status.get('overall_status') == 'warning':
-                hardware_health = 'warning'
+            # Check hardware status - propagate 'error' and 'warning' from component checks
+            if hardware_status:
+                overall = hardware_status.get('overall_status', 'ok')
+                if overall == 'error':
+                    hardware_health = 'error'
+                elif overall == 'warning':
+                    hardware_health = 'warning'
             
             # Check HA/cluster status
             if ha_status:
@@ -1945,7 +2110,7 @@ class DellDataDomainClient(StorageClient):
             critical_alerts = [a for a in active_alerts 
                              if a.get('severity', '').lower() in self.CRITICAL_ALERT_SEVERITIES]
             if critical_alerts:
-                if hardware_health == 'ok':
+                if hardware_health != 'error':
                     hardware_health = 'warning'
             
             # Build comprehensive response
