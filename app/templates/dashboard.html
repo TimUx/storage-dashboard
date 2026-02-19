@@ -1172,6 +1172,15 @@ body.table-view .systems-table {
 </div>
 
 <script>
+// Polyfill for CSS.escape for older browsers
+if (!CSS.escape) {
+    CSS.escape = function(value) {
+        return value.replace(/[^a-zA-Z0-9_-]/g, function(match) {
+            return '\\' + match;
+        });
+    };
+}
+
 // Auto-refresh configuration
 const DEFAULT_REFRESH_INTERVAL = '45';  // Default refresh interval in seconds
 let autoRefreshCountdown = null;
@@ -1181,7 +1190,7 @@ let countdownSeconds = refreshTimeSeconds;
 // Initialize auto-refresh on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Check if async loading is enabled
-    const asyncLoad = {{ 'true' if async_load else 'false' }};
+    const asyncLoad = {{ async_load|tojson|safe }};
     
     if (asyncLoad) {
         // Load data asynchronously
@@ -1258,7 +1267,7 @@ function loadDashboardData() {
 
 // Update a single system card with new status data
 function updateSystemCard(system, status) {
-    const card = document.querySelector(`.system-card[data-system-id="${system.id}"]`);
+    const card = document.querySelector(`.system-card[data-system-id="${CSS.escape(String(system.id))}"]`);
     if (!card) return;
     
     // Update data attributes
@@ -1353,7 +1362,7 @@ function updateSystemCard(system, status) {
 
 // Update a single system table row with new status data
 function updateSystemTableRow(system, status) {
-    const row = document.querySelector(`tr[data-system-id="${system.id}"]`);
+    const row = document.querySelector(`tr[data-system-id="${CSS.escape(String(system.id))}"]`);
     if (!row) return;
     
     // Update data attributes

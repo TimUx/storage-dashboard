@@ -224,7 +224,9 @@ def index():
     """Main dashboard view - returns HTML with empty dashboard for async loading"""
     from flask import request
     
-    # Check if this is a request for immediate rendering (async mode)
+    # Check if client-side async loading should be used (AJAX-based data fetching)
+    # This is different from Python async/await - it controls whether the template
+    # renders with data (sync) or loads data via JavaScript/AJAX (async)
     async_load = request.args.get('async', 'true').lower() == 'true'
     
     systems = StorageSystem.query.filter_by(enabled=True).all()
