@@ -536,133 +536,6 @@
         </div>
     </div>
 
-    <!-- Hardware Component Details -->
-    {% if status.hardware_details %}
-    <div class="detail-card">
-        <h2>🔧 Hardware-Komponenten</h2>
-
-        {% if status.hardware_details is mapping %}
-        {# Pure Storage format: {'components': [...], 'drives': [...]} #}
-        {% if status.hardware_details.components %}
-        <h3 style="margin: 0.5rem 0 0.25rem;">Komponenten</h3>
-        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-            <thead>
-                <tr>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Name</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Typ</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Status</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Temperatur</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Details</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for comp in status.hardware_details.components %}
-                <tr>
-                    <td style="padding:0.25rem 0.5rem;">{{ comp.name }}</td>
-                    <td style="padding:0.25rem 0.5rem;">{{ comp.type }}</td>
-                    <td style="padding:0.25rem 0.5rem;">
-                        <span class="status-badge status-{{ 'ok' if comp.status in ('ok', 'healthy', 'normal') else 'error' if comp.status in ('critical', 'unhealthy', 'failed') else 'warning' }}">
-                            {{ comp.status }}
-                        </span>
-                    </td>
-                    <td style="padding:0.25rem 0.5rem;">{{ (comp.temperature ~ ' °C') if comp.temperature is not none else '—' }}</td>
-                    <td style="padding:0.25rem 0.5rem;">{{ comp.details if comp.details else '—' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
-
-        {% if status.hardware_details.drives %}
-        <h3 style="margin: 1rem 0 0.25rem;">Laufwerke / Drives</h3>
-        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-            <thead>
-                <tr>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Name</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Typ</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Status</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Details</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for drive in status.hardware_details.drives %}
-                <tr>
-                    <td style="padding:0.25rem 0.5rem;">{{ drive.name }}</td>
-                    <td style="padding:0.25rem 0.5rem;">{{ drive.type }}</td>
-                    <td style="padding:0.25rem 0.5rem;">
-                        <span class="status-badge status-{{ 'ok' if drive.status in ('healthy', 'ok') else 'error' if drive.status in ('failed', 'unhealthy', 'missing', 'unrecognized') else 'warning' }}">
-                            {{ drive.status }}
-                        </span>
-                    </td>
-                    <td style="padding:0.25rem 0.5rem;">{{ drive.details if drive.details else '—' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
-
-        {% elif status.hardware_details is iterable and status.hardware_details is not string %}
-        {# NetApp ONTAP format: list of node hardware dicts #}
-        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-            <thead>
-                <tr>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Node</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">PSU Fehler</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Lüfter Fehler</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Übertemperatur</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for node in status.hardware_details %}
-                <tr>
-                    <td style="padding:0.25rem 0.5rem;">{{ node.node }}</td>
-                    <td style="padding:0.25rem 0.5rem;">
-                        <span class="status-badge status-{{ 'error' if node.failed_power_supplies > 0 else 'ok' }}">
-                            {{ node.failed_power_supplies }}
-                        </span>
-                    </td>
-                    <td style="padding:0.25rem 0.5rem;">
-                        <span class="status-badge status-{{ 'error' if node.failed_fans > 0 else 'ok' }}">
-                            {{ node.failed_fans }}
-                        </span>
-                    </td>
-                    <td style="padding:0.25rem 0.5rem;">
-                        <span class="status-badge status-{{ 'error' if node.over_temperature else 'ok' }}">
-                            {{ 'JA' if node.over_temperature else 'Nein' }}
-                        </span>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
-
-        {# DataDomain hardware_details is stored separately as result['hardware_details'] #}
-        {% if status.hardware_details.overall_status is defined %}
-        <div class="detail-row" style="margin-top:0.5rem;">
-            <span class="detail-label">Gesamt-Status:</span>
-            <span class="detail-value">
-                <span class="status-badge status-{{ status.hardware_details.overall_status }}">
-                    {{ status.hardware_details.overall_status | upper }}
-                </span>
-            </span>
-        </div>
-        {% if status.hardware_details.failed_components %}
-        <div class="detail-row">
-            <span class="detail-label">Fehlerhafte Komponenten:</span>
-            <span class="detail-value">{{ status.hardware_details.failed_components | join(', ') }}</span>
-        </div>
-        {% endif %}
-        {% if status.hardware_details.warning_components %}
-        <div class="detail-row">
-            <span class="detail-label">Warnung Komponenten:</span>
-            <span class="detail-value">{{ status.hardware_details.warning_components | join(', ') }}</span>
-        </div>
-        {% endif %}
-        {% endif %}
-    </div>
-    {% endif %}
-
     <!-- Network Information -->
     <div class="detail-card">
         <h2>🌐 Netzwerk-Information</h2>
@@ -1166,6 +1039,133 @@
             </li>
             {% endfor %}
         </ul>
+    </div>
+    {% endif %}
+
+    <!-- Hardware Component Details -->
+    {% if status.hardware_details %}
+    <div class="detail-card">
+        <h2>🔧 Hardware-Komponenten</h2>
+
+        {% if status.hardware_details is mapping %}
+        {# Pure Storage format: {'components': [...], 'drives': [...]} #}
+        {% if status.hardware_details.components %}
+        <h3 style="margin: 0.5rem 0 0.25rem;">Komponenten</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Name</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Typ</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Status</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Temperatur</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for comp in status.hardware_details.components %}
+                <tr>
+                    <td style="padding:0.25rem 0.5rem;">{{ comp.name }}</td>
+                    <td style="padding:0.25rem 0.5rem;">{{ comp.type }}</td>
+                    <td style="padding:0.25rem 0.5rem;">
+                        <span class="status-badge status-{{ 'ok' if comp.status in ('ok', 'healthy', 'normal') else 'error' if comp.status in ('critical', 'unhealthy', 'failed') else 'warning' }}">
+                            {{ comp.status }}
+                        </span>
+                    </td>
+                    <td style="padding:0.25rem 0.5rem;">{{ (comp.temperature ~ ' °C') if comp.temperature is not none else '—' }}</td>
+                    <td style="padding:0.25rem 0.5rem;">{{ comp.details if comp.details else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if status.hardware_details.drives %}
+        <h3 style="margin: 1rem 0 0.25rem;">Laufwerke / Drives</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Name</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Typ</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Status</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for drive in status.hardware_details.drives %}
+                <tr>
+                    <td style="padding:0.25rem 0.5rem;">{{ drive.name }}</td>
+                    <td style="padding:0.25rem 0.5rem;">{{ drive.type }}</td>
+                    <td style="padding:0.25rem 0.5rem;">
+                        <span class="status-badge status-{{ 'ok' if drive.status in ('healthy', 'ok') else 'error' if drive.status in ('failed', 'unhealthy', 'missing', 'unrecognized') else 'warning' }}">
+                            {{ drive.status }}
+                        </span>
+                    </td>
+                    <td style="padding:0.25rem 0.5rem;">{{ drive.details if drive.details else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% elif status.hardware_details is iterable and status.hardware_details is not string %}
+        {# NetApp ONTAP format: list of node hardware dicts #}
+        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Node</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">PSU Fehler</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Lüfter Fehler</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Übertemperatur</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for node in status.hardware_details %}
+                <tr>
+                    <td style="padding:0.25rem 0.5rem;">{{ node.node }}</td>
+                    <td style="padding:0.25rem 0.5rem;">
+                        <span class="status-badge status-{{ 'error' if node.failed_power_supplies > 0 else 'ok' }}">
+                            {{ node.failed_power_supplies }}
+                        </span>
+                    </td>
+                    <td style="padding:0.25rem 0.5rem;">
+                        <span class="status-badge status-{{ 'error' if node.failed_fans > 0 else 'ok' }}">
+                            {{ node.failed_fans }}
+                        </span>
+                    </td>
+                    <td style="padding:0.25rem 0.5rem;">
+                        <span class="status-badge status-{{ 'error' if node.over_temperature else 'ok' }}">
+                            {{ 'JA' if node.over_temperature else 'Nein' }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {# DataDomain hardware_details is stored separately as result['hardware_details'] #}
+        {% if status.hardware_details.overall_status is defined %}
+        <div class="detail-row" style="margin-top:0.5rem;">
+            <span class="detail-label">Gesamt-Status:</span>
+            <span class="detail-value">
+                <span class="status-badge status-{{ status.hardware_details.overall_status }}">
+                    {{ status.hardware_details.overall_status | upper }}
+                </span>
+            </span>
+        </div>
+        {% if status.hardware_details.failed_components %}
+        <div class="detail-row">
+            <span class="detail-label">Fehlerhafte Komponenten:</span>
+            <span class="detail-value">{{ status.hardware_details.failed_components | join(', ') }}</span>
+        </div>
+        {% endif %}
+        {% if status.hardware_details.warning_components %}
+        <div class="detail-row">
+            <span class="detail-label">Warnung Komponenten:</span>
+            <span class="detail-value">{{ status.hardware_details.warning_components | join(', ') }}</span>
+        </div>
+        {% endif %}
+        {% endif %}
     </div>
     {% endif %}
 </div>
