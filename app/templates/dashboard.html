@@ -479,7 +479,6 @@ body {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.85rem;
-    table-layout: fixed; /* Enforce consistent column widths across all vendor tables */
 }
 
 .systems-table thead {
@@ -520,52 +519,27 @@ body {
 /* Standardized column widths for consistent alignment */
 .systems-table th:nth-child(1),
 .systems-table td:nth-child(1) {
-    width: 180px; /* Name */
-}
-
-.systems-table th:nth-child(2),
-.systems-table td:nth-child(2) {
-    width: 110px; /* Cluster-Typ */
+    min-width: 140px; /* Name */
 }
 
 .systems-table th:nth-child(3),
 .systems-table td:nth-child(3) {
-    width: 140px; /* IP */
-}
-
-.systems-table th:nth-child(4),
-.systems-table td:nth-child(4) {
-    width: 120px; /* OS Version */
-}
-
-.systems-table th:nth-child(5),
-.systems-table td:nth-child(5) {
-    width: 100px; /* Status */
-}
-
-.systems-table th:nth-child(6),
-.systems-table td:nth-child(6) {
-    width: 90px; /* Hardware */
-}
-
-.systems-table th:nth-child(7),
-.systems-table td:nth-child(7) {
-    width: 100px; /* Cluster */
-}
-
-.systems-table th:nth-child(8),
-.systems-table td:nth-child(8) {
-    width: 100px; /* Alerts */
+    min-width: 110px; /* IP */
 }
 
 .systems-table th:nth-child(9),
 .systems-table td:nth-child(9) {
-    width: 150px; /* Kapazität */
+    min-width: 140px; /* Kapazität */
 }
 
 .systems-table th:nth-child(10),
 .systems-table td:nth-child(10) {
-    width: 90px; /* Aktionen */
+    min-width: 100px; /* Tags */
+}
+
+.systems-table th:nth-child(11),
+.systems-table td:nth-child(11) {
+    white-space: nowrap; /* Aktionen */
 }
 
 .error-message {
@@ -711,6 +685,93 @@ body.table-view .systems-table {
     outline: none;
     border-color: var(--itscare-blue);
     box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+}
+
+/* Custom Tag Dropdown */
+.tag-dropdown {
+    position: relative;
+    min-width: 160px;
+}
+
+.tag-dropdown-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: white;
+    color: var(--text-dark);
+    cursor: pointer;
+    width: 100%;
+    min-width: 160px;
+}
+
+.tag-dropdown-btn:focus {
+    outline: none;
+    border-color: var(--itscare-blue);
+    box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+}
+
+.tag-dropdown-arrow {
+    font-size: 0.7em;
+    color: var(--text-medium);
+    transition: transform 0.2s;
+}
+
+.tag-dropdown.open .tag-dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+.tag-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    min-width: 200px;
+    background: white;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 200;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.tag-dropdown.open .tag-dropdown-menu {
+    display: block;
+}
+
+.tag-dropdown-group-label {
+    padding: 0.3rem 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--bg-light);
+}
+
+.tag-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-dark);
+    transition: background 0.15s;
+}
+
+.tag-dropdown-item:hover {
+    background: rgba(0, 102, 204, 0.05);
+}
+
+.tag-dropdown-item input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
 }
 
 .filter-results {
@@ -912,16 +973,26 @@ body.table-view .systems-table {
                     </div>
                     {% if tag_groups %}
                     <div class="filter-group">
-                        <label for="tag-filter">Tags</label>
-                        <select id="tag-filter" multiple onchange="applyFilters()" style="min-height: 2rem; min-width: 160px;">
-                            {% for group in tag_groups %}
-                            <optgroup label="{{ group.name }}">
-                                {% for tag in group.tags.order_by('name') %}
-                                <option value="{{ tag.id }}">{{ tag.name }}</option>
+                        <label>Tags</label>
+                        <div class="tag-dropdown" id="tag-dropdown">
+                            <button type="button" class="tag-dropdown-btn" id="tag-dropdown-btn" onclick="toggleTagDropdown(event)">
+                                <span id="tag-dropdown-label">Alle Tags</span>
+                                <span class="tag-dropdown-arrow">▼</span>
+                            </button>
+                            <div class="tag-dropdown-menu" id="tag-dropdown-menu">
+                                {% for group in tag_groups %}
+                                <div>
+                                    <div class="tag-dropdown-group-label">{{ group.name }}</div>
+                                    {% for tag in group.tags.order_by('name') %}
+                                     <label class="tag-dropdown-item">
+                                        <input type="checkbox" name="tag-filter" value="{{ tag.id }}" data-tag-name="{{ tag.name }}" onchange="handleTagChange()">
+                                        {{ tag.name }}
+                                    </label>
+                                    {% endfor %}
+                                </div>
                                 {% endfor %}
-                            </optgroup>
-                            {% endfor %}
-                        </select>
+                            </div>
+                        </div>
                     </div>
                     {% endif %}
                     <div class="filter-group">
@@ -1687,6 +1758,38 @@ function switchView(view) {
     localStorage.setItem('dashboard-view', view);
 }
 
+// Tag dropdown helpers
+function handleTagChange() {
+    applyFilters();
+    updateTagDropdownLabel();
+}
+
+function toggleTagDropdown(event) {
+    event.stopPropagation();
+    const dropdown = document.getElementById('tag-dropdown');
+    if (dropdown) dropdown.classList.toggle('open');
+}
+
+function updateTagDropdownLabel() {
+    const checked = document.querySelectorAll('#tag-dropdown-menu input[type="checkbox"]:checked');
+    const label = document.getElementById('tag-dropdown-label');
+    if (!label) return;
+    if (checked.length === 0) {
+        label.textContent = 'Alle Tags';
+    } else if (checked.length === 1) {
+        label.textContent = checked[0].dataset.tagName || checked[0].value;
+    } else {
+        label.textContent = checked.length + ' Tags';
+    }
+}
+
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('tag-dropdown');
+    if (dropdown && !dropdown.contains(e.target)) {
+        dropdown.classList.remove('open');
+    }
+});
+
 // Filter logic
 function applyFilters() {
     const vendorFilter = document.getElementById('vendor-filter').value.toLowerCase();
@@ -1694,11 +1797,9 @@ function applyFilters() {
     const clusterFilter = document.getElementById('cluster-filter').value.toLowerCase();
     const searchFilter = document.getElementById('search-filter').value.toLowerCase();
     
-    // Collect selected tag IDs (multi-select)
-    const tagFilterEl = document.getElementById('tag-filter');
-    const selectedTagIds = tagFilterEl
-        ? Array.from(tagFilterEl.selectedOptions).map(o => o.value)
-        : [];
+    // Collect selected tag IDs (checkbox dropdown)
+    const tagCheckboxes = document.querySelectorAll('#tag-dropdown-menu input[type="checkbox"]:checked');
+    const selectedTagIds = Array.from(tagCheckboxes).map(cb => cb.value);
     
     // Get all system cards and table rows
     const systemCards = document.querySelectorAll('.system-card');
@@ -1785,10 +1886,8 @@ function resetFilters() {
     document.getElementById('status-filter').value = '';
     document.getElementById('cluster-filter').value = '';
     document.getElementById('search-filter').value = '';
-    const tagFilterEl = document.getElementById('tag-filter');
-    if (tagFilterEl) {
-        Array.from(tagFilterEl.options).forEach(o => o.selected = false);
-    }
+    document.querySelectorAll('#tag-dropdown-menu input[type="checkbox"]').forEach(cb => cb.checked = false);
+    updateTagDropdownLabel();
     applyFilters();
 }
 </script>
