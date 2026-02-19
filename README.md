@@ -13,12 +13,28 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 ### Admin-Bereich
 ![Admin Area](screenshots/admin-area.png)
 
+### Kapazitätsreport – Nach Storage Art
+![Kapazitätsreport – Nach Storage Art](screenshots/capacity-by-storage-art.png)
+
+### Kapazitätsreport – Nach Umgebung
+![Kapazitätsreport – Nach Umgebung](screenshots/capacity-by-environment.png)
+
+### Kapazitätsreport – Nach Tätigkeitsfeld
+![Kapazitätsreport – Nach Tätigkeitsfeld](screenshots/capacity-by-department.png)
+
+### Kapazitätsreport – Details (alle Systeme)
+![Kapazitätsreport – Details](screenshots/capacity-details.png)
+
+### Kapazitätsreport – Verlauf mit Prognose
+![Kapazitätsreport – Verlauf](screenshots/capacity-history.png)
+
 > **Hinweis**: Das Dashboard verfügt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität.
 
 ## Features
 
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
+- **Kapazitätsreport**: Tabellarische Kapazitätsübersicht aller Systeme unter `/capacity/` – gruppiert nach Storage Art, Umgebung oder Tätigkeitsfeld, mit Verlaufsgraphen und Wachstumsprognose
 - **Schnelles Laden**: Asynchrone Dashboard-Anzeige mit sofortiger UI-Darstellung und dynamischer Datenaktualisierung
 - **Auto-Refresh**: Automatische Aktualisierung des Dashboards alle 45 Sekunden (konfigurierbar) ohne Seiten-Reload
 - **Hochleistungs-Multithreading**: Parallele Abfrage von bis zu 32 Systemen gleichzeitig für schnelle Performance
@@ -291,6 +307,35 @@ Zeigt alle aktivierten Storage-Systeme gruppiert nach Hersteller:
 
 📖 **Detailliertes Administrator-Handbuch:** Siehe [ADMIN_GUIDE.md](ADMIN_GUIDE.md)
 
+### Kapazitätsreport (`/capacity/`)
+
+Der Kapazitätsreport bietet eine umfassende tabellarische und grafische Auswertung der Speicherkapazitäten aller konfigurierten Systeme. Die Daten werden stündlich im Hintergrund aktualisiert und täglich historisch gespeichert.
+
+**5 wechselbare Ansichten:**
+
+| Ansicht | Beschreibung |
+|---------|-------------|
+| **Nach Storage Art** | Eine Tabelle pro Storage-Typ (Block, File, Object, Archiv, Backup) mit je einer Zeile pro Betriebsumgebung (Produktion / Test/Dev) und einer Total-Zeile |
+| **Nach Umgebung** | Eine Tabelle pro Umgebung (Produktion, Test/Dev) mit Zeilen je Storage-Typ und Total |
+| **Nach Tätigkeitsfeld** | Eine Tabelle pro Abteilung/Tätigkeitsfeld (ERZ, ITS, EH …) mit Zeilen für jede Umgebung × Storage-Typ-Kombination |
+| **Details** | Alle Einzelsysteme mit Name, Umgebung, Tätigkeitsfeld und Kapazitätswerten, gruppiert nach Storage-Typ |
+| **Verlauf** | Liniendiagramme pro Storage-Typ (Genutzt [TB] / Gesamt [TB]) mit wählbarem Zeitraum (Alle / 2J / 1J / 6M / 3M) und linearer Wachstumsprognose als gestrichelte Linie |
+
+**Spalten in den Kapazitätstabellen:**
+- Gesamt [TB], Genutzt [TB], Frei [TB]
+- Genutzt [%], Frei [%] – mit farbigen Balkenanzeigen (grün / orange / rot)
+
+**Beispieldaten laden:**
+```bash
+# Erstmalig oder nach Reset (bestehende Systeme/Daten werden gelöscht)
+DEMO_RESET=1 python examples/seed_demo_data.py
+
+# Nur fehlende Demo-Systeme ergänzen
+python examples/seed_demo_data.py
+```
+
+Das Skript legt 17 Demo-Systeme (Block, File, Archiv, Object, Backup) mit 2 Jahren täglicher Verlaufshistorie an.
+
 ### Zertifikatsverwaltung (`/admin/certificates`)
 
 ![Certificate Management](screenshots/certificates-page.png)
@@ -391,6 +436,9 @@ Das Dashboard bietet auch programmatischen Zugriff:
 - `GET /api/systems` - Liste aller Systeme
 - `GET /api/status` - Status aller aktivierten Systeme
 - `GET /api/systems/<id>/status` - Status eines spezifischen Systems
+- `GET /capacity/api/data` - Aggregierte Kapazitätsdaten für alle Ansichten (JSON)
+- `GET /capacity/api/history?range=all|3m|6m|1y|2y` - Historische Kapazitätsdaten mit Prognose
+- `POST /capacity/api/refresh` - Manuelle Kapazitätsaktualisierung auslösen
 
 ## Entwicklung
 
@@ -400,18 +448,27 @@ Das Dashboard bietet auch programmatischen Zugriff:
 storage-dashboard/
 ├── app/
 │   ├── __init__.py          # Flask App Factory
-│   ├── models.py            # Datenbankmodelle
+│   ├── models.py            # Datenbankmodelle (inkl. CapacitySnapshot, CapacityHistory)
+│   ├── capacity_service.py  # Hintergrund-Refresh, Aggregation, Prognose
 │   ├── api/                 # Storage API Clients
 │   │   ├── base_client.py
 │   │   └── storage_clients.py
 │   ├── routes/              # Flask Routes
 │   │   ├── main.py          # Dashboard
 │   │   ├── admin.py         # Admin-Bereich
-│   │   └── api.py           # REST API
+│   │   ├── api.py           # REST API
+│   │   └── capacity.py      # Kapazitätsreport (/capacity/)
+│   ├── static/
+│   │   └── js/
+│   │       └── chart.umd.min.js  # Chart.js (lokal, kein CDN nötig)
 │   └── templates/           # HTML Templates
 │       ├── base.html
 │       ├── dashboard.html
+│       ├── capacity.html    # Kapazitätsreport
 │       └── admin/
+├── examples/
+│   ├── seed_demo_data.py    # Demo-Daten für Kapazitätsreport
+│   └── monitoring-example.py
 ├── run.py                   # Web-Server Startskript
 ├── cli.py                   # CLI Interface
 ├── requirements.txt         # Python-Abhängigkeiten

@@ -29,6 +29,16 @@ def _do_refresh(app):
         today = date.today()
 
         for system in systems:
+            # Fetch existing snapshot once; used both to preserve values on failure
+            # and to upsert the snapshot after the API call.
+            existing = CapacitySnapshot.query.filter_by(system_id=system.id).first()
+
+            def _values_from_snapshot(snap):
+                """Extract capacity fields from an existing snapshot (or return zeros)."""
+                if snap is None:
+                    return 0.0, 0.0, 0.0, 0.0, 0.0
+                return snap.total_tb, snap.used_tb, snap.free_tb, snap.percent_used, snap.percent_free
+
             try:
                 client = get_client(
                     vendor=system.vendor,
@@ -41,19 +51,24 @@ def _do_refresh(app):
                 status = client.get_health_status()
                 error_msg = status.get('error')
 
-                total_tb = status.get('capacity_total_tb', 0.0) or 0.0
-                used_tb = status.get('capacity_used_tb', 0.0) or 0.0
-                free_tb = round(total_tb - used_tb, 2)
-                percent_used = status.get('capacity_percent', 0.0) or 0.0
-                percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
+                if error_msg:
+                    # API returned an error dict (e.g. missing credentials, unreachable).
+                    # Preserve last known good capacity values from the existing snapshot.
+                    total_tb, used_tb, free_tb, percent_used, percent_free = _values_from_snapshot(existing)
+                else:
+                    total_tb = status.get('capacity_total_tb', 0.0) or 0.0
+                    used_tb = status.get('capacity_used_tb', 0.0) or 0.0
+                    free_tb = round(total_tb - used_tb, 2)
+                    percent_used = status.get('capacity_percent', 0.0) or 0.0
+                    percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
 
             except Exception as exc:
                 logger.warning(f"Capacity refresh failed for {system.name}: {exc}")
-                total_tb = used_tb = free_tb = percent_used = percent_free = 0.0
+                # Preserve capacity values from existing snapshot (last known good data)
+                total_tb, used_tb, free_tb, percent_used, percent_free = _values_from_snapshot(existing)
                 error_msg = str(exc)
 
             # Upsert latest snapshot (one row per system – replace old one)
-            existing = CapacitySnapshot.query.filter_by(system_id=system.id).first()
             if existing:
                 existing.fetched_at = datetime.utcnow()
                 existing.total_tb = total_tb
@@ -205,7 +220,7 @@ def build_by_storage_art(systems, snapshots):
 
     for system in systems:
         snap = snapshots.get(system.id)
-        if snap is None or snap.error:
+        if snap is None:
             continue
         tgs = _tags_by_group(system)
         arts = tgs.get('Storage Art', [])
@@ -248,7 +263,7 @@ def build_by_environment(systems, snapshots):
 
     for system in systems:
         snap = snapshots.get(system.id)
-        if snap is None or snap.error:
+        if snap is None:
             continue
         tgs = _tags_by_group(system)
         arts = tgs.get('Storage Art', [])
@@ -293,7 +308,7 @@ def build_by_department(systems, snapshots):
 
     for system in systems:
         snap = snapshots.get(system.id)
-        if snap is None or snap.error:
+        if snap is None:
             continue
         tgs = _tags_by_group(system)
         depts = tgs.get('Themenzugehörigkeit', [])

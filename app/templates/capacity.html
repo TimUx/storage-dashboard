@@ -271,8 +271,8 @@
     <div id="historyContent"><div class="cap-loading">Lade Verlaufsdaten…</div></div>
 </div>
 
-<!-- Chart.js from CDN -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<!-- Chart.js (served locally for reliability in air-gapped environments) -->
+<script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
 
 <script>
 // ── Globals ──────────────────────────────────────────────────────────────
