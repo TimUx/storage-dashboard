@@ -67,7 +67,6 @@ sudo -u postgres psql << EOF
 CREATE DATABASE storage_dashboard;
 CREATE USER dashboard WITH PASSWORD 'secure_password_here';
 GRANT ALL PRIVILEGES ON DATABASE storage_dashboard TO dashboard;
-\q
 EOF
 ```
 

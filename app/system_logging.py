@@ -80,7 +80,7 @@ def log_system_event(system_id, level, category, message, details=None, status_c
             # Clean up old logs to prevent database growth
             # Only cleanup periodically to reduce database load
             # Use system_id as a simple hash to distribute cleanup across different calls
-            if system_id % 10 == 0:  # Cleanup for ~10% of log events
+            if isinstance(system_id, int) and system_id % 10 == 0:  # Cleanup for ~10% of log events
                 cleanup_old_logs(system_id)
             
             return  # Success, exit the retry loop
@@ -91,8 +91,8 @@ def log_system_event(system_id, level, category, message, details=None, status_c
             if 'database is locked' in error_msg or 'locked' in error_msg:
                 db.session.rollback()
                 if attempt < max_retries - 1:
-                    # Exponential backoff with jitter
-                    sleep_time = retry_delay * (2 ** attempt) + (time.time() % 0.1)
+                    # Exponential backoff: 0.1s, 0.2s, 0.4s
+                    sleep_time = retry_delay * (2 ** attempt)
                     time.sleep(sleep_time)
                     continue
                 else:

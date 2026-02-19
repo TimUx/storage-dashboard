@@ -3,6 +3,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from dotenv import load_dotenv
+from sqlalchemy.pool import NullPool
 import os
 from datetime import datetime
 
@@ -45,7 +46,7 @@ def create_app():
                 'timeout': 30,
                 'check_same_thread': False,
             },
-            'poolclass': None,  # Disable pooling for SQLite
+            'poolclass': NullPool,  # Disable pooling for SQLite
         }
     
     app.config['SSL_VERIFY'] = os.getenv('SSL_VERIFY', 'false').lower() == 'true'
