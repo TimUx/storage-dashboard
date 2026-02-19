@@ -6,9 +6,10 @@ FROM python:3.11-slim as builder
 # Set working directory
 WORKDIR /build
 
-# Install build dependencies
+# Install build dependencies including PostgreSQL client libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -22,6 +23,11 @@ FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
+
+# Install runtime dependencies (PostgreSQL client libraries)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash dashboard && \

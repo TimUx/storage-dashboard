@@ -45,6 +45,34 @@ pip install -r requirements.txt
 
 ### 3. Konfiguration
 
+#### Option A: Mit PostgreSQL (Empfohlen für Produktion)
+
+PostgreSQL wird für Produktivumgebungen empfohlen, besonders wenn:
+- Mehrere Storage-Systeme überwacht werden (>5)
+- Hohe Logging-Aktivität besteht
+- Mehrere Gunicorn Worker verwendet werden
+
+**PostgreSQL installieren:**
+
+```bash
+# PostgreSQL installieren
+sudo zypper install postgresql-server postgresql
+
+# PostgreSQL initialisieren und starten
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+
+# Datenbank und Benutzer erstellen
+sudo -u postgres psql << EOF
+CREATE DATABASE storage_dashboard;
+CREATE USER dashboard WITH PASSWORD 'secure_password_here';
+GRANT ALL PRIVILEGES ON DATABASE storage_dashboard TO dashboard;
+\q
+EOF
+```
+
+**Konfigurationsdatei erstellen:**
+
 ```bash
 # Konfigurationsdatei erstellen
 cp .env.example .env
@@ -52,10 +80,28 @@ cp .env.example .env
 # Sicheren Secret Key generieren
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" >> .env
 
-# Optional: Datenbank-Pfad anpassen
+# PostgreSQL-Verbindung konfigurieren
+echo "DATABASE_URL=postgresql://dashboard:secure_password_here@localhost:5432/storage_dashboard" >> .env
+echo "FLASK_ENV=production" >> .env
+```
+
+#### Option B: Mit SQLite (Nur für kleine Deployments)
+
+**Warnung:** SQLite kann bei mehreren gleichzeitigen Zugriffen zu "database is locked" Fehlern führen. Für Produktivumgebungen wird PostgreSQL empfohlen.
+
+```bash
+# Konfigurationsdatei erstellen
+cp .env.example .env
+
+# Sicheren Secret Key generieren
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" >> .env
+
+# SQLite-Pfad anpassen
 echo "DATABASE_URL=sqlite:////opt/storage-dashboard/storage_dashboard.db" >> .env
 echo "FLASK_ENV=production" >> .env
 ```
+
+Siehe [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md) für Details zu Datenbankoptionen.
 
 ### 4. Systemd Service einrichten
 

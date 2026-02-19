@@ -22,11 +22,50 @@ def create_app():
         secret_key = 'dev-secret-key-change-in-production'
     
     app.config['SECRET_KEY'] = secret_key
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///storage_dashboard.db')
+    
+    # Database configuration
+    database_url = os.getenv('DATABASE_URL', 'sqlite:///storage_dashboard.db')
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    
+    # Configure database engine options for better concurrency
+    if database_url.startswith('postgresql'):
+        # PostgreSQL configuration for high concurrency
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_size': 20,
+            'max_overflow': 40,
+            'pool_timeout': 30,
+            'pool_recycle': 3600,
+            'pool_pre_ping': True,
+        }
+    elif database_url.startswith('sqlite'):
+        # SQLite configuration with WAL mode and busy timeout for better concurrency
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'connect_args': {
+                'timeout': 30,
+                'check_same_thread': False,
+            },
+            'poolclass': None,  # Disable pooling for SQLite
+        }
+    
     app.config['SSL_VERIFY'] = os.getenv('SSL_VERIFY', 'false').lower() == 'true'
     
     db.init_app(app)
+    
+    # Enable WAL mode for SQLite to improve concurrency
+    if database_url.startswith('sqlite'):
+        @app.before_first_request
+        def enable_sqlite_wal():
+            """Enable WAL mode for SQLite to reduce locking"""
+            try:
+                with db.engine.connect() as conn:
+                    conn.execute(db.text("PRAGMA journal_mode=WAL"))
+                    conn.execute(db.text("PRAGMA busy_timeout=30000"))
+                    conn.commit()
+                app.logger.info("SQLite WAL mode enabled for better concurrency")
+            except Exception as e:
+                app.logger.warning(f"Could not enable SQLite WAL mode: {e}")
+    
     login_manager.init_app(app)
     login_manager.login_view = 'admin.login'
     login_manager.login_message = 'Bitte melden Sie sich an, um fortzufahren.'

@@ -55,18 +55,20 @@ Alle Storage-Systeme werden über ihre REST APIs angebunden:
 **Schnellstart mit vorgefertigtem GitHub Image:**
 
 ```bash
-# .env Datei mit Secret Key erstellen
+# .env Datei mit Secret Key und PostgreSQL Passwort erstellen
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+python3 -c "import secrets; print('POSTGRES_PASSWORD=' + secrets.token_hex(32))" >> .env
 echo "SSL_VERIFY=false" >> .env
 
 # Container mit vorgefertigtem Image starten
-podman run -d \
-  --name storage-dashboard \
-  -p 5000:5000 \
-  -v storage-data:/app/data:Z \
-  --env-file .env \
-  ghcr.io/timux/storage-dashboard:latest
+podman-compose up -d
+# oder mit Docker:
+docker-compose up -d
 ```
+
+Das Dashboard verwendet standardmäßig **PostgreSQL** für optimale Performance bei parallelen Anfragen.
+
+> **Hinweis:** PostgreSQL wird für Produktivumgebungen empfohlen, da SQLite bei vielen gleichzeitigen Zugriffen zu "database is locked" Fehlern führen kann. Siehe [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md) für Details.
 
 **Oder mit Docker Compose (verwendet automatisch das GitHub Image):**
 
@@ -74,8 +76,9 @@ podman run -d \
 git clone https://github.com/TimUx/storage-dashboard.git
 cd storage-dashboard
 
-# Secret Key generieren und in .env speichern
+# Secret Keys generieren und in .env speichern
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
+python3 -c "import secrets; print('POSTGRES_PASSWORD=' + secrets.token_hex(32))" >> .env
 echo "SSL_VERIFY=false" >> .env
 
 # Mit Podman starten
@@ -88,6 +91,7 @@ docker-compose up -d
 Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
 
 📖 **Detaillierte Container-Dokumentation:** Siehe [CONTAINER.md](CONTAINER.md)
+📖 **Datenbank-Migrations-Guide:** Siehe [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md)
 
 ### Option 2: Manuelle Installation
 
