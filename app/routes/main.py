@@ -221,46 +221,13 @@ def fetch_system_status(system, app):
 
 @bp.route('/')
 def index():
-    """Main dashboard view"""
+    """Main dashboard view - returns HTML with empty dashboard for async loading"""
+    from flask import request
+    
+    # Check if this is a request for immediate rendering (async mode)
+    async_load = request.args.get('async', 'true').lower() == 'true'
+    
     systems = StorageSystem.query.filter_by(enabled=True).all()
-    
-    # Get current app for passing to threads
-    app = current_app._get_current_object()
-    
-    # Determine optimal number of workers based on system count
-    max_workers = min(len(systems), 10) if systems else 1
-    
-    # Fetch status for all systems in parallel
-    systems_status = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(fetch_system_status, system, app): system for system in systems}
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-                systems_status.append(result)
-            except Exception as e:
-                system = futures[future]
-                logger.error(f"Error in thread fetching status for {system.name} ({system.ip_address}): {e}")
-                logger.error(traceback.format_exc())
-                systems_status.append({
-                    'system': system.to_dict(),
-                    'status': {
-                        'status': 'error',
-                        'error': str(e)
-                    }
-                })
-    
-    # Group by vendor
-    grouped_systems = {}
-    for item in systems_status:
-        vendor = item['system']['vendor']
-        if vendor not in grouped_systems:
-            grouped_systems[vendor] = []
-        grouped_systems[vendor].append(item)
-    
-    # Sort systems alphabetically within each vendor group
-    for vendor in grouped_systems:
-        grouped_systems[vendor].sort(key=lambda x: x['system']['name'].lower())
     
     vendor_names = {
         'pure': 'Pure Storage',
@@ -272,10 +239,74 @@ def index():
     # Define fixed vendor order
     vendor_order = ['pure', 'netapp-ontap', 'netapp-storagegrid', 'dell-datadomain']
     
-    return render_template('dashboard.html', 
-                         grouped_systems=grouped_systems,
-                         vendor_names=vendor_names,
-                         vendor_order=vendor_order)
+    if async_load:
+        # Return empty dashboard for async loading
+        # Group systems by vendor for structure (but without status data)
+        grouped_systems = {}
+        for system in systems:
+            vendor = system.vendor
+            if vendor not in grouped_systems:
+                grouped_systems[vendor] = []
+            grouped_systems[vendor].append({
+                'system': system.to_dict(),
+                'status': None  # Will be loaded asynchronously
+            })
+        
+        # Sort systems alphabetically within each vendor group
+        for vendor in grouped_systems:
+            grouped_systems[vendor].sort(key=lambda x: x['system']['name'].lower())
+        
+        return render_template('dashboard.html',
+                             grouped_systems=grouped_systems,
+                             vendor_names=vendor_names,
+                             vendor_order=vendor_order,
+                             async_load=True)
+    else:
+        # Legacy synchronous mode - fetch all data before rendering
+        # Get current app for passing to threads
+        app = current_app._get_current_object()
+        
+        # Determine optimal number of workers based on system count
+        # Support 16-32 systems in parallel as requested
+        max_workers = min(len(systems), 32) if systems else 1
+        
+        # Fetch status for all systems in parallel
+        systems_status = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(fetch_system_status, system, app): system for system in systems}
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    systems_status.append(result)
+                except Exception as e:
+                    system = futures[future]
+                    logger.error(f"Error in thread fetching status for {system.name} ({system.ip_address}): {e}")
+                    logger.error(traceback.format_exc())
+                    systems_status.append({
+                        'system': system.to_dict(),
+                        'status': {
+                            'status': 'error',
+                            'error': str(e)
+                        }
+                    })
+        
+        # Group by vendor
+        grouped_systems = {}
+        for item in systems_status:
+            vendor = item['system']['vendor']
+            if vendor not in grouped_systems:
+                grouped_systems[vendor] = []
+            grouped_systems[vendor].append(item)
+        
+        # Sort systems alphabetically within each vendor group
+        for vendor in grouped_systems:
+            grouped_systems[vendor].sort(key=lambda x: x['system']['name'].lower())
+        
+        return render_template('dashboard.html', 
+                             grouped_systems=grouped_systems,
+                             vendor_names=vendor_names,
+                             vendor_order=vendor_order,
+                             async_load=False)
 
 
 @bp.route('/systems/<int:system_id>/details')

@@ -24,7 +24,8 @@ def get_status():
     app = current_app._get_current_object()
     
     # Determine optimal number of workers based on system count
-    max_workers = min(len(systems), 10) if systems else 1
+    # Support 16-32 systems in parallel as requested
+    max_workers = min(len(systems), 32) if systems else 1
     
     # Fetch status for all systems in parallel
     systems_status = []
