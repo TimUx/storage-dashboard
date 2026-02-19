@@ -16,6 +16,9 @@ ALLOWED_COLUMNS = {
     'metrocluster_dr_groups': 'TEXT',
     'ha_info': 'TEXT',
     'timezone': 'VARCHAR(50)',
+    'max_logs_per_system': 'INTEGER',
+    'log_retention_days': 'INTEGER',
+    'min_log_level': 'VARCHAR(20)',
 }
 
 
@@ -126,6 +129,16 @@ def migrate_app_settings_table():
     # Add timezone column if missing
     if add_column_if_not_exists('app_settings', 'timezone', ALLOWED_COLUMNS['timezone']):
         migrations_applied.append('timezone')
+    
+    # Add log retention settings columns if missing
+    if add_column_if_not_exists('app_settings', 'max_logs_per_system', ALLOWED_COLUMNS['max_logs_per_system']):
+        migrations_applied.append('max_logs_per_system')
+    
+    if add_column_if_not_exists('app_settings', 'log_retention_days', ALLOWED_COLUMNS['log_retention_days']):
+        migrations_applied.append('log_retention_days')
+    
+    if add_column_if_not_exists('app_settings', 'min_log_level', ALLOWED_COLUMNS['min_log_level']):
+        migrations_applied.append('min_log_level')
     
     return migrations_applied
 
