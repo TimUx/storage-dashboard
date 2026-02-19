@@ -971,7 +971,7 @@ class NetAppONTAPClient(StorageClient):
                         failed_fan_info = controller.get('failed_fan', {})
                         failed_psus = failed_psu_info.get('count', 0) if isinstance(failed_psu_info, dict) else 0
                         failed_fans = failed_fan_info.get('count', 0) if isinstance(failed_fan_info, dict) else 0
-                        over_temp = controller.get('over_temperature', False)
+                        over_temp = controller.get('over_temperature', 'normal') == 'over'
                         
                         node_hw = {
                             'node': node_name,
