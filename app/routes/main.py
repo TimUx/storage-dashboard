@@ -1,6 +1,6 @@
 """Main dashboard routes"""
 from flask import Blueprint, render_template, abort, current_app
-from app.models import StorageSystem, db
+from app.models import StorageSystem, TagGroup, db
 from app.api import get_client
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
@@ -230,6 +230,7 @@ def index():
     async_load = request.args.get('async', 'true').lower() == 'true'
     
     systems = StorageSystem.query.filter_by(enabled=True).all()
+    tag_groups = TagGroup.query.order_by(TagGroup.name).all()
     
     vendor_names = {
         'pure': 'Pure Storage',
@@ -262,6 +263,7 @@ def index():
                              grouped_systems=grouped_systems,
                              vendor_names=vendor_names,
                              vendor_order=vendor_order,
+                             tag_groups=tag_groups,
                              async_load=True)
     else:
         # Legacy synchronous mode - fetch all data before rendering
@@ -308,6 +310,7 @@ def index():
                              grouped_systems=grouped_systems,
                              vendor_names=vendor_names,
                              vendor_order=vendor_order,
+                             tag_groups=tag_groups,
                              async_load=False)
 
 
