@@ -64,13 +64,15 @@ echo "SSL_VERIFY=false" >> .env
 podman-compose up -d
 # oder mit Docker:
 docker-compose up -d
+# oder mit nerdctl:
+nerdctl compose up -d
 ```
 
 Das Dashboard verwendet standardmäßig **PostgreSQL** für optimale Performance bei parallelen Anfragen.
 
 > **Hinweis:** PostgreSQL wird für Produktivumgebungen empfohlen, da SQLite bei vielen gleichzeitigen Zugriffen zu "database is locked" Fehlern führen kann. Siehe [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md) für Details.
 
-**Oder mit Docker Compose (verwendet automatisch das GitHub Image):**
+**Oder mit Compose (Podman/Docker/nerdctl - verwendet automatisch das GitHub Image):**
 
 ```bash
 git clone https://github.com/TimUx/storage-dashboard.git
@@ -86,6 +88,9 @@ podman-compose up -d
 
 # Oder mit Docker starten
 docker-compose up -d
+
+# Oder mit nerdctl starten
+nerdctl compose up -d
 ```
 
 Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
@@ -266,7 +271,7 @@ Das Dashboard unterstützt firmeneigene CA- und Root-Zertifikate für sichere Ve
 
 ## Container-Deployment
 
-Das Dashboard kann als Docker/Podman Container betrieben werden. Siehe [CONTAINER.md](CONTAINER.md) für Details.
+Das Dashboard kann als Docker/Podman/nerdctl Container betrieben werden. Siehe [CONTAINER.md](CONTAINER.md) für Details.
 
 **Schnellstart mit vorgefertigtem GitHub Image:**
 ```bash
@@ -274,18 +279,26 @@ Das Dashboard kann als Docker/Podman Container betrieben werden. Siehe [CONTAINE
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
 echo "SSL_VERIFY=false" >> .env
 
-# Container starten
+# Container starten mit Podman
 podman run -d \
   --name storage-dashboard \
   -p 5000:5000 \
   -v storage-data:/app/data:Z \
   --env-file .env \
   ghcr.io/timux/storage-dashboard:latest
+
+# Oder mit nerdctl
+nerdctl run -d \
+  --name storage-dashboard \
+  -p 5000:5000 \
+  -v storage-data:/app/data \
+  --env-file .env \
+  ghcr.io/timux/storage-dashboard:latest
 ```
 
 Dashboard verfügbar unter: `http://localhost:5000`
 
-**Mit Docker Compose:**
+**Mit Compose (Podman/Docker/nerdctl):**
 ```bash
 git clone https://github.com/TimUx/storage-dashboard.git
 cd storage-dashboard
@@ -296,6 +309,10 @@ echo "SSL_VERIFY=false" >> .env
 
 # Container starten (verwendet automatisch das GitHub Image)
 podman-compose up -d
+# oder
+docker-compose up -d
+# oder
+nerdctl compose up -d
 ```
 
 ### Dokumentation (`/admin/docs`)
