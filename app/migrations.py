@@ -15,6 +15,7 @@ ALLOWED_COLUMNS = {
     'metrocluster_info': 'TEXT',
     'metrocluster_dr_groups': 'TEXT',
     'ha_info': 'TEXT',
+    'timezone': 'VARCHAR(50)',
 }
 
 
@@ -118,6 +119,17 @@ def migrate_storage_systems_table():
     return migrations_applied
 
 
+def migrate_app_settings_table():
+    """Migrate app_settings table to add missing columns"""
+    migrations_applied = []
+    
+    # Add timezone column if missing
+    if add_column_if_not_exists('app_settings', 'timezone', ALLOWED_COLUMNS['timezone']):
+        migrations_applied.append('timezone')
+    
+    return migrations_applied
+
+
 def migrate_datadomain_port():
     """Update existing DataDomain systems to use port 3009 if they're using the default port 443
     
@@ -172,6 +184,11 @@ def run_all_migrations():
                     all_migrations.append(f'datadomain_port_3009 ({updated_count} systems)')
             except Exception as e:
                 logger.warning(f"DataDomain port migration failed (non-critical): {e}")
+        
+        # Check if app_settings table exists and run migrations
+        if 'app_settings' in inspector.get_table_names():
+            migrations = migrate_app_settings_table()
+            all_migrations.extend(migrations)
         
         if all_migrations:
             logger.info(f"Applied {len(all_migrations)} migrations: {', '.join(all_migrations)}")
