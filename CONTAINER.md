@@ -352,19 +352,19 @@ nerdctl build --platform linux/arm64 -t storage-dashboard:arm64 .
 podman run --rm \
   -v storage-data:/data:ro \
   -v $(pwd):/backup \
-  alpine tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
+  docker.io/alpine:latest tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
 
 # nerdctl
 nerdctl run --rm \
   -v storage-data:/data:ro \
   -v $(pwd):/backup \
-  alpine tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
+  docker.io/alpine:latest tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
 
 # Docker
 docker run --rm \
   -v storage-data:/data:ro \
   -v $(pwd):/backup \
-  alpine tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
+  docker.io/alpine:latest tar czf /backup/storage-dashboard-backup-$(date +%Y%m%d).tar.gz -C /data .
 ```
 
 **Backup wiederherstellen:**
@@ -373,19 +373,19 @@ docker run --rm \
 podman run --rm \
   -v storage-data:/data \
   -v $(pwd):/backup \
-  alpine sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
+  docker.io/alpine:latest sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
 
 # nerdctl
 nerdctl run --rm \
   -v storage-data:/data \
   -v $(pwd):/backup \
-  alpine sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
+  docker.io/alpine:latest sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
 
 # Docker
 docker run --rm \
   -v storage-data:/data \
   -v $(pwd):/backup \
-  alpine sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
+  docker.io/alpine:latest sh -c "cd /data && tar xzf /backup/storage-dashboard-backup-YYYYMMDD.tar.gz"
 ```
 
 ### Container im Host-Netzwerk betreiben
