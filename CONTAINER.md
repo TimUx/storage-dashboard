@@ -598,7 +598,7 @@ Bei nerdctl auf SELinux-Systemen:
 ```bash
 # nerdctl unterstützt SELinux-Labels nicht direkt
 # Verwenden Sie stattdessen:
-sudo chcon -Rt container_file_t /pfad/zum/volume
+sudo chcon -Rt container_file_t /var/lib/containerd/volumes/storage-data
 # oder deaktivieren Sie SELinux für den Container (nicht empfohlen)
 ```
 
