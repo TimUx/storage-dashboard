@@ -7,6 +7,12 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# Configuration constants
+CLEANUP_FREQUENCY_DIVISOR = 10  # Cleanup runs for 1 in every N log events (10 = 10%)
+MAX_LOG_RETRIES = 3  # Maximum retry attempts for log operations
+CLEANUP_RETRIES = 2  # Maximum retry attempts for cleanup operations
+RETRY_BASE_DELAY = 0.1  # Base delay in seconds for retry backoff
+
 
 def get_log_settings():
     """Get log settings from AppSettings, with fallback to defaults"""
@@ -60,10 +66,7 @@ def log_system_event(system_id, level, category, message, details=None, status_c
         return
     
     # Retry logic for database locking issues
-    max_retries = 3
-    retry_delay = 0.1  # Start with 100ms
-    
-    for attempt in range(max_retries):
+    for attempt in range(MAX_LOG_RETRIES):
         try:
             log_entry = SystemLog(
                 system_id=system_id,
@@ -80,7 +83,7 @@ def log_system_event(system_id, level, category, message, details=None, status_c
             # Clean up old logs to prevent database growth
             # Only cleanup periodically to reduce database load
             # Use system_id as a simple hash to distribute cleanup across different calls
-            if isinstance(system_id, int) and system_id % 10 == 0:  # Cleanup for ~10% of log events
+            if isinstance(system_id, int) and system_id % CLEANUP_FREQUENCY_DIVISOR == 0:
                 cleanup_old_logs(system_id)
             
             return  # Success, exit the retry loop
@@ -90,13 +93,13 @@ def log_system_event(system_id, level, category, message, details=None, status_c
             error_msg = str(e).lower()
             if 'database is locked' in error_msg or 'locked' in error_msg:
                 db.session.rollback()
-                if attempt < max_retries - 1:
+                if attempt < MAX_LOG_RETRIES - 1:
                     # Exponential backoff: 0.1s, 0.2s, 0.4s
-                    sleep_time = retry_delay * (2 ** attempt)
+                    sleep_time = RETRY_BASE_DELAY * (2 ** attempt)
                     time.sleep(sleep_time)
                     continue
                 else:
-                    logger.warning(f"Failed to log system event after {max_retries} attempts (database locked): {message}")
+                    logger.warning(f"Failed to log system event after {MAX_LOG_RETRIES} attempts (database locked): {message}")
             else:
                 # Different operational error, don't retry
                 logger.error(f"Failed to log system event: {e}")
@@ -130,10 +133,7 @@ def cleanup_old_logs(system_id, max_logs=None):
         system_id: ID of the storage system
         max_logs: Maximum number of logs to keep (if None, uses settings)
     """
-    max_retries = 2
-    retry_delay = 0.1
-    
-    for attempt in range(max_retries):
+    for attempt in range(CLEANUP_RETRIES):
         try:
             settings = get_log_settings()
             if max_logs is None:
@@ -176,8 +176,8 @@ def cleanup_old_logs(system_id, max_logs=None):
             error_msg = str(e).lower()
             if 'database is locked' in error_msg or 'locked' in error_msg:
                 db.session.rollback()
-                if attempt < max_retries - 1:
-                    sleep_time = retry_delay * (2 ** attempt)
+                if attempt < CLEANUP_RETRIES - 1:
+                    sleep_time = RETRY_BASE_DELAY * (2 ** attempt)
                     time.sleep(sleep_time)
                     continue
                 else:
