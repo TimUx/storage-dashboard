@@ -139,7 +139,7 @@ def create_app():
         # Create tables if they don't exist
         # Handle race condition when multiple workers try to create tables simultaneously
         # Retry on connection errors to handle cases where the database is not yet ready
-        from sqlalchemy.exc import OperationalError
+        from sqlalchemy.exc import OperationalError, IntegrityError
         import time
         max_retries = 5
         retry_delay = 2
@@ -147,9 +147,15 @@ def create_app():
             try:
                 db.create_all()
                 break
-            except OperationalError as e:
+            except (OperationalError, IntegrityError) as e:
+                # pgcode 42P07 = duplicate_table, 23505 = unique_violation
+                # (concurrent workers may hit catalog-level unique violations on CREATE TABLE)
+                pgcode = getattr(getattr(e, 'orig', None), 'pgcode', '')
+                if pgcode in ('42P07', '23505'):
+                    app.logger.info("Database tables already exist (created by another worker)")
+                    break
                 error_msg = str(e).lower()
-                if 'already exists' in error_msg:
+                if 'already exists' in error_msg or 'duplicate' in error_msg or 'unique' in error_msg:
                     app.logger.info("Database tables already exist (created by another worker)")
                     break
                 if attempt < max_retries:
