@@ -99,33 +99,35 @@ def cleanup_old_logs(system_id, max_logs=None):
         
         retention_days = settings['log_retention_days']
         
-        # Delete logs older than retention period
+        # Delete logs older than retention period using bulk delete
         cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
-        old_logs = SystemLog.query.filter(
+        deleted_old = SystemLog.query.filter(
             SystemLog.system_id == system_id,
             SystemLog.timestamp < cutoff_date
-        ).all()
-        
-        for log in old_logs:
-            db.session.delete(log)
+        ).delete(synchronize_session=False)
         
         # Count total logs for this system after date cleanup
         total_logs = SystemLog.query.filter_by(system_id=system_id).count()
         
+        deleted_excess = 0
         if total_logs > max_logs:
             # Get IDs of logs to delete (keep only the newest max_logs)
-            logs_to_delete = SystemLog.query.filter_by(system_id=system_id)\
+            # We need to get the IDs first, then delete by ID to avoid session issues
+            logs_to_delete_ids = db.session.query(SystemLog.id).filter_by(system_id=system_id)\
                 .order_by(SystemLog.timestamp.desc())\
                 .offset(max_logs)\
                 .all()
             
-            for log in logs_to_delete:
-                db.session.delete(log)
+            if logs_to_delete_ids:
+                # Extract IDs from the tuples
+                ids_list = [log_id[0] for log_id in logs_to_delete_ids]
+                # Bulk delete by IDs
+                deleted_excess = SystemLog.query.filter(SystemLog.id.in_(ids_list)).delete(synchronize_session=False)
         
-        if old_logs or (total_logs > max_logs):
+        if deleted_old > 0 or deleted_excess > 0:
             db.session.commit()
-            deleted_count = len(old_logs) + (len(logs_to_delete) if total_logs > max_logs else 0)
-            logger.debug(f"Cleaned up {deleted_count} old log entries for system {system_id}")
+            total_deleted = deleted_old + deleted_excess
+            logger.debug(f"Cleaned up {total_deleted} old log entries for system {system_id}")
             
     except Exception as e:
         logger.error(f"Failed to cleanup old logs: {e}")
