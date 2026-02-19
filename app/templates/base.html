@@ -138,6 +138,7 @@
         <h1 aria-label="{% if settings and settings.logo_filename %}{{ settings.company_name }} Logo{% endif %}">{{ settings.company_name if settings else 'Storage Dashboard' }}</h1>
         <div class="navbar-links">
             <a href="/">Dashboard</a>
+            <a href="/capacity/">Kapazitätsreport</a>
             <a href="/admin">Admin</a>
             <a href="/admin/docs">Dokumentation</a>
             {% if current_user.is_authenticated %}

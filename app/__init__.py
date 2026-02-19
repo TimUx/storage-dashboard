@@ -131,9 +131,11 @@ def create_app():
     
     # Register blueprints
     from app.routes import main, admin, api
+    from app.routes import capacity as capacity_routes
     app.register_blueprint(main.bp)
     app.register_blueprint(admin.bp)
     app.register_blueprint(api.bp)
+    app.register_blueprint(capacity_routes.bp)
     
     with app.app_context():
         # Create tables if they don't exist
@@ -180,4 +182,11 @@ def create_app():
             app.logger.error("Please run 'python cli.py migrate' to apply migrations manually.")
             # Don't fail app startup completely, but log critical error for monitoring
     
+        # Start capacity background refresh thread
+        try:
+            from app.capacity_service import start_background_refresh
+            start_background_refresh(app)
+        except Exception as e:
+            app.logger.warning(f"Could not start capacity background refresh: {e}")
+
     return app
