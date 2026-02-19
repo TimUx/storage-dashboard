@@ -1,0 +1,635 @@
+{% extends "base.html" %}
+
+{% block title %}Kapazitätsreport – Storage Dashboard{% endblock %}
+
+{% block styles %}
+/* ── Capacity Report Styles ── */
+:root {
+    --cap-blue:   var(--accent-color);
+    --cap-red:    var(--primary-color);
+    --cap-green:  var(--secondary-color);
+    --cap-border: #e1e8ed;
+    --cap-bg:     #f5f7fa;
+    --cap-white:  #ffffff;
+    --cap-text:   #333;
+    --cap-muted:  #6a6a6a;
+    --cap-total-bg: #f0f4f8;
+    --cap-warn:   #FFA500;
+}
+
+/* ── Header ── */
+.cap-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--cap-white);
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    border-left: 4px solid var(--cap-blue);
+    margin-bottom: 1rem;
+}
+.cap-header h2 { font-size: 1.4rem; color: var(--cap-blue); margin: 0; }
+.cap-header-actions { display: flex; gap: .75rem; align-items: center; }
+
+/* ── View Toggle ── */
+.view-toggle {
+    display: flex;
+    background: var(--cap-bg);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--cap-border);
+    flex-wrap: wrap;
+}
+.view-toggle button {
+    background: transparent;
+    border: none;
+    padding: .45rem 1rem;
+    cursor: pointer;
+    font-size: .88rem;
+    color: var(--cap-muted);
+    transition: all .25s;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.view-toggle button:hover  { background: rgba(0,152,219,.1); color: var(--cap-blue); }
+.view-toggle button.active { background: var(--cap-blue); color: white; }
+
+/* ── Refresh button ── */
+.refresh-btn {
+    background: var(--cap-blue);
+    color: white;
+    border: none;
+    padding: .45rem 1.1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: .88rem;
+    font-weight: 500;
+    transition: all .25s;
+}
+.refresh-btn:hover { background: #007ab8; transform: translateY(-1px); }
+.refresh-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Status bar ── */
+.cap-status {
+    font-size: .82rem;
+    color: var(--cap-muted);
+    padding: .3rem 0;
+}
+.cap-status .stale { color: var(--cap-warn); font-weight: 600; }
+
+/* ── View container ── */
+.cap-view { display: none; }
+.cap-view.active { display: block; }
+
+/* ── Section card ── */
+.cap-section {
+    background: var(--cap-white);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.07);
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+}
+.cap-section-header {
+    background: var(--cap-blue);
+    color: white;
+    padding: .6rem 1.2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.cap-section-header .section-subtitle {
+    font-size: .8rem;
+    opacity: .8;
+    font-weight: 400;
+}
+
+/* ── Capacity Table ── */
+.cap-table-wrap { overflow-x: auto; }
+.cap-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .88rem;
+}
+.cap-table th {
+    background: #f8fafc;
+    color: var(--cap-muted);
+    font-weight: 600;
+    padding: .55rem .9rem;
+    text-align: right;
+    border-bottom: 2px solid var(--cap-border);
+    white-space: nowrap;
+}
+.cap-table th:first-child { text-align: left; }
+.cap-table td {
+    padding: .55rem .9rem;
+    text-align: right;
+    border-bottom: 1px solid var(--cap-border);
+    color: var(--cap-text);
+}
+.cap-table td:first-child { text-align: left; font-weight: 500; }
+.cap-table tr:last-child td { border-bottom: none; }
+.cap-table tr:hover td { background: rgba(0,152,219,.04); }
+
+/* Total row */
+.cap-table tr.total-row td {
+    background: var(--cap-total-bg);
+    font-weight: 700;
+    border-top: 2px solid var(--cap-border);
+}
+.cap-table tr.total-row td:first-child { color: var(--cap-blue); }
+
+/* Percent bar cell */
+.pct-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    justify-content: flex-end;
+}
+.pct-bar {
+    width: 60px;
+    height: 6px;
+    background: #e8eef3;
+    border-radius: 3px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.pct-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width .4s;
+}
+.pct-bar-fill.low    { background: var(--cap-green); }
+.pct-bar-fill.medium { background: var(--cap-warn); }
+.pct-bar-fill.high   { background: var(--cap-red); }
+
+/* ── History chart section ── */
+.history-controls {
+    display: flex;
+    gap: .75rem;
+    align-items: center;
+    padding: .75rem 1.2rem;
+    border-bottom: 1px solid var(--cap-border);
+    flex-wrap: wrap;
+}
+.history-controls label { font-size: .88rem; font-weight: 500; color: var(--cap-muted); }
+.range-btn-group { display: flex; gap: .3rem; }
+.range-btn {
+    background: var(--cap-bg);
+    border: 1px solid var(--cap-border);
+    padding: .3rem .7rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: .82rem;
+    transition: all .2s;
+}
+.range-btn:hover  { background: rgba(0,152,219,.1); }
+.range-btn.active { background: var(--cap-blue); color: white; border-color: var(--cap-blue); }
+
+.chart-container {
+    position: relative;
+    padding: 1rem 1.2rem;
+    height: 300px;
+}
+
+/* ── Loading / Empty state ── */
+.cap-loading, .cap-empty {
+    text-align: center;
+    padding: 2.5rem;
+    color: var(--cap-muted);
+    font-size: .95rem;
+}
+.cap-loading::before { content: '⏳ '; }
+.cap-empty::before   { content: '📭 '; }
+
+/* ── Error badge in details ── */
+.err-badge {
+    display: inline-block;
+    background: rgba(167,2,64,.1);
+    color: var(--cap-red);
+    border-radius: 4px;
+    padding: .1rem .45rem;
+    font-size: .78rem;
+    font-weight: 600;
+    vertical-align: middle;
+    margin-left: .4rem;
+}
+{% endblock %}
+
+{% block content %}
+<!-- ── Header ── -->
+<div class="cap-header">
+    <h2>📊 Kapazitätsreport</h2>
+    <div class="cap-header-actions">
+        <div class="view-toggle" id="viewToggle">
+            <button class="active" data-view="by-storage-art">Nach Storage Art</button>
+            <button data-view="by-environment">Nach Umgebung</button>
+            <button data-view="by-department">Nach Tätigkeitsfeld</button>
+            <button data-view="details">Details</button>
+            <button data-view="history">Verlauf</button>
+        </div>
+        <button class="refresh-btn" id="refreshBtn" onclick="triggerRefresh()">🔄 Aktualisieren</button>
+    </div>
+</div>
+
+<div class="cap-status" id="capStatus">Lade Daten…</div>
+
+<!-- ── View: By Storage Art ── -->
+<div class="cap-view active" id="view-by-storage-art">
+    <div id="byStorageArtContent"><div class="cap-loading">Lade Daten…</div></div>
+</div>
+
+<!-- ── View: By Environment ── -->
+<div class="cap-view" id="view-by-environment">
+    <div id="byEnvironmentContent"><div class="cap-loading">Lade Daten…</div></div>
+</div>
+
+<!-- ── View: By Department ── -->
+<div class="cap-view" id="view-by-department">
+    <div id="byDepartmentContent"><div class="cap-loading">Lade Daten…</div></div>
+</div>
+
+<!-- ── View: Details ── -->
+<div class="cap-view" id="view-details">
+    <div id="detailsContent"><div class="cap-loading">Lade Daten…</div></div>
+</div>
+
+<!-- ── View: History ── -->
+<div class="cap-view" id="view-history">
+    <div class="history-controls">
+        <label>Zeitraum:</label>
+        <div class="range-btn-group">
+            <button class="range-btn active" data-range="all"  onclick="loadHistory('all')">Alle</button>
+            <button class="range-btn"        data-range="2y"   onclick="loadHistory('2y')">2 Jahre</button>
+            <button class="range-btn"        data-range="1y"   onclick="loadHistory('1y')">1 Jahr</button>
+            <button class="range-btn"        data-range="6m"   onclick="loadHistory('6m')">6 Monate</button>
+            <button class="range-btn"        data-range="3m"   onclick="loadHistory('3m')">3 Monate</button>
+        </div>
+    </div>
+    <div id="historyContent"><div class="cap-loading">Lade Verlaufsdaten…</div></div>
+</div>
+
+<!-- Chart.js (served locally for reliability in air-gapped environments) -->
+<script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+
+<script>
+// ── Globals ──────────────────────────────────────────────────────────────
+let currentView   = 'by-storage-art';
+let capacityData  = null;
+let chartInstances = {};
+
+// ── View Switching ────────────────────────────────────────────────────────
+document.querySelectorAll('#viewToggle button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('#viewToggle button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const view = btn.dataset.view;
+        currentView = view;
+        document.querySelectorAll('.cap-view').forEach(v => v.classList.remove('active'));
+        document.getElementById('view-' + view).classList.add('active');
+        if (view === 'history') loadHistory(currentRange());
+    });
+});
+
+function currentRange() {
+    const active = document.querySelector('.range-btn.active');
+    return active ? active.dataset.range : 'all';
+}
+
+// ── Data Loading ──────────────────────────────────────────────────────────
+async function loadCapacityData() {
+    try {
+        const resp = await fetch('/capacity/api/data');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        capacityData = data;
+
+        // Status bar
+        const statusEl = document.getElementById('capStatus');
+        let msg = '';
+        if (data.last_updated) {
+            // Backend returns UTC ISO timestamps; append 'Z' to ensure correct browser parsing
+            msg = 'Letzte Aktualisierung: ' + new Date(data.last_updated + 'Z').toLocaleString('de-DE');
+        }
+        if (data.stale) {
+            msg += ' <span class="stale">⚠ Daten möglicherweise veraltet – Hintergrundaktualisierung läuft.</span>';
+        }
+        statusEl.innerHTML = msg;
+
+        renderByStorageArt(data.by_storage_art);
+        renderByEnvironment(data.by_environment);
+        renderByDepartment(data.by_department);
+        renderDetails(data.details);
+    } catch (err) {
+        document.getElementById('capStatus').textContent = '⚠ Fehler beim Laden der Daten: ' + err.message;
+    }
+}
+
+// ── Trigger manual refresh ────────────────────────────────────────────────
+async function triggerRefresh() {
+    const btn = document.getElementById('refreshBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Aktualisierung…';
+    try {
+        await fetch('/capacity/api/refresh', {method: 'POST'});
+        // Wait a moment then reload data
+        setTimeout(async () => {
+            await loadCapacityData();
+            if (currentView === 'history') loadHistory(currentRange());
+            btn.disabled = false;
+            btn.textContent = '🔄 Aktualisieren';
+        }, 3000);
+    } catch(err) {
+        btn.disabled = false;
+        btn.textContent = '🔄 Aktualisieren';
+    }
+}
+
+// ── Formatting helpers ─────────────────────────────────────────────────────
+function fmt(val) {
+    if (val == null) return '–';
+    return parseFloat(val).toFixed(2);
+}
+function fmtPct(val) {
+    if (val == null) return '–';
+    return parseFloat(val).toFixed(1) + ' %';
+}
+
+function pctBarHtml(pct) {
+    if (pct == null) return '–';
+    const p = Math.min(Math.max(parseFloat(pct), 0), 100);
+    const cls = p >= 85 ? 'high' : p >= 70 ? 'medium' : 'low';
+    return `<div class="pct-bar-wrap">
+        <div class="pct-bar"><div class="pct-bar-fill ${cls}" style="width:${p}%"></div></div>
+        <span>${p.toFixed(1)} %</span>
+    </div>`;
+}
+
+/** Bar for provisioned % – may exceed 100 %; bar capped at 100 % width. */
+const PROV_HIGH_THRESHOLD   = 150;  // >= 150 % → red
+const PROV_MEDIUM_THRESHOLD = 100;  // >= 100 % → orange
+
+function pctBarHtmlProv(pct) {
+    if (pct == null) return '–';
+    const p = parseFloat(pct);
+    const barWidth = Math.min(p, 100);
+    const cls = p >= PROV_HIGH_THRESHOLD ? 'high' : p >= PROV_MEDIUM_THRESHOLD ? 'medium' : 'low';
+    return `<div class="pct-bar-wrap">
+        <div class="pct-bar"><div class="pct-bar-fill ${cls}" style="width:${barWidth}%"></div></div>
+        <span>${p.toFixed(1)} %</span>
+    </div>`;
+}
+
+/** True when any row or the total row contains a provisioned_tb value. */
+function hasProvisioned(rows, totalRow) {
+    return (totalRow && totalRow.provisioned_tb != null) ||
+           rows.some(r => r.provisioned_tb != null);
+}
+
+function tableHeader(label, showProvisioned) {
+    let cols = `<th>${label}</th>
+        <th>Gesamt [TB]</th>
+        <th>Genutzt [TB]</th>
+        <th>Frei [TB]</th>
+        <th>Genutzt [%]</th>
+        <th>Frei [%]</th>`;
+    if (showProvisioned) {
+        cols += `<th>Provisioniert [TB]</th><th>Provisioniert [%]</th>`;
+    }
+    return `<thead><tr>${cols}</tr></thead>`;
+}
+
+function rowHtml(label, row, isTotalRow, showProvisioned) {
+    const cls = isTotalRow ? ' class="total-row"' : '';
+    let html = `<tr${cls}>
+        <td>${label}</td>
+        <td>${fmt(row.total_tb)}</td>
+        <td>${fmt(row.used_tb)}</td>
+        <td>${fmt(row.free_tb)}</td>
+        <td>${pctBarHtml(row.percent_used)}</td>
+        <td>${pctBarHtml(row.percent_free)}</td>`;
+    if (showProvisioned) {
+        html += `<td>${fmt(row.provisioned_tb)}</td>
+        <td>${pctBarHtmlProv(row.percent_provisioned)}</td>`;
+    }
+    html += '</tr>';
+    return html;
+}
+
+function buildSection(title, subtitle, rows, totalRow) {
+    const showProvisioned = hasProvisioned(rows, totalRow);
+    const rowsHtml = rows.map(r => rowHtml(r.label, r, false, showProvisioned)).join('');
+    const totalHtml = rowHtml('Total', totalRow, true, showProvisioned);
+    return `<div class="cap-section">
+        <div class="cap-section-header">
+            <span>${title}</span>
+            <span class="section-subtitle">${subtitle || ''}</span>
+        </div>
+        <div class="cap-table-wrap">
+            <table class="cap-table">
+                ${tableHeader('Gruppe', showProvisioned)}
+                <tbody>${rowsHtml}${totalHtml}</tbody>
+            </table>
+        </div>
+    </div>`;
+}
+
+// ── Render: By Storage Art ────────────────────────────────────────────────
+function renderByStorageArt(data) {
+    const el = document.getElementById('byStorageArtContent');
+    if (!data || data.length === 0) {
+        el.innerHTML = '<div class="cap-empty">Keine Daten verfügbar. Bitte Systeme konfigurieren und Aktualisierung abwarten.</div>';
+        return;
+    }
+    el.innerHTML = data.map(g =>
+        buildSection(g.storage_art, 'Gruppierung nach Betriebsumgebung', g.rows, g.total)
+    ).join('');
+}
+
+// ── Render: By Environment ────────────────────────────────────────────────
+function renderByEnvironment(data) {
+    const el = document.getElementById('byEnvironmentContent');
+    if (!data || data.length === 0) {
+        el.innerHTML = '<div class="cap-empty">Keine Daten verfügbar.</div>';
+        return;
+    }
+    el.innerHTML = data.map(g =>
+        buildSection(g.environment, 'Gruppierung nach Storage Art', g.rows, g.total)
+    ).join('');
+}
+
+// ── Render: By Department ─────────────────────────────────────────────────
+function renderByDepartment(data) {
+    const el = document.getElementById('byDepartmentContent');
+    if (!data || data.length === 0) {
+        el.innerHTML = '<div class="cap-empty">Keine Daten verfügbar.</div>';
+        return;
+    }
+    el.innerHTML = data.map(g =>
+        buildSection(g.department, 'Umgebung × Storage Art', g.rows, g.total)
+    ).join('');
+}
+
+// ── Render: Details ───────────────────────────────────────────────────────
+function renderDetails(data) {
+    const el = document.getElementById('detailsContent');
+    if (!data || data.length === 0) {
+        el.innerHTML = '<div class="cap-empty">Keine Daten verfügbar.</div>';
+        return;
+    }
+    el.innerHTML = data.map(g => {
+        const showProvisioned = g.systems.some(s => s.provisioned_tb != null);
+        const rows = g.systems.map(s => {
+            const errBadge = s.error ? `<span class="err-badge" title="${escHtml(s.error)}">Fehler</span>` : '';
+            let row = `<tr>
+                <td>${escHtml(s.system_name)}${errBadge}</td>
+                <td>${escHtml(s.environment)}</td>
+                <td>${escHtml(s.department)}</td>
+                <td>${fmt(s.total_tb)}</td>
+                <td>${fmt(s.used_tb)}</td>
+                <td>${fmt(s.free_tb)}</td>
+                <td>${pctBarHtml(s.percent_used)}</td>
+                <td>${pctBarHtml(s.percent_free)}</td>`;
+            if (showProvisioned) {
+                row += `<td>${fmt(s.provisioned_tb)}</td>
+                <td>${pctBarHtmlProv(s.percent_provisioned)}</td>`;
+            }
+            row += '</tr>';
+            return row;
+        }).join('');
+        let headerCols = `<th>System</th>
+                        <th>Umgebung</th>
+                        <th>Tätigkeitsfeld</th>
+                        <th>Gesamt [TB]</th>
+                        <th>Genutzt [TB]</th>
+                        <th>Frei [TB]</th>
+                        <th>Genutzt [%]</th>
+                        <th>Frei [%]</th>`;
+        if (showProvisioned) {
+            headerCols += `<th>Provisioniert [TB]</th><th>Provisioniert [%]</th>`;
+        }
+        return `<div class="cap-section">
+            <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
+            <div class="cap-table-wrap">
+                <table class="cap-table">
+                    <thead><tr>${headerCols}</tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Render: History ───────────────────────────────────────────────────────
+async function loadHistory(range) {
+    // Update range button UI
+    document.querySelectorAll('.range-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.range === range);
+    });
+
+    const el = document.getElementById('historyContent');
+    el.innerHTML = '<div class="cap-loading">Lade Verlaufsdaten…</div>';
+
+    // Destroy old chart instances
+    Object.values(chartInstances).forEach(c => c.destroy());
+    chartInstances = {};
+
+    try {
+        const resp = await fetch('/capacity/api/history?range=' + encodeURIComponent(range));
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        const arts = Object.keys(data);
+        if (arts.length === 0) {
+            el.innerHTML = '<div class="cap-empty">Keine Verlaufsdaten vorhanden. Daten werden täglich gespeichert.</div>';
+            return;
+        }
+        el.innerHTML = arts.map(art => `
+            <div class="cap-section">
+                <div class="cap-section-header"><span>${escHtml(art)}</span><span class="section-subtitle">Verlauf – Genutzte Kapazität</span></div>
+                <div class="chart-container"><canvas id="chart-${escHtml(art).replace(/\s+/g,'-')}"></canvas></div>
+            </div>`).join('');
+
+        // Render charts
+        arts.forEach(art => {
+            const artData = data[art];
+            const canvasId = 'chart-' + art.replace(/\s+/g, '-');
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+
+            const allLabels = [...artData.labels, ...artData.forecast_labels];
+            const usedDataset = {
+                label: 'Genutzt [TB]',
+                data: artData.used.map((v, i) => ({x: artData.labels[i], y: v})),
+                borderColor: '#0098DB',
+                backgroundColor: 'rgba(0,152,219,.1)',
+                fill: true,
+                tension: 0.3,
+                // Hide individual data points when there are many labels (>60) to avoid clutter
+                pointRadius: artData.labels.length > 60 ? 0 : 3,
+            };
+            const totalDataset = {
+                label: 'Gesamt [TB]',
+                data: artData.total.map((v, i) => ({x: artData.labels[i], y: v})),
+                borderColor: '#BED600',
+                borderDash: [],
+                backgroundColor: 'transparent',
+                tension: 0.3,
+                pointRadius: 0,
+            };
+            const forecastDataset = {
+                label: 'Prognose [TB]',
+                data: artData.forecast_values.map((v, i) => ({x: artData.forecast_labels[i], y: v})),
+                borderColor: '#A70240',
+                borderDash: [6, 4],
+                backgroundColor: 'transparent',
+                tension: 0.3,
+                pointRadius: 0,
+            };
+
+            chartInstances[art] = new Chart(canvas, {
+                type: 'line',
+                data: { datasets: [usedDataset, totalDataset, forecastDataset] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    scales: {
+                        x: {
+                            type: 'category',
+                            ticks: { maxTicksLimit: 12, maxRotation: 45 },
+                            grid: { display: false },
+                        },
+                        y: {
+                            title: { display: true, text: 'TB' },
+                            beginAtZero: true,
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)} TB`
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    } catch (err) {
+        el.innerHTML = '<div class="cap-empty">Fehler beim Laden der Verlaufsdaten: ' + escHtml(err.message) + '</div>';
+    }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+loadCapacityData();
+</script>
+{% endblock %}
