@@ -681,6 +681,11 @@ def settings():
             
             # Update system settings
             app_settings.timezone = request.form.get('timezone', 'Europe/Berlin')
+
+            # Update dashboard background refresh interval
+            refresh_interval = request.form.get('dashboard_refresh_interval')
+            if refresh_interval and refresh_interval.isdigit():
+                app_settings.dashboard_refresh_interval = int(refresh_interval)
             
             # Update log settings
             max_logs = request.form.get('max_logs_per_system')
