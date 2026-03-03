@@ -22,6 +22,7 @@ ALLOWED_COLUMNS = {
     'pure1_display_name': 'TEXT',
     'pure1_app_id': 'TEXT',
     'pure1_private_key': 'TEXT',
+    'pure1_private_key_passphrase': 'TEXT',
     'pure1_public_key': 'TEXT',
 }
 
@@ -145,7 +146,8 @@ def migrate_app_settings_table():
         migrations_applied.append('min_log_level')
 
     # Add Pure1 API credential columns if missing
-    for col in ('pure1_display_name', 'pure1_app_id', 'pure1_private_key', 'pure1_public_key'):
+    for col in ('pure1_display_name', 'pure1_app_id', 'pure1_private_key',
+                'pure1_private_key_passphrase', 'pure1_public_key'):
         if add_column_if_not_exists('app_settings', col, ALLOWED_COLUMNS[col]):
             migrations_applied.append(col)
 

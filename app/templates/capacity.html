@@ -216,6 +216,35 @@
     vertical-align: middle;
     margin-left: .4rem;
 }
+
+/* ── Storage on Demand specific ── */
+.sod-info {
+    font-size: .82rem;
+    color: var(--cap-muted);
+    padding: .4rem 1.2rem .6rem;
+    border-bottom: 1px solid var(--cap-border);
+    background: #fafbfd;
+}
+.sod-resources {
+    font-size: .82rem;
+    color: var(--cap-muted);
+    padding-left: 1rem;
+}
+.sod-resources li { margin-bottom: .15rem; }
+.sod-error-box {
+    background: rgba(167,2,64,.06);
+    border: 1px solid rgba(167,2,64,.2);
+    border-radius: 6px;
+    padding: 1rem 1.5rem;
+    color: var(--cap-red);
+    margin: .5rem 0;
+}
+.sod-not-configured {
+    text-align: center;
+    padding: 2.5rem;
+    color: var(--cap-muted);
+}
+.sod-not-configured a { color: var(--cap-blue); }
 {% endblock %}
 
 {% block content %}
@@ -229,6 +258,7 @@
             <button data-view="by-department">Nach Tätigkeitsfeld</button>
             <button data-view="details">Details</button>
             <button data-view="history">Verlauf</button>
+            <button data-view="storage-on-demand">Storage on Demand</button>
         </div>
         <button class="refresh-btn" id="refreshBtn" onclick="triggerRefresh()">🔄 Aktualisieren</button>
     </div>
@@ -269,6 +299,11 @@
         </div>
     </div>
     <div id="historyContent"><div class="cap-loading">Lade Verlaufsdaten…</div></div>
+</div>
+
+<!-- ── View: Storage on Demand ── -->
+<div class="cap-view" id="view-storage-on-demand">
+    <div id="sodContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- Chart.js (served locally for reliability in air-gapped environments) -->

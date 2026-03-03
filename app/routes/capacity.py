@@ -68,6 +68,32 @@ def api_history():
     return jsonify(history)
 
 
+@bp.route('/api/subscription-licenses')
+def api_subscription_licenses():
+    """Return Pure1 subscription-license data (Storage on Demand)."""
+    from app.models import AppSettings
+    from app.api.pure1_client import fetch_subscription_licenses
+
+    settings = AppSettings.query.first()
+    if not settings or not settings.pure1_app_id or not settings.pure1_private_key:
+        return jsonify({
+            'configured': False,
+            'error': 'Pure1 API-Zugangsdaten nicht konfiguriert.',
+            'items': [],
+        })
+
+    try:
+        items = fetch_subscription_licenses(
+            settings.pure1_app_id,
+            settings.pure1_private_key,
+            passphrase=settings.pure1_private_key_passphrase,
+        )
+        return jsonify({'configured': True, 'items': items})
+    except Exception as exc:
+        logger.error('Error fetching Pure1 subscription licenses: %s', exc)
+        return jsonify({'configured': True, 'error': str(exc), 'items': []})
+
+
 @bp.route('/api/refresh', methods=['POST'])
 def api_refresh():
     """Trigger an immediate (non-blocking) capacity data refresh."""

@@ -478,6 +478,20 @@
                     </div>
 
                     <div class="form-group">
+                        <label for="pure1_private_key_passphrase">Private Key Passphrase</label>
+                        <input type="password" id="pure1_private_key_passphrase" name="pure1_private_key_passphrase"
+                               autocomplete="new-password"
+                               placeholder="{{ 'Bereits konfiguriert – leer lassen, um unverändert zu behalten' if settings.pure1_private_key_passphrase else 'Passphrase (leer lassen, wenn kein Passwort gesetzt)' }}">
+                        <p class="info-text">
+                            {% if settings.pure1_private_key_passphrase %}
+                                ✅ Passphrase ist gespeichert. Nur ausfüllen, um sie zu ersetzen.
+                            {% else %}
+                                Passphrase zum Entschlüsseln des Private Keys. Leer lassen, wenn der Key nicht passwortgeschützt ist.
+                            {% endif %}
+                        </p>
+                    </div>
+
+                    <div class="form-group">
                         <label for="pure1_public_key">Public Key (PEM)</label>
                         <textarea id="pure1_public_key" name="pure1_public_key"
                                   rows="5"

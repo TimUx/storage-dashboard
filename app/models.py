@@ -366,6 +366,7 @@ class AppSettings(db.Model):
     _pure1_display_name = db.Column('pure1_display_name', db.Text)
     _pure1_app_id = db.Column('pure1_app_id', db.Text)
     _pure1_private_key = db.Column('pure1_private_key', db.Text)
+    _pure1_private_key_passphrase = db.Column('pure1_private_key_passphrase', db.Text)
     _pure1_public_key = db.Column('pure1_public_key', db.Text)
 
     @property
@@ -396,6 +397,15 @@ class AppSettings(db.Model):
         self._pure1_private_key = encrypt_value(value) if value else None
 
     @property
+    def pure1_private_key_passphrase(self):
+        """Decrypt and return Pure1 private key passphrase"""
+        return decrypt_value(self._pure1_private_key_passphrase) if self._pure1_private_key_passphrase else None
+
+    @pure1_private_key_passphrase.setter
+    def pure1_private_key_passphrase(self, value):
+        self._pure1_private_key_passphrase = encrypt_value(value) if value else None
+
+    @property
     def pure1_public_key(self):
         """Decrypt and return Pure1 public key (PEM)"""
         return decrypt_value(self._pure1_public_key) if self._pure1_public_key else None
@@ -403,7 +413,7 @@ class AppSettings(db.Model):
     @pure1_public_key.setter
     def pure1_public_key(self, value):
         self._pure1_public_key = encrypt_value(value) if value else None
-    
+
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self):

@@ -697,10 +697,13 @@ def settings():
             # Display name and App ID: always overwrite (empty = clear)
             app_settings.pure1_display_name = request.form.get('pure1_display_name', '').strip() or None
             app_settings.pure1_app_id = request.form.get('pure1_app_id', '').strip() or None
-            # Keys: only overwrite if a new value was explicitly submitted
+            # Keys / passphrase: only overwrite if a new value was explicitly submitted
             new_private_key = request.form.get('pure1_private_key', '').strip()
             if new_private_key:
                 app_settings.pure1_private_key = new_private_key
+            new_passphrase = request.form.get('pure1_private_key_passphrase', '').strip()
+            if new_passphrase:
+                app_settings.pure1_private_key_passphrase = new_passphrase
             new_public_key = request.form.get('pure1_public_key', '').strip()
             if new_public_key:
                 app_settings.pure1_public_key = new_public_key
