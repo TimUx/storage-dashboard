@@ -59,13 +59,16 @@ def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 30,
 
 
 def get_pure1_access_token(app_id: str, private_key_pem: str,
-                           passphrase: str | None = None) -> str:
+                           passphrase: str | None = None,
+                           proxies: dict | None = None) -> str:
     """Exchange a freshly-built JWT for a Pure1 Bearer access token.
 
     Args:
         app_id: Pure1 application ID.
         private_key_pem: PEM-encoded RSA private key.
         passphrase: Optional passphrase for an encrypted private key.
+        proxies: Optional requests-compatible proxy dict, e.g.
+                 ``{'http': 'http://proxy:8080', 'https': 'http://proxy:8080'}``.
 
     Returns:
         Access token string.
@@ -82,19 +85,22 @@ def get_pure1_access_token(app_id: str, private_key_pem: str,
             "assertion": jwt_token,
         },
         timeout=15,
+        proxies=proxies,
     )
     resp.raise_for_status()
     return resp.json()["access_token"]
 
 
 def fetch_subscription_licenses(app_id: str, private_key_pem: str,
-                                 passphrase: str | None = None) -> list:
+                                 passphrase: str | None = None,
+                                 proxies: dict | None = None) -> list:
     """Fetch all Pure1 subscription licenses and return the ``items`` list.
 
     Args:
         app_id: Pure1 application ID.
         private_key_pem: PEM-encoded RSA private key.
         passphrase: Optional passphrase for an encrypted private key.
+        proxies: Optional requests-compatible proxy dict.
 
     Returns:
         List of subscription-license dicts as returned by the Pure1 API.
@@ -102,11 +108,13 @@ def fetch_subscription_licenses(app_id: str, private_key_pem: str,
     Raises:
         requests.HTTPError: On non-2xx API responses.
     """
-    token = get_pure1_access_token(app_id, private_key_pem, passphrase=passphrase)
+    token = get_pure1_access_token(app_id, private_key_pem,
+                                   passphrase=passphrase, proxies=proxies)
     resp = requests.get(
         f"{PURE1_API_BASE}/subscription-licenses",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         timeout=30,
+        proxies=proxies,
     )
     resp.raise_for_status()
     return resp.json().get("items", [])

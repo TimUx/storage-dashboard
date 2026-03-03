@@ -708,6 +708,11 @@ def settings():
             if new_public_key:
                 app_settings.pure1_public_key = new_public_key
 
+            # Proxy settings (always overwrite – empty = disabled)
+            app_settings.proxy_http      = request.form.get('proxy_http', '').strip() or None
+            app_settings.proxy_https     = request.form.get('proxy_https', '').strip() or None
+            app_settings.proxy_no_proxy  = request.form.get('proxy_no_proxy', '').strip() or None
+
             # Handle logo upload
             if 'logo_file' in request.files:
                 logo_file = request.files['logo_file']
