@@ -4,14 +4,20 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 
 ## Screenshots
 
-### Dashboard - Card View
+### Dashboard – Card View (mit Aktualisierungs-Button und Auto-Refresh)
 ![Dashboard Card View](screenshots/dashboard-card-view.png)
 
-### Dashboard - Details
+### Dashboard – System Details
 ![System Details](screenshots/system-details.png)
 
 ### Admin-Bereich
 ![Admin Area](screenshots/admin-area.png)
+
+### Einstellungen – Pure1 API-Zugang (Tab „API-Zugänge")
+![Einstellungen – Pure1 API-Zugänge](screenshots/settings-api-access-pure1.png)
+
+### Einstellungen – Proxy-Konfiguration
+![Einstellungen – Proxy](screenshots/settings-proxy.png)
 
 ### Kapazitätsreport – Nach Storage Art
 ![Kapazitätsreport – Nach Storage Art](screenshots/capacity-by-storage-art.png)
@@ -28,10 +34,10 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 ### Kapazitätsreport – Verlauf mit Prognose
 ![Kapazitätsreport – Verlauf](screenshots/capacity-history.png)
 
-### Kapazitätsreport – Storage on Demand (Übersicht)
+### Kapazitätsreport – Storage on Demand (Tab sichtbar nach Pure1-Konfiguration)
 ![Kapazitätsreport – Storage on Demand Tab](screenshots/capacity-storage-on-demand-tab.png)
 
-### Kapazitätsreport – Storage on Demand (Ansicht)
+### Kapazitätsreport – Storage on Demand (Ansicht mit Daten / Fehler-Anzeige)
 ![Kapazitätsreport – Storage on Demand](screenshots/capacity-sod-view.png)
 
 ### Kapazitätsreport – kein Pure1 konfiguriert (Tab ausgeblendet)
@@ -40,12 +46,6 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 ### Kapazitätsreport – Pure1 API nicht erreichbar (N/A-Anzeige)
 ![Kapazitätsreport – Storage on Demand N/A bei Fehler](screenshots/capacity-sod-error-na.png)
 
-### Einstellungen – Pure1 API-Zugang (inkl. Passphrase)
-![Einstellungen – API-Zugänge](screenshots/settings-api-access-pure1.png)
-
-### Einstellungen – Proxy-Konfiguration
-![Einstellungen – Proxy](screenshots/settings-proxy.png)
-
 > **Hinweis**: Das Dashboard verfügt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität.
 
 ## Features
@@ -53,11 +53,15 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
 - **Kapazitätsreport**: Tabellarische Kapazitätsübersicht aller Systeme unter `/capacity/` – gruppiert nach Storage Art, Umgebung oder Tätigkeitsfeld, mit Verlaufsgraphen und Wachstumsprognose
-- **Storage on Demand**: Eigener Tab im Kapazitätsreport zeigt Pure1 Subscription-Lizenzdaten (Reserviert, Effective Used, On Demand) – wöchentlich automatisch abgerufen, manuell per Knopfdruck aktualisierbar
-- **Pure1 API-Integration**: Dynamische JWT-Authentifizierung (RS256) gegen die Pure1 REST API; Private Key Passphrase wird verschlüsselt gespeichert
+- **Storage on Demand**: Eigener Tab im Kapazitätsreport zeigt Pure1 Subscription-Lizenzdaten (Reserviert, Effective Used, On Demand):
+  - Wöchentlich automatisch abgerufen, manuell per Knopfdruck aktualisierbar
+  - Tab erscheint nur, wenn Pure1 in den Einstellungen konfiguriert ist
+  - Bei API-Fehlern wird ein N/A-Hinweis angezeigt
+- **Pure1 API-Integration**: Konfiguration im Admin-Bereich unter **Einstellungen → API-Zugänge**; dynamische JWT-Authentifizierung (RS256) gegen die Pure1 REST API; Private Key Passphrase wird verschlüsselt gespeichert
 - **Proxy-Unterstützung**: Konfigurierbarer HTTP/HTTPS-Proxy (verschlüsselt gespeichert) für ausgehende Internet-Verbindungen (z. B. Pure1); lokale Storage-Systeme umgehen den Proxy grundsätzlich
-- **Schnelles Laden**: Asynchrone Dashboard-Anzeige mit sofortiger UI-Darstellung und dynamischer Datenaktualisierung
-- **Auto-Refresh**: Automatische Aktualisierung des Dashboards alle 45 Sekunden (konfigurierbar) ohne Seiten-Reload
+- **Hintergrund-API-Abfragen**: Dashboard-Daten werden im Hintergrund durch einen konfigurierbaren Dienst aktualisiert – die UI erscheint sofort, ohne auf alle Systeme warten zu müssen
+- **Aktualisierungs-Button**: Manuelles Auslösen einer sofortigen Datenaktualisierung per „↻ Aktualisieren"-Button im Dashboard
+- **Auto-Refresh**: Automatische Aktualisierung des Dashboards (konfigurierbar: 30 s bis 2 min) ohne Seiten-Reload; Countdown-Timer zeigt verbleibende Zeit
 - **Hochleistungs-Multithreading**: Parallele Abfrage von bis zu 32 Systemen gleichzeitig für schnelle Performance
 - **Modernes Design**: ITScare Corporate Design mit farbigen Accents und modernen UI-Elementen
 - **CLI Interface**: Zugriff auf Dashboard-Daten über die Kommandozeile (lokal und remote)
@@ -224,8 +228,9 @@ python run.py
 Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
 
 **Dashboard-Features:**
-- **Schnelles Laden**: Dashboard-UI erscheint sofort, Daten werden im Hintergrund geladen (siehe [ASYNC_LOADING.md](ASYNC_LOADING.md))
-- **Auto-Refresh**: Aktivieren Sie die Auto-Refresh-Funktion, um das Dashboard automatisch alle 45 Sekunden zu aktualisieren (ohne Seiten-Reload)
+- **Hintergrund-API-Abfragen**: Die Dashboard-UI erscheint sofort; Statusdaten werden durch einen konfigurierbaren Hintergrund-Dienst abgerufen und im Cache gespeichert (siehe [ASYNC_LOADING.md](ASYNC_LOADING.md)). Das Aktualisierungsintervall ist unter **Admin → Einstellungen → System** einstellbar. Die gecachten Daten werden im Sekundenbereich als „aktuell" betrachtet; nach Ablauf des Intervalls werden sie im Hintergrund neu abgerufen, ohne die Benutzeroberfläche zu blockieren.
+- **Aktualisierungs-Button**: Der „↻ Aktualisieren"-Button löst eine sofortige Datenabfrage aus und aktualisiert alle Systemkarten ohne Seiten-Reload
+- **Auto-Refresh**: Aktivieren Sie die Auto-Refresh-Funktion, um das Dashboard automatisch alle 30–120 Sekunden (konfigurierbar) zu aktualisieren (ohne Seiten-Reload)
 - **Filter**: Nutzen Sie die Filteroptionen, um gezielt nach Systemen zu suchen
 - **Ansichten**: Wechseln Sie zwischen Card-View (Kacheln) und Table-View (Tabelle)
 - **Hochleistungs-Multithreading**: Alle Systeme werden parallel abgefragt (bis zu 32 gleichzeitig) für optimale Performance
@@ -308,7 +313,9 @@ Er kann auf jedem System verwendet werden, das Netzwerkzugriff zum Dashboard hat
 ### Dashboard (`/`)
 
 Zeigt alle aktivierten Storage-Systeme gruppiert nach Hersteller:
-- **Auto-Refresh**: Optionale automatische Aktualisierung alle 45 Sekunden mit Countdown-Timer
+- **Hintergrund-API-Abfragen**: Daten werden von einem konfigurierbaren Hintergrund-Dienst abgerufen – die UI erscheint sofort ohne Wartezeit; Status wird aus dem Cache geladen
+- **Aktualisierungs-Button**: „↻ Aktualisieren" löst eine sofortige API-Abfrage aller Systeme aus
+- **Auto-Refresh**: Optionale automatische Aktualisierung (30 s bis 2 min) mit Countdown-Timer
 - **Ansichten**: Umschaltbar zwischen Card-View (Kacheln) und Table-View (Tabelle)
 - **Filter**: Filterung nach Hersteller, Status, Cluster-Typ und Freitext-Suche (Name, IP, DNS)
 - Hardware-Status
@@ -326,13 +333,26 @@ Zeigt alle aktivierten Storage-Systeme gruppiert nach Hersteller:
 - Aktivieren/Deaktivieren von Systemen
 - Zertifikatsverwaltung für firmeneigene CA- und Root-Zertifikate
 
+#### Einstellungen (`/admin/settings`)
+
+Der Einstellungs-Bereich ist in Tabs unterteilt:
+
+| Tab | Inhalt |
+|-----|--------|
+| **🎨 Design** | Firmenname, -logo und Farbschema |
+| **🔑 API-Zugänge** | **Pure1 API-Konfiguration**: App-ID (Issuer), RSA Private Key (PEM), Passphrase und Public Key – alle Werte werden verschlüsselt gespeichert |
+| **🌐 Proxy** | HTTP/HTTPS-Proxy für ausgehende Verbindungen (z. B. Pure1) |
+| **⚙️ System** | Zeitzone, Hintergrund-Aktualisierungsintervall |
+| **📋 Logs** | Log-Level, Aufbewahrungsdauer |
+| **🔒 Zertifikate** | Übersicht und Verwaltung hochgeladener CA-Zertifikate |
+
 📖 **Detailliertes Administrator-Handbuch:** Siehe [ADMIN_GUIDE.md](ADMIN_GUIDE.md)
 
 ### Kapazitätsreport (`/capacity/`)
 
 Der Kapazitätsreport bietet eine umfassende tabellarische und grafische Auswertung der Speicherkapazitäten aller konfigurierten Systeme. Die Daten werden stündlich im Hintergrund aktualisiert und täglich historisch gespeichert.
 
-**5 wechselbare Ansichten:**
+**6 wechselbare Ansichten:**
 
 | Ansicht | Beschreibung |
 |---------|-------------|
@@ -341,6 +361,7 @@ Der Kapazitätsreport bietet eine umfassende tabellarische und grafische Auswert
 | **Nach Tätigkeitsfeld** | Eine Tabelle pro Abteilung/Tätigkeitsfeld (ERZ, ITS, EH …) mit Zeilen für jede Umgebung × Storage-Typ-Kombination |
 | **Details** | Alle Einzelsysteme mit Name, Umgebung, Tätigkeitsfeld und Kapazitätswerten, gruppiert nach Storage-Typ |
 | **Verlauf** | Liniendiagramme pro Storage-Typ (Genutzt [TB] / Gesamt [TB]) mit wählbarem Zeitraum (Alle / 2J / 1J / 6M / 3M) und linearer Wachstumsprognose als gestrichelte Linie |
+| **Storage on Demand** *(nur bei konfiguriertem Pure1)* | Zeigt Pure1 Subscription-Lizenzdaten: Reserviert, Effective Used und On-Demand-Verbrauch pro Array; Daten werden wöchentlich automatisch abgerufen und können manuell per „🔄 Jetzt abrufen"-Button aktualisiert werden |
 
 **Spalten in den Kapazitätstabellen:**
 - Gesamt [TB], Genutzt [TB], Frei [TB]
@@ -356,6 +377,26 @@ python examples/seed_demo_data.py
 ```
 
 Das Skript legt 17 Demo-Systeme (Block, File, Archiv, Object, Backup) mit 2 Jahren täglicher Verlaufshistorie an.
+
+### Pure1 Storage on Demand (`/capacity/` → Tab „Storage on Demand")
+
+Der **Storage on Demand**-Tab zeigt Pure1 Subscription-Lizenzdaten direkt im Kapazitätsreport.
+
+**Einrichtung:**
+1. Navigieren Sie zu `/admin/settings` und öffnen Sie den Tab **🔑 API-Zugänge**
+2. Tragen Sie Ihre **App-ID (Issuer)** aus dem Pure1-Portal ein (Format: `pure1:apikey:xxxxxxxx`)
+3. Fügen Sie den **RSA Private Key** im PEM-Format ein (inkl. `-----BEGIN / END-----`-Zeilen)
+4. Optional: Tragen Sie die **Passphrase** ein, falls der Private Key passwortgeschützt ist
+5. Optional: Fügen Sie den **Public Key** im PEM-Format ein
+6. Speichern – der **Storage on Demand**-Tab erscheint nun automatisch im Kapazitätsreport
+
+![Einstellungen – Pure1 API-Zugänge](screenshots/settings-api-access-pure1.png)
+
+**Daten-Abruf:**
+- Daten werden **wöchentlich automatisch** durch den Hintergrund-Dienst abgerufen
+- Manuelle Aktualisierung jederzeit per **„🔄 Jetzt abrufen"**-Button im Tab
+- Bei Konfigurationsfehlern oder Netzwerkproblemen wird ein klarer Hinweis angezeigt
+- Ist Pure1 nicht konfiguriert, bleibt der Tab ausgeblendet
 
 ### Zertifikatsverwaltung (`/admin/certificates`)
 
@@ -455,11 +496,14 @@ Detaillierte Anleitungen finden Sie in der Web-Dokumentation unter `/admin/docs`
 Das Dashboard bietet auch programmatischen Zugriff:
 
 - `GET /api/systems` - Liste aller Systeme
-- `GET /api/status` - Status aller aktivierten Systeme
+- `GET /api/status` - Status aller aktivierten Systeme (aus dem Hintergrund-Cache)
 - `GET /api/systems/<id>/status` - Status eines spezifischen Systems
+- `POST /api/trigger-status-refresh` - Sofortige Aktualisierung aller Systemstatus auslösen (entspricht dem „↻ Aktualisieren"-Button)
 - `GET /capacity/api/data` - Aggregierte Kapazitätsdaten für alle Ansichten (JSON)
 - `GET /capacity/api/history?range=all|3m|6m|1y|2y` - Historische Kapazitätsdaten mit Prognose
 - `POST /capacity/api/refresh` - Manuelle Kapazitätsaktualisierung auslösen
+- `GET /capacity/api/sod` - Aktuelle Pure1 Storage on Demand Daten aus dem Cache (JSON)
+- `POST /capacity/api/sod-refresh` - Sofortige Aktualisierung der Pure1 SOD-Daten auslösen
 
 ## Entwicklung
 
