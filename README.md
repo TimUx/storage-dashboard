@@ -41,7 +41,7 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
 - **Kapazitätsreport**: Tabellarische Kapazitätsübersicht aller Systeme unter `/capacity/` – gruppiert nach Storage Art (**Block → File → Object → Archiv → Backup**), Umgebung oder Tätigkeitsfeld, mit Verlaufsgraphen und Wachstumsprognose
-- **Storage on Demand (Pure1)**: Bei konfigurierter Pure1 API wird im Block-Bereich des Kapazitätsreports eine aufklappbare Untertabelle mit Subscription-Lizenzdaten (Reserviert, Effektiv Genutzt, On Demand) angezeigt. Zusätzlich erscheint in der Block-Tabelle eine Spalte **„Effektiv Genutzt [TB]"** mit den Pure1-Effektivwerten (nach Deduplikation/Komprimierung):
+- **Storage on Demand (Pure1)**: Bei konfigurierter Pure1 API wird in allen Kapazitätsansichten (Nach Storage Art, Nach Umgebung, Nach Tätigkeitsfeld) eine kompakte SoD-Zusammenfassung angezeigt (Reservierte Kapazität, Effektiv Genutzt, Auslastung [%]). Die Kapazitätstabellen zeigen zusätzlich eine Spalte **„Effektiv Genutzt [TB]"**, die die Pure1-Effektivwerte (nach Deduplikation/Komprimierung) pro Zeile summiert. Vollständige Detailinformationen (Verträge, Lizenzen, Arrays) sind im Tab **Details** verfügbar:
   - Wöchentlich automatisch abgerufen, manuell per Knopfdruck aktualisierbar
   - Wird nur angezeigt, wenn Pure1 in den Einstellungen konfiguriert ist
 - **Pure1 API-Integration**: Konfiguration im Admin-Bereich unter **Einstellungen → API-Zugänge**; dynamische JWT-Authentifizierung (RS256) gegen die Pure1 REST API; Private Key Passphrase wird verschlüsselt gespeichert
@@ -339,20 +339,20 @@ Der Einstellungs-Bereich ist in Tabs unterteilt:
 
 Der Kapazitätsreport bietet eine umfassende tabellarische und grafische Auswertung der Speicherkapazitäten aller konfigurierten Systeme. Die Daten werden stündlich im Hintergrund aktualisiert und täglich historisch gespeichert.
 
-**6 wechselbare Ansichten:**
+**5 wechselbare Ansichten:**
 
 | Ansicht | Beschreibung |
 |---------|-------------|
-| **Nach Storage Art** | Eine Tabelle pro Storage-Typ (Block, File, Object, Archiv, Backup) mit je einer Zeile pro Betriebsumgebung (Produktion / Test/Dev) und einer Total-Zeile |
-| **Nach Umgebung** | Eine Tabelle pro Umgebung (Produktion, Test/Dev) mit Zeilen je Storage-Typ und Total |
-| **Nach Tätigkeitsfeld** | Eine Tabelle pro Abteilung/Tätigkeitsfeld (ERZ, ITS, EH …) mit Zeilen für jede Umgebung × Storage-Typ-Kombination |
-| **Details** | Alle Einzelsysteme mit Name, Umgebung, Tätigkeitsfeld und Kapazitätswerten, gruppiert nach Storage-Typ |
-| **Verlauf** | Liniendiagramme pro Storage-Typ (Genutzt [TB] / Gesamt [TB]) mit wählbarem Zeitraum (Alle / 2J / 1J / 6M / 3M) und linearer Wachstumsprognose als gestrichelte Linie |
-| **Storage on Demand** *(nur bei konfiguriertem Pure1)* | Zeigt Pure1 Subscription-Lizenzdaten: Reserviert, Effective Used und On-Demand-Verbrauch pro Array; Daten werden wöchentlich automatisch abgerufen und können manuell per „🔄 Jetzt abrufen"-Button aktualisiert werden |
+| **Nach Storage Art** | Eine Tabelle pro Storage-Typ (Block, File, Object, Archiv, Backup) mit je einer Zeile pro Betriebsumgebung (Produktion / Test/Dev) und einer Total-Zeile. Bei konfigurierter Pure1 API erscheint am Ende der Seite eine kompakte **Storage on Demand**-Zusammenfassung (Reserviert, Effektiv Genutzt, Auslastung). |
+| **Nach Umgebung** | Eine Tabelle pro Umgebung (Produktion, Test/Dev) mit Zeilen je Storage-Typ und Total. Enthält ebenfalls die Pure1 SoD-Zusammenfassung am Ende. |
+| **Nach Tätigkeitsfeld** | Eine Tabelle pro Abteilung/Tätigkeitsfeld mit Zeilen für jede Umgebung × Storage-Typ-Kombination. Enthält ebenfalls die Pure1 SoD-Zusammenfassung am Ende. |
+| **Details** | Alle Einzelsysteme mit Name, Umgebung, Tätigkeitsfeld und Kapazitätswerten, gruppiert nach Storage-Typ. Im Block-Bereich zusätzlich eine aufklappbare Untertabelle mit vollständigen Pure1 SoD-Lizenzdaten (Reserviert, Effektiv Genutzt, On Demand, Arrays). |
+| **Verlauf** | Liniendiagramme pro Storage-Typ (Genutzt [TB] / Gesamt [TB]) mit wählbarem Zeitraum (Alle / 2J / 1J / 6M / 3M) und linearer Wachstumsprognose als gestrichelte Linie. |
 
 **Spalten in den Kapazitätstabellen:**
 - Gesamt [TB], Genutzt [TB], Frei [TB]
 - Genutzt [%], Frei [%] – mit farbigen Balkenanzeigen (grün / orange / rot)
+- **Effektiv Genutzt [TB]** *(nur bei konfiguriertem Pure1)* – aus den Pure1 API-Daten je Array, auf die jeweilige Gruppe summiert
 
 **Beispieldaten laden:**
 ```bash
@@ -365,9 +365,13 @@ python examples/seed_demo_data.py
 
 Das Skript legt 17 Demo-Systeme (Block, File, Archiv, Object, Backup) mit 2 Jahren täglicher Verlaufshistorie an.
 
-### Pure1 Storage on Demand (`/capacity/` → Tab „Storage on Demand")
+### Pure1 Storage on Demand (`/capacity/`)
 
-Der **Storage on Demand**-Tab zeigt Pure1 Subscription-Lizenzdaten direkt im Kapazitätsreport.
+**Storage on Demand (SoD)** integriert Pure1 Subscription-Lizenzdaten direkt in den Kapazitätsreport.
+
+**Anzeige im Kapazitätsreport:**
+- **Zusammenfassungsansichten** (Nach Storage Art, Nach Umgebung, Nach Tätigkeitsfeld): Eine kompakte SoD-Zusammenfassungszeile am Ende jeder Seite mit den kumulierten Werten über alle Verträge: Reservierte Kapazität [TB], Effektiv Genutzt [TB] und Auslastung [%]. Die Kapazitätstabellen zeigen zusätzlich in der Spalte **„Effektiv Genutzt [TB]"** die auf die jeweilige Gruppe (z. B. Betriebsumgebung) summierten Pure1-Effektivwerte.
+- **Details-Tab**: Vollständige SoD-Detailinformationen im Block-Bereich als aufklappbare Untertabelle mit Verträgen, Lizenzen, Service-Tiers und Effektivwerten je Array.
 
 **Einrichtung:**
 1. Navigieren Sie zu `/admin/settings` und öffnen Sie den Tab **🔑 API-Zugänge**
@@ -375,15 +379,15 @@ Der **Storage on Demand**-Tab zeigt Pure1 Subscription-Lizenzdaten direkt im Kap
 3. Fügen Sie den **RSA Private Key** im PEM-Format ein (inkl. `-----BEGIN / END-----`-Zeilen)
 4. Optional: Tragen Sie die **Passphrase** ein, falls der Private Key passwortgeschützt ist
 5. Optional: Fügen Sie den **Public Key** im PEM-Format ein
-6. Speichern – der **Storage on Demand**-Tab erscheint nun automatisch im Kapazitätsreport
+6. Speichern – SoD-Daten erscheinen nun automatisch im Kapazitätsreport
 
 ![Einstellungen – Pure1 API-Zugänge](screenshots/settings-api-access-pure1.png)
 
 **Daten-Abruf:**
 - Daten werden **wöchentlich automatisch** durch den Hintergrund-Dienst abgerufen
-- Manuelle Aktualisierung jederzeit per **„🔄 Jetzt abrufen"**-Button im Tab
+- Manuelle Aktualisierung jederzeit per **„🔄 Jetzt abrufen"**-Button im Details-Tab
 - Bei Konfigurationsfehlern oder Netzwerkproblemen wird ein klarer Hinweis angezeigt
-- Ist Pure1 nicht konfiguriert, bleibt der Tab ausgeblendet
+- Ist Pure1 nicht konfiguriert, werden keine SoD-Bereiche angezeigt
 
 ### Zertifikatsverwaltung (`/admin/certificates`)
 
