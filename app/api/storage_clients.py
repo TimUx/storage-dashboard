@@ -12,6 +12,13 @@ import traceback
 
 logger = logging.getLogger(__name__)
 
+# Session used for ALL calls to local storage systems.
+# Setting empty proxy strings explicitly overrides any HTTP_PROXY / HTTPS_PROXY
+# environment variables so that local/internal storage systems are never routed
+# through an internet proxy.
+_local_session = requests.Session()
+_local_session.proxies.update({"http": "", "https": ""})
+
 # Maximum length of response text to log (to avoid flooding logs with large responses)
 MAX_RESPONSE_LOG_LENGTH = 500
 
@@ -91,7 +98,7 @@ class PureStorageClient(StorageClient):
             ssl_verify = get_ssl_verify(self.resolved_address)
             
             # Query api_version endpoint
-            response = requests.get(
+            response = _local_session.get(
                 f"{self.base_url}/api/api_version",
                 verify=ssl_verify,
                 timeout=10
@@ -136,7 +143,7 @@ class PureStorageClient(StorageClient):
             # For API 2.x, we need to login with the API token to get a session token
             # POST /api/2.x/login with api-token in the request header
             # This is the correct format for Pure Storage FlashArray API 2.x
-            response = requests.post(
+            response = _local_session.post(
                 f"{self.base_url}/api/{api_version}/login",
                 headers={
                     'api-token': self.token
@@ -199,7 +206,7 @@ class PureStorageClient(StorageClient):
             
             # Get array info to verify connectivity and get OS version
             # REST API v2: GET /api/2.x/arrays
-            response = requests.get(
+            response = _local_session.get(
                 f"{self.base_url}/api/{api_version}/arrays",
                 headers=headers,
                 verify=ssl_verify,
@@ -222,7 +229,7 @@ class PureStorageClient(StorageClient):
             
             # Get space/capacity info
             # REST API v2: GET /api/2.x/arrays/space
-            space_response = requests.get(
+            space_response = _local_session.get(
                 f"{self.base_url}/api/{api_version}/arrays/space",
                 headers=headers,
                 verify=ssl_verify,
@@ -252,7 +259,7 @@ class PureStorageClient(StorageClient):
             # REST API v2: GET /api/2.x/controllers
             controllers = []
             try:
-                controllers_response = requests.get(
+                controllers_response = _local_session.get(
                     f"{self.base_url}/api/{api_version}/controllers",
                     headers=headers,
                     verify=ssl_verify,
@@ -303,7 +310,7 @@ class PureStorageClient(StorageClient):
             # REST API v2: GET /api/2.x/network-interfaces?filter=services='management'
             all_mgmt_ips = []
             try:
-                network_response = requests.get(
+                network_response = _local_session.get(
                     f"{self.base_url}/api/{api_version}/network-interfaces",
                     headers=headers,
                     params={'filter': "services='management'"},
@@ -345,7 +352,7 @@ class PureStorageClient(StorageClient):
             hardware_status = 'ok'
             hardware_details = {'components': [], 'drives': []}
             try:
-                hardware_response = requests.get(
+                hardware_response = _local_session.get(
                     f"{self.base_url}/api/{api_version}/hardware",
                     headers=headers,
                     verify=ssl_verify,
@@ -393,7 +400,7 @@ class PureStorageClient(StorageClient):
             # Check drive status
             # REST API v2: GET /api/2.x/drives
             try:
-                drives_response = requests.get(
+                drives_response = _local_session.get(
                     f"{self.base_url}/api/{api_version}/drives",
                     headers=headers,
                     verify=ssl_verify,
@@ -442,7 +449,7 @@ class PureStorageClient(StorageClient):
             # REST API v2: GET /api/2.x/alerts?filter=state='open'
             alerts_count = 0
             try:
-                alerts_response = requests.get(
+                alerts_response = _local_session.get(
                     f"{self.base_url}/api/{api_version}/alerts",
                     headers=headers,
                     params={'filter': "state='open'"},
@@ -466,7 +473,7 @@ class PureStorageClient(StorageClient):
             # REST API v2: GET /api/2.x/array-connections
             array_connections = []
             try:
-                connections_response = requests.get(
+                connections_response = _local_session.get(
                     f"{self.base_url}/api/{api_version}/array-connections",
                     headers=headers,
                     verify=ssl_verify,
@@ -501,7 +508,7 @@ class PureStorageClient(StorageClient):
             pods_info = []
             
             try:
-                pods_response = requests.get(
+                pods_response = _local_session.get(
                     f"{self.base_url}/api/{api_version}/pods",
                     headers=headers,
                     verify=ssl_verify,
@@ -560,7 +567,7 @@ class PureStorageClient(StorageClient):
             
             # Logout to clean up the session
             try:
-                requests.post(
+                _local_session.post(
                     f"{self.base_url}/api/{api_version}/logout",
                     headers=headers,
                     verify=ssl_verify,
@@ -616,7 +623,7 @@ class NetAppONTAPClient(StorageClient):
             # Get cluster info to verify connectivity
             # REST API: GET /api/cluster
             try:
-                cluster_response = requests.get(
+                cluster_response = _local_session.get(
                     f"{self.base_url}/api/cluster",
                     auth=auth,
                     headers=headers,
@@ -665,7 +672,7 @@ class NetAppONTAPClient(StorageClient):
             try:
                 # Get MetroCluster configuration
                 # REST API: GET /api/cluster/metrocluster
-                metrocluster_response = requests.get(
+                metrocluster_response = _local_session.get(
                     f"{self.base_url}/api/cluster/metrocluster",
                     auth=auth,
                     headers=headers,
@@ -724,7 +731,7 @@ class NetAppONTAPClient(StorageClient):
                             # Get cluster peers to identify remote MetroCluster cluster
                             # REST API: GET /api/cluster/peers
                             try:
-                                peers_response = requests.get(
+                                peers_response = _local_session.get(
                                     f"{self.base_url}/api/cluster/peers",
                                     auth=auth,
                                     headers=headers,
@@ -758,7 +765,7 @@ class NetAppONTAPClient(StorageClient):
                             # Get MetroCluster nodes information (includes both local and remote nodes)
                             # REST API: GET /api/cluster/metrocluster/nodes
                             try:
-                                mc_nodes_response = requests.get(
+                                mc_nodes_response = _local_session.get(
                                     f"{self.base_url}/api/cluster/metrocluster/nodes",
                                     auth=auth,
                                     headers=headers,
@@ -795,7 +802,7 @@ class NetAppONTAPClient(StorageClient):
                             # Get MetroCluster DR groups information (shows peer relationships)
                             # REST API: GET /api/cluster/metrocluster/dr-groups
                             try:
-                                dr_groups_response = requests.get(
+                                dr_groups_response = _local_session.get(
                                     f"{self.base_url}/api/cluster/metrocluster/dr-groups",
                                     auth=auth,
                                     headers=headers,
@@ -831,7 +838,7 @@ class NetAppONTAPClient(StorageClient):
             # REST API: GET /api/cluster/nodes?fields=uuid,name,state,model,serial_number,version,metrocluster.type,ha.enabled,management_interfaces.ip.address
             cluster_nodes = []
             try:
-                nodes_response = requests.get(
+                nodes_response = _local_session.get(
                     f"{self.base_url}/api/cluster/nodes",
                     auth=auth,
                     headers=headers,
@@ -914,7 +921,7 @@ class NetAppONTAPClient(StorageClient):
             used_bytes = 0
             
             try:
-                aggregates_response = requests.get(
+                aggregates_response = _local_session.get(
                     f"{self.base_url}/api/storage/aggregates",
                     auth=auth,
                     headers=headers,
@@ -948,7 +955,7 @@ class NetAppONTAPClient(StorageClient):
             hardware_status = 'ok'
             hardware_details = []
             try:
-                hw_nodes_response = requests.get(
+                hw_nodes_response = _local_session.get(
                     f"{self.base_url}/api/cluster/nodes",
                     auth=auth,
                     headers=headers,
@@ -1043,7 +1050,7 @@ class NetAppStorageGRIDClient(StorageClient):
             
             logger.debug(f"Authenticating to StorageGRID {self.ip_address}")
             
-            response = requests.post(
+            response = _local_session.post(
                 f"{self.base_url}/api/v4/authorize",
                 json=auth_data,
                 headers={'Content-Type': 'application/json'},
@@ -1100,7 +1107,7 @@ class NetAppStorageGRIDClient(StorageClient):
             hardware_status = 'ok'
             cluster_status = 'ok'
             try:
-                health_response = requests.get(
+                health_response = _local_session.get(
                     f"{self.base_url}/api/v4/grid/health",
                     headers=headers,
                     verify=ssl_verify,
@@ -1125,7 +1132,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 logger.warning(f"Could not get StorageGRID health for {self.ip_address}: {health_error}")
             
             # Get grid topology to verify connectivity and get version info
-            response = requests.get(
+            response = _local_session.get(
                 f"{self.base_url}/api/v4/grid/health/topology",
                 headers=headers,
                 verify=ssl_verify,
@@ -1145,7 +1152,7 @@ class NetAppStorageGRIDClient(StorageClient):
                         
                         # Retry the request with new token
                         headers['Authorization'] = f'Bearer {self.token}'
-                        response = requests.get(
+                        response = _local_session.get(
                             f"{self.base_url}/api/v4/grid/health/topology",
                             headers=headers,
                             verify=ssl_verify,
@@ -1171,7 +1178,7 @@ class NetAppStorageGRIDClient(StorageClient):
             # Get product version from grid config
             os_version = None
             try:
-                version_response = requests.get(
+                version_response = _local_session.get(
                     f"{self.base_url}/api/v4/grid/config/product-version",
                     headers=headers,
                     verify=ssl_verify,
@@ -1191,7 +1198,7 @@ class NetAppStorageGRIDClient(StorageClient):
             major_alerts = 0
             minor_alerts = 0
             try:
-                alerts_response = requests.get(
+                alerts_response = _local_session.get(
                     f"{self.base_url}/api/v4/grid/alerts",
                     headers=headers,
                     params={'include': 'active'},
@@ -1235,7 +1242,7 @@ class NetAppStorageGRIDClient(StorageClient):
             nodes_info = []
             site_names = set()  # Track unique site names
             try:
-                node_health_response = requests.get(
+                node_health_response = _local_session.get(
                     f"{self.base_url}/api/v4/grid/node-health",
                     headers=headers,
                     verify=ssl_verify,
@@ -1321,7 +1328,7 @@ class NetAppStorageGRIDClient(StorageClient):
             try:
                 # Query total space metric
                 # API: GET /api/v4/grid/metric-query?query=storagegrid_storage_utilization_total_space_bytes
-                total_metric_response = requests.get(
+                total_metric_response = _local_session.get(
                     f"{self.base_url}/api/v4/grid/metric-query",
                     headers=headers,
                     params={
@@ -1358,7 +1365,7 @@ class NetAppStorageGRIDClient(StorageClient):
                 
                 # Query used data metric
                 # API: GET /api/v4/grid/metric-query?query=storagegrid_storage_utilization_data_bytes
-                used_metric_response = requests.get(
+                used_metric_response = _local_session.get(
                     f"{self.base_url}/api/v4/grid/metric-query",
                     headers=headers,
                     params={
@@ -1462,7 +1469,7 @@ class DellDataDomainClient(StorageClient):
             
             logger.debug(f"Authenticating to DataDomain {self.ip_address} via {self.base_url}")
             
-            response = requests.post(
+            response = _local_session.post(
                 f"{self.base_url}/rest/v1.0/auth",
                 json=auth_data,
                 headers={'Content-Type': 'application/json'},
@@ -1519,13 +1526,13 @@ class DellDataDomainClient(StorageClient):
             url = f"{self.base_url}{endpoint}"
             
             if method.upper() == 'GET':
-                response = requests.get(url, headers=headers, verify=ssl_verify, timeout=10)
+                response = _local_session.get(url, headers=headers, verify=ssl_verify, timeout=10)
             elif method.upper() == 'POST':
-                response = requests.post(url, headers=headers, json=data, verify=ssl_verify, timeout=10)
+                response = _local_session.post(url, headers=headers, json=data, verify=ssl_verify, timeout=10)
             elif method.upper() == 'PUT':
-                response = requests.put(url, headers=headers, json=data, verify=ssl_verify, timeout=10)
+                response = _local_session.put(url, headers=headers, json=data, verify=ssl_verify, timeout=10)
             elif method.upper() == 'DELETE':
-                response = requests.delete(url, headers=headers, verify=ssl_verify, timeout=10)
+                response = _local_session.delete(url, headers=headers, verify=ssl_verify, timeout=10)
             else:
                 logger.error(f"Unsupported HTTP method: {method}")
                 return None
@@ -1978,7 +1985,7 @@ class DellDataDomainClient(StorageClient):
             
             # Get system info from /rest/v1.0/system
             # This provides comprehensive system information including capacity, compression, etc.
-            response = requests.get(
+            response = _local_session.get(
                 f"{self.base_url}/rest/v1.0/system",
                 headers=headers,
                 verify=ssl_verify,
@@ -1998,7 +2005,7 @@ class DellDataDomainClient(StorageClient):
                         
                         # Retry the request with new token
                         headers['X-DD-AUTH-TOKEN'] = self.token
-                        response = requests.get(
+                        response = _local_session.get(
                             f"{self.base_url}/rest/v1.0/system",
                             headers=headers,
                             verify=ssl_verify,
@@ -2057,7 +2064,7 @@ class DellDataDomainClient(StorageClient):
             if not network_interfaces:
                 for iface in self.MANAGEMENT_INTERFACES:
                     try:
-                        iface_response = requests.get(
+                        iface_response = _local_session.get(
                             f"{self.base_url}/rest/v1.0/dd-systems/0/networks/{iface}",
                             headers=headers,
                             verify=ssl_verify,
