@@ -28,6 +28,18 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 ### Kapazitätsreport – Verlauf mit Prognose
 ![Kapazitätsreport – Verlauf](screenshots/capacity-history.png)
 
+### Kapazitätsreport – Storage on Demand (Übersicht)
+![Kapazitätsreport – Storage on Demand Tab](screenshots/capacity-storage-on-demand-tab.png)
+
+### Kapazitätsreport – Storage on Demand (Ansicht)
+![Kapazitätsreport – Storage on Demand](screenshots/capacity-sod-view.png)
+
+### Einstellungen – Pure1 API-Zugang (inkl. Passphrase)
+![Einstellungen – API-Zugänge](screenshots/settings-api-access-pure1.png)
+
+### Einstellungen – Proxy-Konfiguration
+![Einstellungen – Proxy](screenshots/settings-proxy.png)
+
 > **Hinweis**: Das Dashboard verfügt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität.
 
 ## Features
@@ -35,6 +47,9 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
 - **Kapazitätsreport**: Tabellarische Kapazitätsübersicht aller Systeme unter `/capacity/` – gruppiert nach Storage Art, Umgebung oder Tätigkeitsfeld, mit Verlaufsgraphen und Wachstumsprognose
+- **Storage on Demand**: Eigener Tab im Kapazitätsreport zeigt Pure1 Subscription-Lizenzdaten (Reserviert, Effective Used, On Demand) – wöchentlich automatisch abgerufen, manuell per Knopfdruck aktualisierbar
+- **Pure1 API-Integration**: Dynamische JWT-Authentifizierung (RS256) gegen die Pure1 REST API; Private Key Passphrase wird verschlüsselt gespeichert
+- **Proxy-Unterstützung**: Konfigurierbarer HTTP/HTTPS-Proxy (verschlüsselt gespeichert) für ausgehende Internet-Verbindungen (z. B. Pure1); lokale Storage-Systeme umgehen den Proxy grundsätzlich
 - **Schnelles Laden**: Asynchrone Dashboard-Anzeige mit sofortiger UI-Darstellung und dynamischer Datenaktualisierung
 - **Auto-Refresh**: Automatische Aktualisierung des Dashboards alle 45 Sekunden (konfigurierbar) ohne Seiten-Reload
 - **Hochleistungs-Multithreading**: Parallele Abfrage von bis zu 32 Systemen gleichzeitig für schnelle Performance

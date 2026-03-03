@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 # Session used for ALL calls to local storage systems.
 # Setting empty proxy strings explicitly overrides any HTTP_PROXY / HTTPS_PROXY
 # environment variables so that local/internal storage systems are never routed
-# through an internet proxy.
+# through an internet proxy. This is intentional: local storage system calls
+# must always connect directly, regardless of proxy environment or runtime settings.
 _local_session = requests.Session()
 _local_session.proxies.update({"http": "", "https": ""})
 
