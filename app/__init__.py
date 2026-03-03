@@ -189,4 +189,11 @@ def create_app():
         except Exception as e:
             app.logger.warning(f"Could not start capacity background refresh: {e}")
 
+        # Start SoD (Pure1 subscription licences) weekly background refresh thread
+        try:
+            from app.sod_service import start_background_refresh as start_sod_refresh
+            start_sod_refresh(app)
+        except Exception as e:
+            app.logger.warning(f"Could not start SoD background refresh: {e}")
+
     return app

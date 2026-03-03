@@ -286,6 +286,7 @@
         <button class="tab-button" data-tab="logs">📋 Logs</button>
         <button class="tab-button" data-tab="certificates">🔒 Zertifikate</button>
         <button class="tab-button" data-tab="api-access">🔑 API-Zugänge</button>
+        <button class="tab-button" data-tab="proxy">🌐 Proxy</button>
         <button class="tab-button" data-tab="system">⚙️ System</button>
     </div>
     
@@ -478,6 +479,20 @@
                     </div>
 
                     <div class="form-group">
+                        <label for="pure1_private_key_passphrase">Private Key Passphrase</label>
+                        <input type="password" id="pure1_private_key_passphrase" name="pure1_private_key_passphrase"
+                               autocomplete="new-password"
+                               placeholder="{{ 'Bereits konfiguriert – leer lassen, um unverändert zu behalten' if settings.pure1_private_key_passphrase else 'Passphrase (leer lassen, wenn kein Passwort gesetzt)' }}">
+                        <p class="info-text">
+                            {% if settings.pure1_private_key_passphrase %}
+                                ✅ Passphrase ist gespeichert. Nur ausfüllen, um sie zu ersetzen.
+                            {% else %}
+                                Passphrase zum Entschlüsseln des Private Keys. Leer lassen, wenn der Key nicht passwortgeschützt ist.
+                            {% endif %}
+                        </p>
+                    </div>
+
+                    <div class="form-group">
                         <label for="pure1_public_key">Public Key (PEM)</label>
                         <textarea id="pure1_public_key" name="pure1_public_key"
                                   rows="5"
@@ -489,6 +504,52 @@
                             {% else %}
                                 RSA Public Key im PEM-Format (inkl. Header/Footer-Zeilen)
                             {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Proxy Tab -->
+            <div class="tab-pane" id="proxy-tab">
+                <div class="settings-section">
+                    <h2>Proxy-Einstellungen</h2>
+                    <p class="info-text" style="margin-bottom:1.5rem;">
+                        Konfigurieren Sie einen HTTP/HTTPS-Proxy für ausgehende Verbindungen ins Internet
+                        (z.&nbsp;B. für den Pure1-API-Zugriff). Lassen Sie die Felder leer, wenn kein Proxy benötigt wird.
+                        HTTP- und HTTPS-Proxy-URLs werden verschlüsselt gespeichert.
+                    </p>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="proxy_http">HTTP-Proxy</label>
+                            <input type="text" id="proxy_http" name="proxy_http"
+                                   value="{{ settings.proxy_http or '' }}"
+                                   placeholder="http://proxy.example.com:8080"
+                                   autocomplete="off">
+                            <p class="info-text">Proxy-URL für HTTP-Verbindungen</p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="proxy_https">HTTPS-Proxy</label>
+                            <input type="text" id="proxy_https" name="proxy_https"
+                                   value="{{ settings.proxy_https or '' }}"
+                                   placeholder="http://proxy.example.com:8080"
+                                   autocomplete="off">
+                            <p class="info-text">Proxy-URL für HTTPS-Verbindungen</p>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="proxy_no_proxy">Kein Proxy (Ausnahmen)</label>
+                        <input type="text" id="proxy_no_proxy" name="proxy_no_proxy"
+                               value="{{ settings.proxy_no_proxy or '' }}"
+                               placeholder="localhost,127.0.0.1,.intern.example.com"
+                               autocomplete="off">
+                        <p class="info-text">
+                            Kommagetrennte Liste von Hostnamen oder IP-Adressen, die den Proxy umgehen sollen.
+                            Hinweis: Diese Liste wird derzeit informativ gespeichert – die interne Requests-Bibliothek
+                            liest sie nicht automatisch aus; tragen Sie Ausnahmen ggf. zusätzlich als Umgebungsvariable
+                            <code>NO_PROXY</code> ein.
                         </p>
                     </div>
                 </div>

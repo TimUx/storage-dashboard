@@ -366,6 +366,7 @@ class AppSettings(db.Model):
     _pure1_display_name = db.Column('pure1_display_name', db.Text)
     _pure1_app_id = db.Column('pure1_app_id', db.Text)
     _pure1_private_key = db.Column('pure1_private_key', db.Text)
+    _pure1_private_key_passphrase = db.Column('pure1_private_key_passphrase', db.Text)
     _pure1_public_key = db.Column('pure1_public_key', db.Text)
 
     @property
@@ -396,6 +397,15 @@ class AppSettings(db.Model):
         self._pure1_private_key = encrypt_value(value) if value else None
 
     @property
+    def pure1_private_key_passphrase(self):
+        """Decrypt and return Pure1 private key passphrase"""
+        return decrypt_value(self._pure1_private_key_passphrase) if self._pure1_private_key_passphrase else None
+
+    @pure1_private_key_passphrase.setter
+    def pure1_private_key_passphrase(self, value):
+        self._pure1_private_key_passphrase = encrypt_value(value) if value else None
+
+    @property
     def pure1_public_key(self):
         """Decrypt and return Pure1 public key (PEM)"""
         return decrypt_value(self._pure1_public_key) if self._pure1_public_key else None
@@ -403,9 +413,43 @@ class AppSettings(db.Model):
     @pure1_public_key.setter
     def pure1_public_key(self, value):
         self._pure1_public_key = encrypt_value(value) if value else None
-    
+
+    # Proxy settings
+    # http/https URLs may contain credentials and are therefore stored encrypted.
+    # no_proxy is a plain comma-separated list with no sensitive data.
+    _proxy_http  = db.Column('proxy_http',  db.Text)
+    _proxy_https = db.Column('proxy_https', db.Text)
+    proxy_no_proxy = db.Column(db.Text)
+
+    @property
+    def proxy_http(self):
+        """Decrypt and return the HTTP proxy URL."""
+        return decrypt_value(self._proxy_http) if self._proxy_http else None
+
+    @proxy_http.setter
+    def proxy_http(self, value):
+        self._proxy_http = encrypt_value(value) if value else None
+
+    @property
+    def proxy_https(self):
+        """Decrypt and return the HTTPS proxy URL."""
+        return decrypt_value(self._proxy_https) if self._proxy_https else None
+
+    @proxy_https.setter
+    def proxy_https(self, value):
+        self._proxy_https = encrypt_value(value) if value else None
+
+    def get_proxies(self) -> dict:
+        """Return a requests-compatible proxies dict (empty dict when not set)."""
+        proxies = {}
+        if self.proxy_http:
+            proxies['http'] = self.proxy_http
+        if self.proxy_https:
+            proxies['https'] = self.proxy_https
+        return proxies
+
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     def __repr__(self):
         return f'<AppSettings {self.id}>'
 
@@ -515,4 +559,17 @@ class SystemLog(db.Model):
             'status_code': self.status_code,
             'api_endpoint': self.api_endpoint
         }
+
+
+class SubscriptionLicenseCache(db.Model):
+    """Single-row cache for Pure1 subscription-license data (Storage on Demand)."""
+    __tablename__ = 'subscription_license_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    fetched_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    data = db.Column(db.Text)   # JSON-encoded list of licence items
+    error = db.Column(db.Text)  # Error message from last fetch attempt (or None)
+
+    def __repr__(self):
+        return f'<SubscriptionLicenseCache fetched_at={self.fetched_at}>'
 

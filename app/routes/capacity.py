@@ -9,7 +9,10 @@ logger = logging.getLogger(__name__)
 @bp.route('/')
 def index():
     """Capacity report main page."""
-    return render_template('capacity.html')
+    from app.models import AppSettings
+    settings = AppSettings.query.first()
+    pure1_configured = bool(settings and settings.pure1_app_id and settings.pure1_private_key)
+    return render_template('capacity.html', pure1_configured=pure1_configured)
 
 
 @bp.route('/api/data')
@@ -66,6 +69,36 @@ def api_history():
         art_data['forecast_values'] = fc['values']
 
     return jsonify(history)
+
+
+@bp.route('/api/subscription-licenses')
+def api_subscription_licenses():
+    """Return Pure1 subscription-license data from the local cache (Storage on Demand)."""
+    from app.models import AppSettings
+    from app.sod_service import get_cached_data
+
+    settings = AppSettings.query.first()
+    configured = bool(settings and settings.pure1_app_id and settings.pure1_private_key)
+    if not configured:
+        return jsonify({
+            'configured': False,
+            'items': [],
+            'fetched_at': None,
+            'error': 'Pure1 API-Zugangsdaten nicht konfiguriert.',
+        })
+
+    data = get_cached_data()
+    data['configured'] = True
+    return jsonify(data)
+
+
+@bp.route('/api/sod-refresh', methods=['POST'])
+def api_sod_refresh():
+    """Trigger an immediate non-blocking SoD data refresh."""
+    from app.sod_service import trigger_refresh
+    app = current_app._get_current_object()
+    trigger_refresh(app)
+    return jsonify({'status': 'refresh_triggered'})
 
 
 @bp.route('/api/refresh', methods=['POST'])
