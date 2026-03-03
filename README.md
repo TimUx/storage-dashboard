@@ -34,6 +34,12 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 ### Kapazitätsreport – Storage on Demand (Ansicht)
 ![Kapazitätsreport – Storage on Demand](screenshots/capacity-sod-view.png)
 
+### Kapazitätsreport – kein Pure1 konfiguriert (Tab ausgeblendet)
+![Kapazitätsreport – Storage on Demand Tab ausgeblendet](screenshots/capacity-sod-not-configured.png)
+
+### Kapazitätsreport – Pure1 API nicht erreichbar (N/A-Anzeige)
+![Kapazitätsreport – Storage on Demand N/A bei Fehler](screenshots/capacity-sod-error-na.png)
+
 ### Einstellungen – Pure1 API-Zugang (inkl. Passphrase)
 ![Einstellungen – API-Zugänge](screenshots/settings-api-access-pure1.png)
 
