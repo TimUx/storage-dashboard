@@ -27,6 +27,7 @@ ALLOWED_COLUMNS = {
     'proxy_http': 'TEXT',
     'proxy_https': 'TEXT',
     'proxy_no_proxy': 'TEXT',
+    'dashboard_refresh_interval': 'INTEGER',
 }
 
 
@@ -158,6 +159,10 @@ def migrate_app_settings_table():
     for col in ('proxy_http', 'proxy_https', 'proxy_no_proxy'):
         if add_column_if_not_exists('app_settings', col, ALLOWED_COLUMNS[col]):
             migrations_applied.append(col)
+
+    # Add dashboard refresh interval column if missing
+    if add_column_if_not_exists('app_settings', 'dashboard_refresh_interval', ALLOWED_COLUMNS['dashboard_refresh_interval']):
+        migrations_applied.append('dashboard_refresh_interval')
 
     return migrations_applied
 

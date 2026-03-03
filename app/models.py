@@ -448,10 +448,52 @@ class AppSettings(db.Model):
             proxies['https'] = self.proxy_https
         return proxies
 
+    # Dashboard refresh interval (minutes): how often the background service polls storage systems
+    # Valid values: 1, 5, 15, 30, 60
+    dashboard_refresh_interval = db.Column(db.Integer, default=5)
+
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def __repr__(self):
         return f'<AppSettings {self.id}>'
+
+
+class StatusCache(db.Model):
+    """Cached health status for each storage system – populated by the background refresh service"""
+    __tablename__ = 'status_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    system_id = db.Column(
+        db.Integer,
+        db.ForeignKey('storage_systems.id', ondelete='CASCADE'),
+        nullable=False,
+        unique=True,
+    )
+    system = db.relationship('StorageSystem', backref=db.backref('status_cache', uselist=False))
+
+    fetched_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    status_json = db.Column(db.Text, nullable=False, default='{}')
+    error = db.Column(db.Text)
+
+    def get_status(self):
+        try:
+            return json.loads(self.status_json)
+        except Exception:
+            return {}
+
+    def set_status(self, status_dict):
+        self.status_json = json.dumps(status_dict)
+
+    def to_dict(self):
+        return {
+            'system_id': self.system_id,
+            'fetched_at': self.fetched_at.isoformat() if self.fetched_at else None,
+            'status': self.get_status(),
+            'error': self.error,
+        }
+
+    def __repr__(self):
+        return f'<StatusCache system={self.system_id} at={self.fetched_at}>'
 
 
 class CapacitySnapshot(db.Model):

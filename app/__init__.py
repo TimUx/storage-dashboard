@@ -196,4 +196,11 @@ def create_app():
         except Exception as e:
             app.logger.warning(f"Could not start SoD background refresh: {e}")
 
+        # Start status background refresh thread (caches health status for the dashboard)
+        try:
+            from app.status_service import start_background_refresh as start_status_refresh
+            start_status_refresh(app)
+        except Exception as e:
+            app.logger.warning(f"Could not start status background refresh: {e}")
+
     return app

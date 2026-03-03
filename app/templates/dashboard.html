@@ -190,6 +190,18 @@ body {
     box-shadow: 0 4px 8px rgba(0, 102, 204, 0.3);
 }
 
+.refresh-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.last-updated-label {
+    font-size: 0.8rem;
+    color: var(--text-light);
+    white-space: nowrap;
+}
+
 .vendor-section {
     margin: 0.75rem 0;
 }
@@ -1006,6 +1018,7 @@ body.table-view .systems-table {
                         </select>
                         <span class="refresh-timer" id="refresh-timer"></span>
                     </div>
+                    <span class="last-updated-label" id="last-updated-label"></span>
                     <div class="view-toggle">
                         <button id="card-view-btn" class="active" onclick="switchView('card')">
                             <span>&#x25A0;&#x25A0;</span> Cards
@@ -1014,7 +1027,7 @@ body.table-view .systems-table {
                             <span>☰</span> Table
                         </button>
                     </div>
-                    <button class="refresh-btn" onclick="manualRefresh()">&#x21bb; Aktualisieren</button>
+                    <button class="refresh-btn" id="refresh-btn" onclick="manualRefresh()">&#x21bb; Aktualisieren</button>
                 </div>
             </div>
         </div>
@@ -1380,13 +1393,44 @@ let autoRefreshCountdown = null;
 let refreshTimeSeconds = 45;
 let countdownSeconds = refreshTimeSeconds;
 
+// Update the "Zuletzt aktualisiert" label using the most recent fetched_at from the data
+function updateLastUpdatedLabel(data) {
+    const label = document.getElementById('last-updated-label');
+    if (!label) return;
+    // Find the most recent fetched_at across all entries
+    let latest = null;
+    data.forEach(item => {
+        if (item.fetched_at) {
+            const ts = new Date(item.fetched_at + 'Z');  // treat as UTC
+            if (!latest || ts > latest) latest = ts;
+        }
+    });
+    if (latest) {
+        label.textContent = 'Zuletzt aktualisiert: ' + latest.toLocaleTimeString();
+    } else {
+        label.textContent = 'Noch keine Daten im Cache';
+    }
+}
+
+// Show cached data in the dashboard
+function applyDashboardData(data) {
+    data.forEach(item => {
+        if (item.status) {
+            updateSystemCard(item.system, item.status);
+            updateSystemTableRow(item.system, item.status);
+        }
+    });
+    updateLastUpdatedLabel(data);
+    applyFilters();
+}
+
 // Initialize auto-refresh on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Check if async loading is enabled
     const asyncLoad = {{ async_load|tojson|safe }};
     
     if (asyncLoad) {
-        // Load data asynchronously
+        // Load data asynchronously from cache
         loadDashboardData();
     } else {
         // Hide loading overlay and show content (sync mode)
@@ -1420,16 +1464,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Load dashboard data asynchronously
+// Load dashboard data from the status cache (no live API calls to storage systems)
 function loadDashboardData() {
-    fetch('/api/status')
+    fetch('/api/cached-status')
         .then(response => response.json())
         .then(data => {
-            // Update each system card with the fetched status
-            data.forEach(item => {
-                updateSystemCard(item.system, item.status);
-                updateSystemTableRow(item.system, item.status);
-            });
+            applyDashboardData(data);
             
             // Hide loading overlay and show content
             const loadingOverlay = document.getElementById('loading-overlay');
@@ -1440,9 +1480,6 @@ function loadDashboardData() {
             if (dashboardContent) {
                 dashboardContent.classList.add('loaded');
             }
-            
-            // Reapply filters after data load
-            applyFilters();
         })
         .catch(error => {
             console.error('Error loading dashboard data:', error);
@@ -1695,19 +1732,12 @@ function refreshDashboard() {
     const timerElement = document.getElementById('refresh-timer');
     timerElement.textContent = 'Lädt...';
     timerElement.classList.add('refreshing');
-    
-    // Use async data loading instead of full page reload
-    fetch('/api/status')
+
+    // Auto-refresh: read from the status cache (instant, no API calls to storage systems)
+    fetch('/api/cached-status')
         .then(response => response.json())
         .then(data => {
-            // Update each system card with the fetched status
-            data.forEach(item => {
-                updateSystemCard(item.system, item.status);
-                updateSystemTableRow(item.system, item.status);
-            });
-            
-            // Reapply filters after data load
-            applyFilters();
+            applyDashboardData(data);
             
             // Restart auto-refresh countdown if enabled
             const isEnabled = document.getElementById('auto-refresh-toggle').checked;
@@ -1732,8 +1762,33 @@ function refreshDashboard() {
 }
 
 function manualRefresh() {
-    // Use async refresh instead of full page reload
-    refreshDashboard();
+    // Manual refresh: trigger the background service to fetch fresh data from storage systems,
+    // then update the dashboard with the fresh cached results.
+    const btn = document.getElementById('refresh-btn');
+    const timerElement = document.getElementById('refresh-timer');
+    if (btn) btn.disabled = true;
+    timerElement.textContent = 'Lädt...';
+    timerElement.classList.add('refreshing');
+
+    fetch('/api/trigger-status-refresh', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            applyDashboardData(data);
+            timerElement.textContent = '';
+            timerElement.classList.remove('refreshing');
+            const isEnabled = document.getElementById('auto-refresh-toggle').checked;
+            if (isEnabled) {
+                startAutoRefresh();
+            }
+        })
+        .catch(error => {
+            console.error('Error during manual refresh:', error);
+            timerElement.textContent = 'Fehler';
+            timerElement.classList.remove('refreshing');
+        })
+        .finally(() => {
+            if (btn) btn.disabled = false;
+        });
 }
 
 // View switching with localStorage persistence
