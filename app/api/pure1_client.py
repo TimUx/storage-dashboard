@@ -1,7 +1,7 @@
 """Pure1 REST API client – JWT token generation and subscription-license fetching.
 
 Authentication flow (RS256 JWT → Bearer token):
-  1. Build a short-lived JWT signed with the RSA private key.
+  1. Build a long-lived JWT signed with the RSA private key.
   2. POST the JWT to Pure1's OAuth endpoint to obtain an access token.
   3. Use that Bearer token for subsequent API calls.
 
@@ -30,15 +30,21 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
-def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 30,
+def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 31556952,
                     passphrase: str | None = None) -> str:
     """Build a signed RS256 JWT suitable for the Pure1 token endpoint.
+
+    The default expiry of 31 556 952 seconds (≈ 1 Gregorian year,
+    365.2425 × 86 400 s) mirrors the exact value used in the official
+    Pure Storage reference script (pure1:apikey token exchange utility by
+    Cody Hosterman, Pure Storage 2020).
 
     Args:
         app_id: The Pure1 application/issuer ID (e.g. ``pure1:apikey:…``).
         private_key_pem: PEM-encoded RSA private key string.
-        expiry_seconds: How long (seconds) the JWT is valid (default 30 s is sufficient
-                        for the token exchange).
+        expiry_seconds: How long (seconds) the JWT is valid.  Defaults to
+                        31 556 952 (one Gregorian year), matching the official
+                        Pure Storage script exactly.
         passphrase: Optional passphrase for an encrypted private key.
 
     Returns:
