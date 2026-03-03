@@ -258,7 +258,7 @@
             <button data-view="by-department">Nach Tätigkeitsfeld</button>
             <button data-view="details">Details</button>
             <button data-view="history">Verlauf</button>
-            <button data-view="storage-on-demand">Storage on Demand</button>
+            {% if pure1_configured %}<button data-view="storage-on-demand">Storage on Demand</button>{% endif %}
         </div>
         <button class="refresh-btn" id="refreshBtn" onclick="triggerRefresh()">🔄 Aktualisieren</button>
     </div>
@@ -302,9 +302,11 @@
 </div>
 
 <!-- ── View: Storage on Demand ── -->
+{% if pure1_configured %}
 <div class="cap-view" id="view-storage-on-demand">
     <div id="sodContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
+{% endif %}
 
 <!-- Chart.js (served locally for reliability in air-gapped environments) -->
 <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
@@ -732,7 +734,26 @@ function renderSod(data) {
     statusHtml += '</div>';
 
     if (!data.items || data.items.length === 0) {
-        el.innerHTML = statusHtml + '<div class="cap-empty">Keine Lizenzdaten vorhanden.</div>';
+        if (data.error) {
+            // Configured but data could not be fetched – show N/A placeholders
+            el.innerHTML = statusHtml + `<div class="cap-section" style="margin-bottom:1rem;">
+            <div class="cap-section-header"><span>📊 Gesamtübersicht Storage on Demand</span></div>
+            <div class="cap-table-wrap"><table class="cap-table">
+                <thead><tr>
+                    <th>Lizenzen gesamt</th>
+                    <th>Reserviert [TB]</th>
+                    <th>Effective Used [TB]</th>
+                    <th>Ø On Demand [TB]</th>
+                    <th>Q. On Demand [TB]</th>
+                </tr></thead>
+                <tbody><tr class="total-row">
+                    <td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td>
+                </tr></tbody>
+            </table></div>
+        </div>`;
+        } else {
+            el.innerHTML = statusHtml + '<div class="cap-empty">Keine Lizenzdaten vorhanden.</div>';
+        }
         return;
     }
 

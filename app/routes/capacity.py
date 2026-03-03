@@ -9,7 +9,10 @@ logger = logging.getLogger(__name__)
 @bp.route('/')
 def index():
     """Capacity report main page."""
-    return render_template('capacity.html')
+    from app.models import AppSettings
+    settings = AppSettings.query.first()
+    pure1_configured = bool(settings and settings.pure1_app_id and settings.pure1_private_key)
+    return render_template('capacity.html', pure1_configured=pure1_configured)
 
 
 @bp.route('/api/data')
