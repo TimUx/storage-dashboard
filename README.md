@@ -34,29 +34,16 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 ### Kapazitätsreport – Verlauf mit Prognose
 ![Kapazitätsreport – Verlauf](screenshots/capacity-history.png)
 
-### Kapazitätsreport – Storage on Demand (Tab sichtbar nach Pure1-Konfiguration)
-![Kapazitätsreport – Storage on Demand Tab](screenshots/capacity-storage-on-demand-tab.png)
-
-### Kapazitätsreport – Storage on Demand (Ansicht mit Daten / Fehler-Anzeige)
-![Kapazitätsreport – Storage on Demand](screenshots/capacity-sod-view.png)
-
-### Kapazitätsreport – kein Pure1 konfiguriert (Tab ausgeblendet)
-![Kapazitätsreport – Storage on Demand Tab ausgeblendet](screenshots/capacity-sod-not-configured.png)
-
-### Kapazitätsreport – Pure1 API nicht erreichbar (N/A-Anzeige)
-![Kapazitätsreport – Storage on Demand N/A bei Fehler](screenshots/capacity-sod-error-na.png)
-
 > **Hinweis**: Das Dashboard verfügt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität.
 
 ## Features
 
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
-- **Kapazitätsreport**: Tabellarische Kapazitätsübersicht aller Systeme unter `/capacity/` – gruppiert nach Storage Art, Umgebung oder Tätigkeitsfeld, mit Verlaufsgraphen und Wachstumsprognose
-- **Storage on Demand**: Eigener Tab im Kapazitätsreport zeigt Pure1 Subscription-Lizenzdaten (Reserviert, Effective Used, On Demand):
+- **Kapazitätsreport**: Tabellarische Kapazitätsübersicht aller Systeme unter `/capacity/` – gruppiert nach Storage Art (**Block → File → Object → Archiv → Backup**), Umgebung oder Tätigkeitsfeld, mit Verlaufsgraphen und Wachstumsprognose
+- **Storage on Demand (Pure1)**: Bei konfigurierter Pure1 API wird im Block-Bereich des Kapazitätsreports eine aufklappbare Untertabelle mit Subscription-Lizenzdaten (Reserviert, Effektiv Genutzt, On Demand) angezeigt. Zusätzlich erscheint in der Block-Tabelle eine Spalte **„Effektiv Genutzt [TB]"** mit den Pure1-Effektivwerten (nach Deduplikation/Komprimierung):
   - Wöchentlich automatisch abgerufen, manuell per Knopfdruck aktualisierbar
-  - Tab erscheint nur, wenn Pure1 in den Einstellungen konfiguriert ist
-  - Bei API-Fehlern wird ein N/A-Hinweis angezeigt
+  - Wird nur angezeigt, wenn Pure1 in den Einstellungen konfiguriert ist
 - **Pure1 API-Integration**: Konfiguration im Admin-Bereich unter **Einstellungen → API-Zugänge**; dynamische JWT-Authentifizierung (RS256) gegen die Pure1 REST API; Private Key Passphrase wird verschlüsselt gespeichert
 - **Proxy-Unterstützung**: Konfigurierbarer HTTP/HTTPS-Proxy (verschlüsselt gespeichert) für ausgehende Internet-Verbindungen (z. B. Pure1); lokale Storage-Systeme umgehen den Proxy grundsätzlich
 - **Hintergrund-API-Abfragen**: Dashboard-Daten werden im Hintergrund durch einen konfigurierbaren Dienst aktualisiert – die UI erscheint sofort, ohne auf alle Systeme warten zu müssen
