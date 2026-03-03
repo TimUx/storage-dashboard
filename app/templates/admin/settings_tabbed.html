@@ -285,6 +285,7 @@
         <button class="tab-button active" data-tab="design">🎨 Design</button>
         <button class="tab-button" data-tab="logs">📋 Logs</button>
         <button class="tab-button" data-tab="certificates">🔒 Zertifikate</button>
+        <button class="tab-button" data-tab="api-access">🔑 API-Zugänge</button>
         <button class="tab-button" data-tab="system">⚙️ System</button>
     </div>
     
@@ -432,6 +433,67 @@
                 </div>
             </div>
             
+            <!-- API-Zugänge Tab -->
+            <div class="tab-pane" id="api-access-tab">
+                <div class="settings-section">
+                    <h2>Pure1 API-Zugang</h2>
+                    <p class="info-text" style="margin-bottom:1.5rem;">
+                        Zugangsdaten für das Pure1-Portal (REST API). Alle Werte werden verschlüsselt in der Datenbank gespeichert.
+                        Der Private Key und der Public Key werden nur aktualisiert, wenn ein neuer Wert eingegeben wird – leere Felder lassen den bestehenden Wert unverändert.
+                    </p>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="pure1_display_name">Display Name</label>
+                            <input type="text" id="pure1_display_name" name="pure1_display_name"
+                                   value="{{ settings.pure1_display_name or '' }}"
+                                   placeholder="z.B. my-storage-dashboard"
+                                   autocomplete="off">
+                            <p class="info-text">Name der registrierten Anwendung im Pure1-Portal</p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pure1_app_id">App ID (Issuer)</label>
+                            <input type="text" id="pure1_app_id" name="pure1_app_id"
+                                   value="{{ settings.pure1_app_id or '' }}"
+                                   placeholder="pure1:apikey:xxxxxxxx"
+                                   autocomplete="off">
+                            <p class="info-text">Application-ID / Issuer aus dem Pure1-Portal</p>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pure1_private_key">Private Key (PEM)</label>
+                        <textarea id="pure1_private_key" name="pure1_private_key"
+                                  rows="8"
+                                  placeholder="{{ 'Bereits konfiguriert – leer lassen, um unverändert zu behalten' if settings.pure1_private_key else '-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----' }}"
+                                  style="width:100%;padding:.75rem;border:2px solid #e0e0e0;border-radius:6px;font-family:monospace;font-size:.88rem;resize:vertical;"></textarea>
+                        <p class="info-text">
+                            {% if settings.pure1_private_key %}
+                                ✅ Private Key ist gespeichert. Nur ausfüllen, um den Key zu ersetzen.
+                            {% else %}
+                                RSA Private Key im PEM-Format (inkl. Header/Footer-Zeilen)
+                            {% endif %}
+                        </p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pure1_public_key">Public Key (PEM)</label>
+                        <textarea id="pure1_public_key" name="pure1_public_key"
+                                  rows="5"
+                                  placeholder="{{ 'Bereits konfiguriert – leer lassen, um unverändert zu behalten' if settings.pure1_public_key else '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----' }}"
+                                  style="width:100%;padding:.75rem;border:2px solid #e0e0e0;border-radius:6px;font-family:monospace;font-size:.88rem;resize:vertical;"></textarea>
+                        <p class="info-text">
+                            {% if settings.pure1_public_key %}
+                                ✅ Public Key ist gespeichert. Nur ausfüllen, um den Key zu ersetzen.
+                            {% else %}
+                                RSA Public Key im PEM-Format (inkl. Header/Footer-Zeilen)
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             <!-- System Tab -->
             <div class="tab-pane" id="system-tab">
                 <div class="settings-section">

@@ -361,11 +361,123 @@ class AppSettings(db.Model):
     max_logs_per_system = db.Column(db.Integer, default=1000)  # Maximum logs per system
     log_retention_days = db.Column(db.Integer, default=30)  # Days to keep logs
     min_log_level = db.Column(db.String(20), default='INFO')  # Minimum log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+    # Pure1 API credentials (all encrypted)
+    _pure1_display_name = db.Column('pure1_display_name', db.Text)
+    _pure1_app_id = db.Column('pure1_app_id', db.Text)
+    _pure1_private_key = db.Column('pure1_private_key', db.Text)
+    _pure1_public_key = db.Column('pure1_public_key', db.Text)
+
+    @property
+    def pure1_display_name(self):
+        """Decrypt and return Pure1 display name"""
+        return decrypt_value(self._pure1_display_name) if self._pure1_display_name else None
+
+    @pure1_display_name.setter
+    def pure1_display_name(self, value):
+        self._pure1_display_name = encrypt_value(value) if value else None
+
+    @property
+    def pure1_app_id(self):
+        """Decrypt and return Pure1 App ID"""
+        return decrypt_value(self._pure1_app_id) if self._pure1_app_id else None
+
+    @pure1_app_id.setter
+    def pure1_app_id(self, value):
+        self._pure1_app_id = encrypt_value(value) if value else None
+
+    @property
+    def pure1_private_key(self):
+        """Decrypt and return Pure1 private key (PEM)"""
+        return decrypt_value(self._pure1_private_key) if self._pure1_private_key else None
+
+    @pure1_private_key.setter
+    def pure1_private_key(self, value):
+        self._pure1_private_key = encrypt_value(value) if value else None
+
+    @property
+    def pure1_public_key(self):
+        """Decrypt and return Pure1 public key (PEM)"""
+        return decrypt_value(self._pure1_public_key) if self._pure1_public_key else None
+
+    @pure1_public_key.setter
+    def pure1_public_key(self, value):
+        self._pure1_public_key = encrypt_value(value) if value else None
     
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self):
         return f'<AppSettings {self.id}>'
+
+
+class CapacitySnapshot(db.Model):
+    """Hourly capacity snapshot for each storage system (cache)"""
+    __tablename__ = 'capacity_snapshots'
+
+    id = db.Column(db.Integer, primary_key=True)
+    system_id = db.Column(db.Integer, db.ForeignKey('storage_systems.id', ondelete='CASCADE'), nullable=False)
+    system = db.relationship('StorageSystem', backref=db.backref('capacity_snapshots', lazy='dynamic'))
+
+    fetched_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    total_tb = db.Column(db.Float, default=0.0)
+    used_tb = db.Column(db.Float, default=0.0)
+    free_tb = db.Column(db.Float, default=0.0)
+    provisioned_tb = db.Column(db.Float)  # nullable – not all systems expose this
+    percent_used = db.Column(db.Float, default=0.0)
+    percent_free = db.Column(db.Float, default=0.0)
+    percent_provisioned = db.Column(db.Float)  # nullable
+    error = db.Column(db.Text)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'system_id': self.system_id,
+            'fetched_at': self.fetched_at.isoformat() if self.fetched_at else None,
+            'total_tb': self.total_tb,
+            'used_tb': self.used_tb,
+            'free_tb': self.free_tb,
+            'provisioned_tb': self.provisioned_tb,
+            'percent_used': self.percent_used,
+            'percent_free': self.percent_free,
+            'percent_provisioned': self.percent_provisioned,
+            'error': self.error,
+        }
+
+    def __repr__(self):
+        return f'<CapacitySnapshot system={self.system_id} at={self.fetched_at}>'
+
+
+class CapacityHistory(db.Model):
+    """Daily capacity snapshot per storage system for trend/history views"""
+    __tablename__ = 'capacity_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    system_id = db.Column(db.Integer, db.ForeignKey('storage_systems.id', ondelete='CASCADE'), nullable=False)
+    system = db.relationship('StorageSystem', backref=db.backref('capacity_history', lazy='dynamic'))
+
+    date = db.Column(db.Date, nullable=False, index=True)
+    total_tb = db.Column(db.Float, default=0.0)
+    used_tb = db.Column(db.Float, default=0.0)
+    free_tb = db.Column(db.Float, default=0.0)
+    provisioned_tb = db.Column(db.Float)
+    percent_used = db.Column(db.Float, default=0.0)
+
+    __table_args__ = (db.UniqueConstraint('system_id', 'date', name='uq_capacity_history_system_date'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'system_id': self.system_id,
+            'date': self.date.isoformat() if self.date else None,
+            'total_tb': self.total_tb,
+            'used_tb': self.used_tb,
+            'free_tb': self.free_tb,
+            'provisioned_tb': self.provisioned_tb,
+            'percent_used': self.percent_used,
+        }
+
+    def __repr__(self):
+        return f'<CapacityHistory system={self.system_id} date={self.date}>'
 
 
 class SystemLog(db.Model):

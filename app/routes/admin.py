@@ -692,7 +692,19 @@ def settings():
                 app_settings.log_retention_days = int(retention_days)
             
             app_settings.min_log_level = request.form.get('min_log_level', 'INFO')
-            
+
+            # Update Pure1 API credentials
+            # Display name and App ID: always overwrite (empty = clear)
+            app_settings.pure1_display_name = request.form.get('pure1_display_name', '').strip() or None
+            app_settings.pure1_app_id = request.form.get('pure1_app_id', '').strip() or None
+            # Keys: only overwrite if a new value was explicitly submitted
+            new_private_key = request.form.get('pure1_private_key', '').strip()
+            if new_private_key:
+                app_settings.pure1_private_key = new_private_key
+            new_public_key = request.form.get('pure1_public_key', '').strip()
+            if new_public_key:
+                app_settings.pure1_public_key = new_public_key
+
             # Handle logo upload
             if 'logo_file' in request.files:
                 logo_file = request.files['logo_file']
