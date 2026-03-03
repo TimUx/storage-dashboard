@@ -217,14 +217,28 @@
     margin-left: .4rem;
 }
 
-/* ── Storage on Demand specific ── */
-.sod-info {
-    font-size: .82rem;
-    color: var(--cap-muted);
-    padding: .4rem 1.2rem .6rem;
-    border-bottom: 1px solid var(--cap-border);
+/* ── Storage on Demand sub-table (embedded in Block section) ── */
+.sod-subtable-wrap {
+    border-top: 2px solid var(--cap-border);
     background: #fafbfd;
 }
+.sod-subtable-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: .5rem 1.2rem;
+    background: #f0f4f8;
+    border-bottom: 1px solid var(--cap-border);
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--cap-muted);
+    cursor: pointer;
+    user-select: none;
+}
+.sod-subtable-header:hover { background: #e8eef5; }
+.sod-subtable-body { padding: .5rem 1.2rem 1rem; }
+.sod-subtable-body .cap-table { font-size: .83rem; }
+.sod-subtable-body .cap-table th { background: #f0f4f8; font-size: .8rem; }
 .sod-resources {
     font-size: .82rem;
     color: var(--cap-muted);
@@ -258,7 +272,6 @@
             <button data-view="by-department">Nach Tätigkeitsfeld</button>
             <button data-view="details">Details</button>
             <button data-view="history">Verlauf</button>
-            {% if pure1_configured %}<button data-view="storage-on-demand">Storage on Demand</button>{% endif %}
         </div>
         <button class="refresh-btn" id="refreshBtn" onclick="triggerRefresh()">🔄 Aktualisieren</button>
     </div>
@@ -301,13 +314,6 @@
     <div id="historyContent"><div class="cap-loading">Lade Verlaufsdaten…</div></div>
 </div>
 
-<!-- ── View: Storage on Demand ── -->
-{% if pure1_configured %}
-<div class="cap-view" id="view-storage-on-demand">
-    <div id="sodContent"><div class="cap-loading">Lade Daten…</div></div>
-</div>
-{% endif %}
-
 <!-- Chart.js (served locally for reliability in air-gapped environments) -->
 <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
 
@@ -316,6 +322,8 @@
 let currentView   = 'by-storage-art';
 let capacityData  = null;
 let chartInstances = {};
+let sodData       = null;
+const pure1Configured = {{ 'true' if pure1_configured else 'false' }};
 
 // ── View Switching ────────────────────────────────────────────────────────
 document.querySelectorAll('#viewToggle button').forEach(btn => {
@@ -327,7 +335,6 @@ document.querySelectorAll('#viewToggle button').forEach(btn => {
         document.querySelectorAll('.cap-view').forEach(v => v.classList.remove('active'));
         document.getElementById('view-' + view).classList.add('active');
         if (view === 'history') loadHistory(currentRange());
-        if (view === 'storage-on-demand' && !sodData) loadSodData();
     });
 });
 
@@ -339,10 +346,14 @@ function currentRange() {
 // ── Data Loading ──────────────────────────────────────────────────────────
 async function loadCapacityData() {
     try {
-        const resp = await fetch('/capacity/api/data');
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const data = await resp.json();
+        // Load capacity data and (if Pure1 is configured) SoD data in parallel
+        const fetches = [fetch('/capacity/api/data')];
+        if (pure1Configured) fetches.push(fetch('/capacity/api/subscription-licenses'));
+        const responses = await Promise.all(fetches);
+        for (const r of responses) { if (!r.ok) throw new Error('HTTP ' + r.status); }
+        const [data, sodResp] = await Promise.all(responses.map(r => r.json()));
         capacityData = data;
+        sodData = sodResp || null;
 
         // Status bar
         const statusEl = document.getElementById('capStatus');
@@ -426,7 +437,7 @@ function hasProvisioned(rows, totalRow) {
            rows.some(r => r.provisioned_tb != null);
 }
 
-function tableHeader(label, showProvisioned) {
+function tableHeader(label, showProvisioned, showEffectiveUsed) {
     let cols = `<th>${label}</th>
         <th>Gesamt [TB]</th>
         <th>Genutzt [TB]</th>
@@ -436,10 +447,13 @@ function tableHeader(label, showProvisioned) {
     if (showProvisioned) {
         cols += `<th>Provisioniert [TB]</th><th>Provisioniert [%]</th>`;
     }
+    if (showEffectiveUsed) {
+        cols += `<th>Effektiv Genutzt [TB]</th>`;
+    }
     return `<thead><tr>${cols}</tr></thead>`;
 }
 
-function rowHtml(label, row, isTotalRow, showProvisioned) {
+function rowHtml(label, row, isTotalRow, showProvisioned, showEffectiveUsedCol, effectiveUsedValue) {
     const cls = isTotalRow ? ' class="total-row"' : '';
     let html = `<tr${cls}>
         <td>${label}</td>
@@ -452,14 +466,45 @@ function rowHtml(label, row, isTotalRow, showProvisioned) {
         html += `<td>${fmt(row.provisioned_tb)}</td>
         <td>${pctBarHtmlProv(row.percent_provisioned)}</td>`;
     }
+    if (showEffectiveUsedCol) {
+        html += `<td>${effectiveUsedValue != null ? effectiveUsedValue.toFixed(2) : '–'}</td>`;
+    }
     html += '</tr>';
     return html;
 }
 
-function buildSection(title, subtitle, rows, totalRow) {
+/** Compute total SoD effective used [TB] across all subscription items. */
+function getSodTotalEffectiveUsedTb() {
+    if (!sodData || !sodData.items || sodData.items.length === 0) return null;
+    let total = 0;
+    for (const it of sodData.items) { total += it.usage?.data || 0; }
+    return total / 1e12;
+}
+
+/** Build a map: resource/array name (lowercase) → effective used TB. */
+function getSodResourceMap() {
+    const map = {};
+    if (!sodData || !sodData.items) return map;
+    for (const it of sodData.items) {
+        for (const r of (it.resources || [])) {
+            const name = (r.name || '').toLowerCase();
+            if (name) map[name] = (map[name] || 0) + (r.usage?.data || 0) / 1e12;
+        }
+    }
+    return map;
+}
+
+function buildSection(title, subtitle, rows, totalRow, sodEffectiveUsedTb) {
     const showProvisioned = hasProvisioned(rows, totalRow);
-    const rowsHtml = rows.map(r => rowHtml(r.label, r, false, showProvisioned)).join('');
-    const totalHtml = rowHtml('Total', totalRow, true, showProvisioned);
+    const showEffectiveUsed = sodEffectiveUsedTb != null;
+    const rowsHtml = rows.map(r => rowHtml(
+        r.label, r, false, showProvisioned,
+        showEffectiveUsed, null   // column visible but no value for sub-rows
+    )).join('');
+    const totalHtml = rowHtml(
+        'Total', totalRow, true, showProvisioned,
+        showEffectiveUsed, showEffectiveUsed ? sodEffectiveUsedTb : null
+    );
     return `<div class="cap-section">
         <div class="cap-section-header">
             <span>${title}</span>
@@ -467,10 +512,106 @@ function buildSection(title, subtitle, rows, totalRow) {
         </div>
         <div class="cap-table-wrap">
             <table class="cap-table">
-                ${tableHeader('Gruppe', showProvisioned)}
+                ${tableHeader('Gruppe', showProvisioned, showEffectiveUsed)}
                 <tbody>${rowsHtml}${totalHtml}</tbody>
             </table>
         </div>
+    </div>`;
+}
+
+/** Toggle the SoD sub-table body visibility. */
+function toggleSodSubTable(uid, headerEl) {
+    const body = document.getElementById(uid);
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    headerEl.setAttribute('aria-expanded', String(!open));
+    headerEl.querySelector('.sod-toggle-icon').textContent = open ? '▶' : '▼';
+}
+
+/** Build the collapsible SoD sub-table HTML to embed in the Block section. */
+function buildSodSubTable(sodDataArg) {
+    if (!sodDataArg) return '';
+    let bodyHtml = '';
+
+    if (sodDataArg.error) {
+        bodyHtml += `<div class="sod-error-box">⚠ Fehler beim letzten Abruf: ${escHtml(sodDataArg.error)}</div>`;
+    }
+    if (!sodDataArg.items || sodDataArg.items.length === 0) {
+        bodyHtml += '<div style="padding:.5rem 0;color:var(--cap-muted);font-size:.85rem;">Keine Lizenzdaten vorhanden.</div>';
+    } else {
+        const bySub = {};
+        for (const it of sodDataArg.items) {
+            const key = it.subscription?.name || '–';
+            (bySub[key] = bySub[key] || []).push(it);
+        }
+        for (const [subName, lics] of Object.entries(bySub).sort((a, b) => a[0].localeCompare(b[0]))) {
+            let rows = '';
+            for (const lic of lics) {
+                const res  = (lic.reservation?.data       || 0) / 1e12;
+                const used = (lic.usage?.data              || 0) / 1e12;
+                const aOD  = (lic.average_on_demand?.data  || 0) / 1e12;
+                const qOD  = (lic.quarter_on_demand?.data  || 0) / 1e12;
+                let arrCell = '–';
+                if (lic.resources && lic.resources.length) {
+                    arrCell = '<ul class="sod-resources">'
+                        + lic.resources.map(r =>
+                            `<li>${escHtml(r.name)}: ${((r.usage?.data || 0) / 1e12).toFixed(2)} TB</li>`
+                        ).join('') + '</ul>';
+                }
+                rows += `<tr>
+                    <td>${escHtml(lic.name)}</td>
+                    <td style="font-size:.82rem;color:var(--cap-muted);">${escHtml(lic.service_tier || '–')}</td>
+                    <td>${res.toFixed(2)}</td>
+                    <td>${used.toFixed(2)}</td>
+                    <td>${aOD.toFixed(2)}</td>
+                    <td>${qOD.toFixed(2)}</td>
+                    <td>${arrCell}</td>
+                </tr>`;
+            }
+            const sRes  = lics.reduce((s, l) => s + (l.reservation?.data       || 0), 0) / 1e12;
+            const sUsed = lics.reduce((s, l) => s + (l.usage?.data              || 0), 0) / 1e12;
+            const sAOD  = lics.reduce((s, l) => s + (l.average_on_demand?.data  || 0), 0) / 1e12;
+            const sQOD  = lics.reduce((s, l) => s + (l.quarter_on_demand?.data  || 0), 0) / 1e12;
+            rows += `<tr class="total-row">
+                <td>Gesamt</td><td></td>
+                <td>${sRes.toFixed(2)}</td><td>${sUsed.toFixed(2)}</td>
+                <td>${sAOD.toFixed(2)}</td><td>${sQOD.toFixed(2)}</td>
+                <td></td>
+            </tr>`;
+            bodyHtml += `<p style="font-weight:600;font-size:.85rem;margin:.75rem 0 .25rem;">📋 Vertrag ${escHtml(subName)}</p>
+            <div class="cap-table-wrap"><table class="cap-table">
+                <thead><tr>
+                    <th>Lizenz-Name</th><th>Service Tier</th>
+                    <th>Reserviert [TB]</th><th>Effektiv Genutzt [TB]</th>
+                    <th>Ø On Demand [TB]</th><th>Q. On Demand [TB]</th>
+                    <th>Arrays (Eff. Used)</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table></div>`;
+        }
+        // Fetch-timestamp
+        if (sodDataArg.fetched_at) {
+            const ts = new Date(
+                sodDataArg.fetched_at.endsWith('Z') ? sodDataArg.fetched_at : sodDataArg.fetched_at + 'Z'
+            ).toLocaleString('de-DE');
+            bodyHtml += `<p style="font-size:.78rem;color:var(--cap-muted);margin-top:.5rem;">
+                Letzte Pure1 Aktualisierung: ${ts}
+                <em>(automatisch wöchentlich)</em>
+                &nbsp;
+                <button class="refresh-btn" style="font-size:.78rem;padding:.2rem .6rem;"
+                    id="sodRefreshBtn" onclick="triggerSodRefresh()">🔄 Jetzt abrufen</button>
+            </p>`;
+        }
+    }
+
+    const uid = 'sodSubTable_' + Math.random().toString(36).slice(2);
+    return `<div class="sod-subtable-wrap">
+        <div class="sod-subtable-header" aria-expanded="false"
+             onclick="toggleSodSubTable('${uid}', this)">
+            <span>📊 Storage on Demand (Pure1)</span>
+            <span class="sod-toggle-icon" aria-hidden="true">▶</span>
+        </div>
+        <div id="${uid}" class="sod-subtable-body" style="display:none;">${bodyHtml}</div>
     </div>`;
 }
 
@@ -481,9 +622,35 @@ function renderByStorageArt(data) {
         el.innerHTML = '<div class="cap-empty">Keine Daten verfügbar. Bitte Systeme konfigurieren und Aktualisierung abwarten.</div>';
         return;
     }
-    el.innerHTML = data.map(g =>
-        buildSection(g.storage_art, 'Gruppierung nach Betriebsumgebung', g.rows, g.total)
-    ).join('');
+    const sodTotal = getSodTotalEffectiveUsedTb();
+    el.innerHTML = data.map(g => {
+        const isBlock = g.storage_art === 'Block';
+        const effUsed = (isBlock && pure1Configured) ? sodTotal : null;
+        const showProvisioned = hasProvisioned(g.rows, g.total);
+        const showEffectiveUsed = effUsed != null;
+        const rowsHtml = g.rows.map(r => rowHtml(
+            r.label, r, false, showProvisioned,
+            showEffectiveUsed, null
+        )).join('');
+        const totalHtml = rowHtml(
+            'Total', g.total, true, showProvisioned,
+            showEffectiveUsed, showEffectiveUsed ? effUsed : null
+        );
+        const tableHtml = `<div class="cap-table-wrap">
+            <table class="cap-table">
+                ${tableHeader('Gruppe', showProvisioned, showEffectiveUsed)}
+                <tbody>${rowsHtml}${totalHtml}</tbody>
+            </table>
+        </div>`;
+        const sodHtml = (isBlock && pure1Configured) ? buildSodSubTable(sodData) : '';
+        return `<div class="cap-section">
+            <div class="cap-section-header">
+                <span>${escHtml(g.storage_art)}</span>
+                <span class="section-subtitle">Gruppierung nach Betriebsumgebung</span>
+            </div>
+            ${tableHtml}${sodHtml}
+        </div>`;
+    }).join('');
 }
 
 // ── Render: By Environment ────────────────────────────────────────────────
@@ -517,8 +684,11 @@ function renderDetails(data) {
         el.innerHTML = '<div class="cap-empty">Keine Daten verfügbar.</div>';
         return;
     }
+    const sodResMap = getSodResourceMap();
     el.innerHTML = data.map(g => {
+        const isBlock = g.storage_art === 'Block';
         const showProvisioned = g.systems.some(s => s.provisioned_tb != null);
+        const showEffectiveUsed = isBlock && pure1Configured && Object.keys(sodResMap).length > 0;
         const rows = g.systems.map(s => {
             const errBadge = s.error ? `<span class="err-badge" title="${escHtml(s.error)}">Fehler</span>` : '';
             let row = `<tr>
@@ -534,6 +704,10 @@ function renderDetails(data) {
                 row += `<td>${fmt(s.provisioned_tb)}</td>
                 <td>${pctBarHtmlProv(s.percent_provisioned)}</td>`;
             }
+            if (showEffectiveUsed) {
+                const effTb = sodResMap[(s.system_name || '').toLowerCase()];
+                row += `<td>${effTb != null ? effTb.toFixed(2) : '–'}</td>`;
+            }
             row += '</tr>';
             return row;
         }).join('');
@@ -548,6 +722,10 @@ function renderDetails(data) {
         if (showProvisioned) {
             headerCols += `<th>Provisioniert [TB]</th><th>Provisioniert [%]</th>`;
         }
+        if (showEffectiveUsed) {
+            headerCols += `<th>Effektiv Genutzt [TB]</th>`;
+        }
+        const sodHtml = (isBlock && pure1Configured) ? buildSodSubTable(sodData) : '';
         return `<div class="cap-section">
             <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
             <div class="cap-table-wrap">
@@ -556,6 +734,7 @@ function renderDetails(data) {
                     <tbody>${rows}</tbody>
                 </table>
             </div>
+            ${sodHtml}
         </div>`;
     }).join('');
 }
@@ -667,23 +846,7 @@ async function loadHistory(range) {
     }
 }
 
-// ── Storage on Demand ─────────────────────────────────────────────────────
-let sodData = null;
-
-async function loadSodData() {
-    const el = document.getElementById('sodContent');
-    el.innerHTML = '<div class="cap-loading">Lade Storage on Demand Daten…</div>';
-    try {
-        const resp = await fetch('/capacity/api/subscription-licenses');
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const data = await resp.json();
-        sodData = data;
-        renderSod(data);
-    } catch (err) {
-        el.innerHTML = '<div class="cap-empty">⚠ Fehler: ' + escHtml(err.message) + '</div>';
-    }
-}
-
+// ── Storage on Demand refresh ─────────────────────────────────────────────
 async function triggerSodRefresh() {
     const btn = document.getElementById('sodRefreshBtn');
     if (!btn) return;
@@ -692,8 +855,7 @@ async function triggerSodRefresh() {
     try {
         await fetch('/capacity/api/sod-refresh', {method: 'POST'});
         setTimeout(async () => {
-            sodData = null;
-            await loadSodData();
+            await loadCapacityData();
             const b = document.getElementById('sodRefreshBtn');
             if (b) { b.disabled = false; b.textContent = '🔄 Jetzt abrufen'; }
         }, 3000);
@@ -701,152 +863,6 @@ async function triggerSodRefresh() {
         btn.disabled = false;
         btn.textContent = '🔄 Jetzt abrufen';
     }
-}
-
-function renderSod(data) {
-    const el = document.getElementById('sodContent');
-
-    if (!data.configured) {
-        el.innerHTML = `<div class="sod-not-configured">
-            ⚙ Pure1 API-Zugangsdaten sind nicht konfiguriert.<br>
-            Bitte im <a href="/admin/settings">Admin-Bereich → API-Zugänge</a> einrichten.
-        </div>`;
-        return;
-    }
-
-    // ── Status / header bar ──────────────────────────────────────────────
-    const tsText = data.fetched_at
-        ? 'Letzte Aktualisierung: ' + new Date(
-              data.fetched_at.endsWith('Z') ? data.fetched_at : data.fetched_at + 'Z'
-          ).toLocaleString('de-DE')
-          + ' <em style="font-size:.78rem;">(automatisch wöchentlich)</em>'
-        : '<span class="stale">⚠ Noch keine Daten abgerufen – bitte manuell starten.</span>';
-
-    let statusHtml = `<div class="cap-section" style="margin-bottom:.75rem;">
-        <div style="display:flex;justify-content:space-between;align-items:center;
-                    padding:.65rem 1.2rem;flex-wrap:wrap;gap:.5rem;">
-            <span style="font-size:.82rem;color:var(--cap-muted);">${tsText}</span>
-            <button id="sodRefreshBtn" class="refresh-btn" onclick="triggerSodRefresh()">🔄 Jetzt abrufen</button>
-        </div>`;
-    if (data.error) {
-        statusHtml += `<div class="sod-error-box">⚠ Fehler beim letzten Abruf: ${escHtml(data.error)}</div>`;
-    }
-    statusHtml += '</div>';
-
-    if (!data.items || data.items.length === 0) {
-        if (data.error) {
-            // Configured but data could not be fetched – show N/A placeholders
-            el.innerHTML = statusHtml + `<div class="cap-section" style="margin-bottom:1rem;">
-            <div class="cap-section-header"><span>📊 Gesamtübersicht Storage on Demand</span></div>
-            <div class="cap-table-wrap"><table class="cap-table">
-                <thead><tr>
-                    <th>Lizenzen gesamt</th>
-                    <th>Reserviert [TB]</th>
-                    <th>Effective Used [TB]</th>
-                    <th>Ø On Demand [TB]</th>
-                    <th>Q. On Demand [TB]</th>
-                </tr></thead>
-                <tbody><tr class="total-row">
-                    <td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td>
-                </tr></tbody>
-            </table></div>
-        </div>`;
-        } else {
-            el.innerHTML = statusHtml + '<div class="cap-empty">Keine Lizenzdaten vorhanden.</div>';
-        }
-        return;
-    }
-
-    // ── Grand totals ──────────────────────────────────────────────────────
-    let totalRes = 0, totalUsed = 0, totalAvgOD = 0, totalQOD = 0;
-    for (const it of data.items) {
-        totalRes   += it.reservation?.data        || 0;
-        totalUsed  += it.usage?.data              || 0;
-        totalAvgOD += it.average_on_demand?.data  || 0;
-        totalQOD   += it.quarter_on_demand?.data  || 0;
-    }
-    const totalsHtml = `<div class="cap-section" style="margin-bottom:1rem;">
-        <div class="cap-section-header"><span>📊 Gesamtübersicht Storage on Demand</span></div>
-        <div class="cap-table-wrap"><table class="cap-table">
-            <thead><tr>
-                <th>Lizenzen gesamt</th>
-                <th>Reserviert [TB]</th>
-                <th>Effective Used [TB]</th>
-                <th>Ø On Demand [TB]</th>
-                <th>Q. On Demand [TB]</th>
-            </tr></thead>
-            <tbody><tr class="total-row">
-                <td>${data.items.length}</td>
-                <td>${(totalRes  / 1e12).toFixed(2)}</td>
-                <td>${(totalUsed / 1e12).toFixed(2)}</td>
-                <td>${(totalAvgOD/ 1e12).toFixed(2)}</td>
-                <td>${(totalQOD  / 1e12).toFixed(2)}</td>
-            </tr></tbody>
-        </table></div>
-    </div>`;
-
-    // ── Per-subscription detail tables ────────────────────────────────────
-    const bySub = {};
-    for (const it of data.items) {
-        const key = it.subscription?.name || '–';
-        (bySub[key] = bySub[key] || []).push(it);
-    }
-
-    let detailsHtml = '';
-    for (const [subName, lics] of Object.entries(bySub).sort((a, b) => a[0].localeCompare(b[0]))) {
-        let rows = '';
-        for (const lic of lics) {
-            const res  = (lic.reservation?.data       || 0) / 1e12;
-            const used = (lic.usage?.data              || 0) / 1e12;
-            const aOD  = (lic.average_on_demand?.data  || 0) / 1e12;
-            const qOD  = (lic.quarter_on_demand?.data  || 0) / 1e12;
-            let arrCell = '–';
-            if (lic.resources && lic.resources.length) {
-                arrCell = '<ul class="sod-resources">'
-                    + lic.resources.map(r =>
-                        `<li>${escHtml(r.name)}: ${((r.usage?.data || 0) / 1e12).toFixed(2)} TB</li>`
-                    ).join('')
-                    + '</ul>';
-            }
-            rows += `<tr>
-                <td>${escHtml(lic.name)}</td>
-                <td style="font-size:.82rem;color:var(--cap-muted);">${escHtml(lic.service_tier || '–')}</td>
-                <td>${res.toFixed(2)}</td>
-                <td>${used.toFixed(2)}</td>
-                <td>${aOD.toFixed(2)}</td>
-                <td>${qOD.toFixed(2)}</td>
-                <td>${arrCell}</td>
-            </tr>`;
-        }
-        // Sub-total row
-        const sRes  = lics.reduce((s, l) => s + (l.reservation?.data       || 0), 0) / 1e12;
-        const sUsed = lics.reduce((s, l) => s + (l.usage?.data              || 0), 0) / 1e12;
-        const sAOD  = lics.reduce((s, l) => s + (l.average_on_demand?.data  || 0), 0) / 1e12;
-        const sQOD  = lics.reduce((s, l) => s + (l.quarter_on_demand?.data  || 0), 0) / 1e12;
-        rows += `<tr class="total-row">
-            <td>Gesamt</td><td></td>
-            <td>${sRes.toFixed(2)}</td><td>${sUsed.toFixed(2)}</td>
-            <td>${sAOD.toFixed(2)}</td><td>${sQOD.toFixed(2)}</td>
-            <td></td>
-        </tr>`;
-        detailsHtml += `<div class="cap-section">
-            <div class="cap-section-header"><span>📋 Vertrag ${escHtml(subName)}</span></div>
-            <div class="cap-table-wrap"><table class="cap-table">
-                <thead><tr>
-                    <th>Lizenz-Name</th>
-                    <th>Service Tier</th>
-                    <th>Reserviert [TB]</th>
-                    <th>Effective Used [TB]</th>
-                    <th>Ø On Demand [TB]</th>
-                    <th>Q. On Demand [TB]</th>
-                    <th>Arrays (Eff. Used)</th>
-                </tr></thead>
-                <tbody>${rows}</tbody>
-            </table></div>
-        </div>`;
-    }
-
-    el.innerHTML = statusHtml + totalsHtml + detailsHtml;
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────

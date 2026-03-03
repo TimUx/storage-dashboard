@@ -6,6 +6,18 @@ from datetime import datetime, date, timedelta
 
 logger = logging.getLogger(__name__)
 
+# Preferred display order for Storage Art categories.
+# Any art not listed here is appended alphabetically after these entries.
+STORAGE_ART_ORDER = ['Block', 'File', 'Object', 'Archiv', 'Backup']
+
+
+def _art_sort_key(art: str):
+    """Return a sort key that respects STORAGE_ART_ORDER, then alphabetical."""
+    try:
+        return (STORAGE_ART_ORDER.index(art), art)
+    except ValueError:
+        return (len(STORAGE_ART_ORDER), art)
+
 # How often (seconds) the background thread refreshes capacity data
 REFRESH_INTERVAL_SECONDS = 60 * 60  # 1 hour
 
@@ -243,7 +255,7 @@ def build_by_storage_art(systems, snapshots):
                 _accumulate(data[art][env], snap)
 
     result = []
-    all_arts = sorted(data.keys())
+    all_arts = sorted(data.keys(), key=_art_sort_key)
     for art in all_arts:
         env_data = data[art]
         rows = []
@@ -290,7 +302,7 @@ def build_by_environment(systems, snapshots):
         art_data = data[env]
         rows = []
         total_row = _zero_row()
-        for art in sorted(art_data.keys()):
+        for art in sorted(art_data.keys(), key=_art_sort_key):
             row = dict(art_data[art])
             row['label'] = art
             _finalize(row)
@@ -339,7 +351,7 @@ def build_by_department(systems, snapshots):
         combo_data = data[dept]
         rows = []
         total_row = _zero_row()
-        for (env, art) in sorted(combo_data.keys()):
+        for (env, art) in sorted(combo_data.keys(), key=lambda x: (x[0], _art_sort_key(x[1]))):
             row = dict(combo_data[(env, art)])
             row['label'] = f'{env} – {art}'
             row['env'] = env
@@ -395,7 +407,7 @@ def build_details(systems, snapshots):
             groups[art].append(dict(row))
 
     result = []
-    for art in sorted(groups.keys()):
+    for art in sorted(groups.keys(), key=_art_sort_key):
         result.append({'storage_art': art,
                        'systems': sorted(groups[art], key=lambda x: x['system_name'].lower())})
     return result
@@ -439,7 +451,7 @@ def get_history_data(days=None):
             date_art_total[rec.date][art] += rec.total_tb or 0.0
 
     # Collect all storage arts present
-    all_arts = sorted({art for d_arts in date_art_used.values() for art in d_arts})
+    all_arts = sorted({art for d_arts in date_art_used.values() for art in d_arts}, key=_art_sort_key)
 
     result = {}
     for art in all_arts:
