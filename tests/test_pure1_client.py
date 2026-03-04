@@ -81,8 +81,7 @@ class TestBuildPure1Jwt:
         payload_b64 = jwt.split(".")[1]
         payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
         assert "aud" not in payload, (
-            "aud must not be present – JWT is sent as Authorization: Bearer header "
-            "where aud is not required by the Pure1 token endpoint"
+            "aud must not be present – Pure1 token endpoint does not require aud in the JWT"
         )
 
     def test_jwt_payload_contains_iat_and_exp(self):
@@ -126,8 +125,8 @@ class TestGetPure1AccessTokenOAuthParams:
             "(Pure1 API spec OauthGrantType)"
         )
 
-    def test_jwt_sent_as_authorization_bearer_header(self):
-        """JWT must be sent as Authorization: Bearer header, not as subject_token form field."""
+    def test_jwt_sent_as_subject_token_form_field(self):
+        """JWT must be sent as subject_token form field, not as Authorization: Bearer header."""
         from app.api.pure1_client import get_pure1_access_token
         with patch("app.api.pure1_client.requests.post",
                    return_value=self._mock_response()) as mock_post:
@@ -135,22 +134,22 @@ class TestGetPure1AccessTokenOAuthParams:
         _, kwargs = mock_post.call_args
         headers = kwargs.get("headers", {})
         form_data = kwargs.get("data", {})
-        assert "Authorization" in headers, "JWT must be in Authorization header"
-        assert headers["Authorization"].startswith("Bearer "), (
-            "Authorization header must use Bearer scheme"
+        assert "subject_token" in form_data, "JWT must be sent as subject_token form field"
+        assert "Authorization" not in headers, (
+            "JWT must not be sent as Authorization Bearer header"
         )
-        assert "subject_token" not in form_data, "'subject_token' form field must not be used"
 
-    def test_no_subject_token_type_in_form_data(self):
-        """subject_token_type must not be present – JWT goes in the Authorization header."""
+    def test_subject_token_type_is_in_form_data(self):
+        """subject_token_type must be present with the JWT token type URN."""
         from app.api.pure1_client import get_pure1_access_token
         with patch("app.api.pure1_client.requests.post",
                    return_value=self._mock_response()) as mock_post:
             get_pure1_access_token("pure1:apikey:test", self.private_key_pem)
         _, kwargs = mock_post.call_args
         form_data = kwargs.get("data", {})
-        assert "subject_token_type" not in form_data, (
-            "subject_token_type must not be used – JWT is sent as Authorization Bearer header"
+        assert "subject_token_type" in form_data, "subject_token_type must be present"
+        assert form_data["subject_token_type"] == "urn:ietf:params:oauth:token-type:jwt", (
+            "subject_token_type must be 'urn:ietf:params:oauth:token-type:jwt'"
         )
 
     def test_posts_to_correct_url(self):
@@ -234,9 +233,10 @@ class TestApiPure1TestStepLogging:
                 f'  [{len(jwt_token)} Zeichen gesamt]',
                 '',
                 '# curl-Befehl für Token-Anfrage (zum manuellen Testen):',
-                f"curl -s -X POST '{PURE1_TOKEN_URL}' \\",
-                f"  -H 'Authorization: Bearer {jwt_token}' \\",
-                "  -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'",
+                f"curl -X POST '{PURE1_TOKEN_URL}' \\",
+                "  -H 'accept: application/json' \\",
+                "  -H 'Content-Type: application/x-www-form-urlencoded' \\",
+                f"  -d 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&subject_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Ajwt&subject_token={jwt_token}'",
             ]
             steps.append(_step(1, 'JWT bauen (RS256)', 'success', step1_lines))
         except Exception as exc:
@@ -248,9 +248,10 @@ class TestApiPure1TestStepLogging:
         step2_lines = [
             f'POST {PURE1_TOKEN_URL}',
             'Content-Type: application/x-www-form-urlencoded',
-            f'Authorization: Bearer {_trunc(jwt_token, 50)}',
             '',
-            'grant_type = urn:ietf:params:oauth:grant-type:token-exchange',
+            'grant_type         = urn:ietf:params:oauth:grant-type:token-exchange',
+            'subject_token_type = urn:ietf:params:oauth:token-type:jwt',
+            f'subject_token      = {_trunc(jwt_token, 50)}',
         ]
         token_mock = MagicMock()
         token_mock.status_code = mock_token_status
@@ -377,18 +378,19 @@ class TestApiPure1TestStepLogging:
         combined = '\n'.join(step1['lines'])
         assert 'curl' in combined
         assert PURE1_TOKEN_URL in combined
-        assert 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' in combined
+        assert 'grant_type' in combined
+        assert 'token-exchange' in combined
 
     def test_step1_curl_command_contains_full_jwt_not_truncated(self):
         """The curl command in step 1 must embed the complete JWT, not a truncated version."""
         _, steps = self._run_steps()
         step1 = steps[0]
-        auth_line = next(
-            (l for l in step1['lines'] if l.startswith("  -H 'Authorization: Bearer ")),
+        subject_token_line = next(
+            (l for l in step1['lines'] if 'subject_token=' in l),
             None,
         )
-        assert auth_line is not None, "No Authorization header found in step 1 curl command"
-        assert '…' not in auth_line, "JWT must not be truncated in curl command"
+        assert subject_token_line is not None, "No subject_token found in step 1 curl command"
+        assert '…' not in subject_token_line, "JWT must not be truncated in curl command"
 
     def test_step2_success_contains_curl_command_for_api_endpoint(self):
         """Step 2 must include a full curl command for the API endpoint."""
