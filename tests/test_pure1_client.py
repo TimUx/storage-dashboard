@@ -63,25 +63,26 @@ class TestBuildPure1Jwt:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
         assert payload["iss"] == app_id
 
-    def test_jwt_payload_sub_equals_app_id(self):
+    def test_jwt_payload_no_sub_claim(self):
         import base64
         from app.api.pure1_client import build_pure1_jwt
         app_id = "pure1:apikey:abc123"
         jwt = build_pure1_jwt(app_id, self.private_key_pem)
         payload_b64 = jwt.split(".")[1]
         payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
-        assert payload["sub"] == app_id, "sub must equal app_id for Pure1 API-key clients"
+        assert "sub" not in payload, (
+            "sub must not be present – Hosterman reference script uses only iss/iat/exp"
+        )
 
-    def test_jwt_payload_aud_is_pure1_apikey(self):
+    def test_jwt_payload_no_aud_claim(self):
         import base64
         from app.api.pure1_client import build_pure1_jwt
         jwt = build_pure1_jwt("pure1:apikey:test", self.private_key_pem)
         payload_b64 = jwt.split(".")[1]
         payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
-        assert payload.get("aud") == "pure1:apikey", (
-            "aud must be 'pure1:apikey' – without it Pure1 routes auth to the "
-            "On Demand Provisioning path and returns HTTP 401 "
-            "'On Demand Provisioning is not enabled on audience (…, None)'"
+        assert "aud" not in payload, (
+            "aud must not be present – JWT is sent as Authorization: Bearer header "
+            "where aud is not required by the Pure1 token endpoint"
         )
 
     def test_jwt_payload_contains_iat_and_exp(self):
@@ -125,27 +126,31 @@ class TestGetPure1AccessTokenOAuthParams:
             "(Pure1 API spec OauthGrantType)"
         )
 
-    def test_uses_subject_token_not_assertion(self):
-        """JWT must be sent as subject_token, not assertion."""
+    def test_jwt_sent_as_authorization_bearer_header(self):
+        """JWT must be sent as Authorization: Bearer header, not as subject_token form field."""
         from app.api.pure1_client import get_pure1_access_token
         with patch("app.api.pure1_client.requests.post",
                    return_value=self._mock_response()) as mock_post:
             get_pure1_access_token("pure1:apikey:test", self.private_key_pem)
         _, kwargs = mock_post.call_args
+        headers = kwargs.get("headers", {})
         form_data = kwargs.get("data", {})
-        assert "subject_token" in form_data, "JWT must be in 'subject_token' field"
-        assert "assertion" not in form_data, "'assertion' field must not be used"
+        assert "Authorization" in headers, "JWT must be in Authorization header"
+        assert headers["Authorization"].startswith("Bearer "), (
+            "Authorization header must use Bearer scheme"
+        )
+        assert "subject_token" not in form_data, "'subject_token' form field must not be used"
 
-    def test_includes_subject_token_type(self):
-        """subject_token_type must be set to the JWT token type URI."""
+    def test_no_subject_token_type_in_form_data(self):
+        """subject_token_type must not be present – JWT goes in the Authorization header."""
         from app.api.pure1_client import get_pure1_access_token
         with patch("app.api.pure1_client.requests.post",
                    return_value=self._mock_response()) as mock_post:
             get_pure1_access_token("pure1:apikey:test", self.private_key_pem)
         _, kwargs = mock_post.call_args
         form_data = kwargs.get("data", {})
-        assert form_data.get("subject_token_type") == "urn:ietf:params:oauth:token-type:jwt", (
-            "subject_token_type must be 'urn:ietf:params:oauth:token-type:jwt'"
+        assert "subject_token_type" not in form_data, (
+            "subject_token_type must not be used – JWT is sent as Authorization Bearer header"
         )
 
     def test_posts_to_correct_url(self):
@@ -219,8 +224,6 @@ class TestApiPure1TestStepLogging:
                 '',
                 '# Payload (Claims):',
                 f'  iss : {pay["iss"]}',
-                f'  sub : {pay["sub"]}',
-                f'  aud : {pay.get("aud", "(not set)")}',
                 f'  iat : {pay["iat"]}  ({iat_str})',
                 f'  exp : {pay["exp"]}  ({exp_str})',
                 '',
@@ -240,10 +243,9 @@ class TestApiPure1TestStepLogging:
         step2_lines = [
             f'POST {PURE1_TOKEN_URL}',
             'Content-Type: application/x-www-form-urlencoded',
+            f'Authorization: Bearer {_trunc(jwt_token, 50)}',
             '',
-            'grant_type         = urn:ietf:params:oauth:grant-type:token-exchange',
-            'subject_token_type = urn:ietf:params:oauth:token-type:jwt',
-            f'subject_token      = {_trunc(jwt_token, 50)}',
+            'grant_type = urn:ietf:params:oauth:grant-type:token-exchange',
         ]
         token_mock = MagicMock()
         token_mock.status_code = mock_token_status
@@ -316,9 +318,6 @@ class TestApiPure1TestStepLogging:
         assert step1['status'] == 'success'
         combined = '\n'.join(step1['lines'])
         assert 'iss' in combined
-        assert 'sub' in combined
-        assert 'aud' in combined
-        assert 'pure1:apikey' in combined
         assert 'RS256' in combined
         assert self.app_id in combined
 

@@ -49,20 +49,18 @@ def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 315
     Pure Storage reference script (pure1:apikey token exchange utility by
     Cody Hosterman, Pure Storage 2020).
 
-    The payload includes the standard claims expected by the Pure1
-    OAuth token endpoint:
+    The payload includes exactly the claims expected by the Pure1 OAuth
+    token endpoint (matching the official Pure Storage reference script by
+    Cody Hosterman, Pure Storage 2020):
 
     * ``iss`` – issuer: the Pure1 application ID.
-    * ``sub`` – subject: same as ``iss`` for Pure1 API-key clients.
     * ``iat`` / ``exp`` – issued-at / expiry timestamps (seconds since
       UNIX epoch, standard JWT).
 
-    Note: the ``aud`` (audience) claim **must** be set to ``"pure1:apikey"``.
-    Without this claim, Pure1 routes the authentication request to the
-    *On Demand Provisioning* path instead of standard API-key auth, which
-    produces HTTP 401 "On Demand Provisioning is not enabled on audience
-    (…, None)".  Setting ``aud = "pure1:apikey"`` directs Pure1 to the
-    correct API-key authentication path.
+    Note: ``sub`` and ``aud`` are intentionally omitted.  The JWT is sent as
+    an ``Authorization: Bearer`` header (not as a ``subject_token`` form
+    field), and the Pure1 token endpoint does not require these additional
+    claims in that usage pattern.
 
     Args:
         app_id: The Pure1 application/issuer ID (e.g. ``pure1:apikey:…``).
@@ -81,8 +79,6 @@ def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 315
         json.dumps(
             {
                 "iss": app_id,
-                "sub": app_id,
-                "aud": "pure1:apikey",
                 "iat": now,
                 "exp": now + expiry_seconds,
             },
@@ -103,14 +99,14 @@ def get_pure1_access_token(app_id: str, private_key_pem: str,
                            proxies: dict | None = None) -> str:
     """Exchange a freshly-built JWT for a Pure1 Bearer access token.
 
-    The Pure1 REST API uses the OAuth 2.0 Token Exchange grant type
-    (RFC 8693 / ``urn:ietf:params:oauth:grant-type:token-exchange``).
-    The JWT is passed as ``subject_token`` together with the required
-    ``subject_token_type`` of ``urn:ietf:params:oauth:token-type:jwt``.
+    The Pure1 REST API token endpoint accepts the signed JWT as an
+    ``Authorization: Bearer`` header together with the OAuth 2.0 Token
+    Exchange grant type (RFC 8693).  This matches the approach documented
+    in the official Pure Storage reference script (Cody Hosterman, 2020):
+    *"Token Exchange requires a JWT in the Authorization Bearer header"*.
 
     Reference: Pure1 REST API spec – ``POST /oauth2/1.0/token``,
-    parameters ``OauthGrantType``, ``OauthSubjectToken``,
-    ``OauthSubjectTokenType``.
+    parameter ``OauthGrantType``.
 
     Args:
         app_id: Pure1 application ID.
@@ -127,20 +123,14 @@ def get_pure1_access_token(app_id: str, private_key_pem: str,
         KeyError: If the response JSON does not contain ``access_token``.
     """
     jwt_token = build_pure1_jwt(app_id, private_key_pem, passphrase=passphrase)
-    token_request_data = {
-        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-        "subject_token": jwt_token,
-        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
-    }
     logger.debug(
-        "Pure1 token request: POST %s  grant_type=%s  subject_token_type=%s",
+        "Pure1 token request: POST %s  Authorization: Bearer <jwt>  grant_type=token-exchange",
         PURE1_TOKEN_URL,
-        token_request_data["grant_type"],
-        token_request_data["subject_token_type"],
     )
     resp = requests.post(
         PURE1_TOKEN_URL,
-        data=token_request_data,
+        headers={"Authorization": f"Bearer {jwt_token}"},
+        data={"grant_type": "urn:ietf:params:oauth:grant-type:token-exchange"},
         timeout=15,
         proxies=proxies,
     )

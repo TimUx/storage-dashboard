@@ -1066,8 +1066,6 @@ def api_pure1_test():
             '',
             '# Payload (Claims):',
             f'  iss : {pay["iss"]}',
-            f'  sub : {pay["sub"]}',
-            f'  aud : {pay.get("aud", "(not set)")}',
             f'  iat : {pay["iat"]}  ({iat_str})',
             f'  exp : {pay["exp"]}  ({exp_str})',
             '',
@@ -1089,19 +1087,15 @@ def api_pure1_test():
     step2_lines = [
         f'POST {PURE1_TOKEN_URL}',
         'Content-Type: application/x-www-form-urlencoded',
+        f'Authorization: Bearer {_trunc(jwt_token, 50)}',
         '',
-        'grant_type         = urn:ietf:params:oauth:grant-type:token-exchange',
-        'subject_token_type = urn:ietf:params:oauth:token-type:jwt',
-        f'subject_token      = {_trunc(jwt_token, 50)}',
+        'grant_type = urn:ietf:params:oauth:grant-type:token-exchange',
     ]
     try:
         token_resp = req_lib.post(
             PURE1_TOKEN_URL,
-            data={
-                'grant_type': 'urn:ietf:params:oauth:grant-type:token-exchange',
-                'subject_token': jwt_token,
-                'subject_token_type': 'urn:ietf:params:oauth:token-type:jwt',
-            },
+            headers={'Authorization': f'Bearer {jwt_token}'},
+            data={'grant_type': 'urn:ietf:params:oauth:grant-type:token-exchange'},
             timeout=15,
             proxies=settings.get_proxies() or None,
         )
