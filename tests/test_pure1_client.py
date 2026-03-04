@@ -63,6 +63,25 @@ class TestBuildPure1Jwt:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
         assert payload["iss"] == app_id
 
+    def test_jwt_payload_sub_equals_app_id(self):
+        import base64
+        from app.api.pure1_client import build_pure1_jwt
+        app_id = "pure1:apikey:abc123"
+        jwt = build_pure1_jwt(app_id, self.private_key_pem)
+        payload_b64 = jwt.split(".")[1]
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
+        assert payload["sub"] == app_id, "sub must equal app_id for Pure1 API-key clients"
+
+    def test_jwt_payload_aud_is_token_url(self):
+        import base64
+        from app.api.pure1_client import build_pure1_jwt, PURE1_TOKEN_URL
+        jwt = build_pure1_jwt("pure1:apikey:test", self.private_key_pem)
+        payload_b64 = jwt.split(".")[1]
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
+        assert payload["aud"] == PURE1_TOKEN_URL, (
+            f"aud must be the Pure1 token URL '{PURE1_TOKEN_URL}'"
+        )
+
     def test_jwt_payload_contains_iat_and_exp(self):
         import base64
         from app.api.pure1_client import build_pure1_jwt
@@ -92,7 +111,7 @@ class TestGetPure1AccessTokenOAuthParams:
         return mock_resp
 
     def test_uses_token_exchange_grant_type(self):
-        """grant_type must be token-exchange, not jwt-bearer."""
+        """grant_type must be 'urn:ietf:params:oauth:grant-type:token-exchange', not jwt-bearer."""
         from app.api.pure1_client import get_pure1_access_token
         with patch("app.api.pure1_client.requests.post",
                    return_value=self._mock_response()) as mock_post:

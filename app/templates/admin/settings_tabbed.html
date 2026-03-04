@@ -672,6 +672,12 @@ async function testPure1Connection() {
                 'Body:\n' +
                 Object.entries(tr.body).map(([k, v]) => '  ' + k + '=' + v).join('\n')
             );
+            if (tr.jwt_claims) {
+                tokenInfo += (
+                    '\n\nJWT-Payload-Claims:\n' +
+                    Object.entries(tr.jwt_claims).map(([k, v]) => '  ' + k + ': ' + v).join('\n')
+                );
+            }
         }
 
         if (data.success) {

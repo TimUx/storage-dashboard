@@ -49,6 +49,16 @@ def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 315
     Pure Storage reference script (pure1:apikey token exchange utility by
     Cody Hosterman, Pure Storage 2020).
 
+    The payload includes the four standard claims expected by the Pure1
+    OAuth token endpoint:
+
+    * ``iss`` – issuer: the Pure1 application ID.
+    * ``sub`` – subject: same as ``iss`` for Pure1 API-key clients.
+    * ``aud`` – audience: the Pure1 token URL (prevents token reuse on
+      other services).
+    * ``iat`` / ``exp`` – issued-at / expiry timestamps (seconds since
+      UNIX epoch, standard JWT).
+
     Args:
         app_id: The Pure1 application/issuer ID (e.g. ``pure1:apikey:…``).
         private_key_pem: PEM-encoded RSA private key string.
@@ -63,7 +73,16 @@ def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 315
     now = int(time.time())
     header_b64  = _b64url(json.dumps({"typ": "JWT", "alg": "RS256"}, separators=(",", ":")).encode())
     payload_b64 = _b64url(
-        json.dumps({"iss": app_id, "iat": now, "exp": now + expiry_seconds}, separators=(",", ":")).encode()
+        json.dumps(
+            {
+                "iss": app_id,
+                "sub": app_id,
+                "aud": PURE1_TOKEN_URL,
+                "iat": now,
+                "exp": now + expiry_seconds,
+            },
+            separators=(",", ":"),
+        ).encode()
     )
     signing_input = f"{header_b64}.{payload_b64}".encode()
 

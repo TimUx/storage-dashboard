@@ -1023,6 +1023,13 @@ def api_pure1_test():
             'subject_token': '<JWT signed with your private key>',
             'subject_token_type': 'urn:ietf:params:oauth:token-type:jwt',
         },
+        'jwt_claims': {
+            'iss': settings.pure1_app_id,
+            'sub': settings.pure1_app_id,
+            'aud': PURE1_TOKEN_URL,
+            'iat': '<current unix timestamp>',
+            'exp': '<iat + expiry_seconds>',
+        },
     }
 
     try:
