@@ -177,7 +177,7 @@ def api_export_excel():
     ws.title = 'Kapazität wochenweise'
 
     headers = ['Woche (ISO)', 'Wochenstart', 'Storage Art',
-               'Gesamt [TB]', 'Genutzt [TB]', 'Frei [TB]', 'Genutzt [%]']
+               'Gesamt [TiB]', 'Genutzt [TiB]', 'Frei [TiB]', 'Genutzt [%]']
     header_fill = PatternFill(fill_type='solid', fgColor='0098DB')
     header_font = Font(bold=True, color='FFFFFF')
 
