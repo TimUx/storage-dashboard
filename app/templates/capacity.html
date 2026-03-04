@@ -805,22 +805,22 @@ function rowHtml(label, row, isTotalRow, showProvisioned, showEffectiveUsedCol, 
     return html;
 }
 
-/** Compute total SoD effective used [TB] across all subscription items. */
+/** Compute total SoD effective used [TiB] across all subscription items. */
 function getSodTotalEffectiveUsedTb() {
     if (!sodData || !sodData.items || sodData.items.length === 0) return null;
     let total = 0;
     for (const it of sodData.items) { total += it.usage?.data || 0; }
-    return total / 1e12;
+    return total / 1024 ** 4;
 }
 
-/** Build a map: resource/array name (lowercase) → effective used TB. */
+/** Build a map: resource/array name (lowercase) → effective used TiB. */
 function getSodResourceMap() {
     const map = {};
     if (!sodData || !sodData.items) return map;
     for (const it of sodData.items) {
         for (const r of (it.resources || [])) {
             const name = (r.name || '').toLowerCase();
-            if (name) map[name] = (map[name] || 0) + (r.usage?.data || 0) / 1e12;
+            if (name) map[name] = (map[name] || 0) + (r.usage?.data || 0) / 1024 ** 4;
         }
     }
     return map;
@@ -886,8 +886,8 @@ function buildSodSummarySection(sodDataArg) {
             totalReserved += it.reservation?.data || 0;
             totalEffective += it.usage?.data || 0;
         }
-        totalReserved /= 1e12;
-        totalEffective /= 1e12;
+        totalReserved /= 1024 ** 4;
+        totalEffective /= 1024 ** 4;
         const utilization = totalReserved > 0 ? (totalEffective / totalReserved * 100) : 0;
         const onDemandTb = Math.max(0, totalEffective - totalReserved);
         const ts = sodDataArg.fetched_at ? new Date(
@@ -898,10 +898,10 @@ function buildSodSummarySection(sodDataArg) {
             <table class="cap-table">
                 <thead><tr>
                     <th>Bezeichnung</th>
-                    <th>Reservierte Kapazität [TB]</th>
-                    <th>Effektiv Genutzt [TB]</th>
+                    <th>Reservierte Kapazität [TiB]</th>
+                    <th>Effektiv Genutzt [TiB]</th>
                     <th>Auslastung [%]</th>
-                    <th>On Demand [TB]</th>
+                    <th>On Demand [TiB]</th>
                 </tr></thead>
                 <tbody>
                     <tr class="total-row">
@@ -992,15 +992,15 @@ function buildSodSubTable(sodDataArg) {
         for (const [subName, lics] of Object.entries(bySub).sort((a, b) => a[0].localeCompare(b[0]))) {
             let rows = '';
             for (const lic of lics) {
-                const res  = (lic.reservation?.data       || 0) / 1e12;
-                const used = (lic.usage?.data              || 0) / 1e12;
-                const aOD  = (lic.average_on_demand?.data  || 0) / 1e12;
-                const qOD  = (lic.quarter_on_demand?.data  || 0) / 1e12;
+                const res  = (lic.reservation?.data       || 0) / 1024 ** 4;
+                const used = (lic.usage?.data              || 0) / 1024 ** 4;
+                const aOD  = (lic.average_on_demand?.data  || 0) / 1024 ** 4;
+                const qOD  = (lic.quarter_on_demand?.data  || 0) / 1024 ** 4;
                 let arrCell = '–';
                 if (lic.resources && lic.resources.length) {
                     arrCell = '<ul class="sod-resources">'
                         + lic.resources.map(r =>
-                            `<li>${escHtml(r.name)}: ${((r.usage?.data || 0) / 1e12).toFixed(2)} TB</li>`
+                            `<li>${escHtml(r.name)}: ${((r.usage?.data || 0) / 1024 ** 4).toFixed(2)} TiB</li>`
                         ).join('') + '</ul>';
                 }
                 rows += `<tr>
@@ -1013,10 +1013,10 @@ function buildSodSubTable(sodDataArg) {
                     <td>${arrCell}</td>
                 </tr>`;
             }
-            const sRes  = lics.reduce((s, l) => s + (l.reservation?.data       || 0), 0) / 1e12;
-            const sUsed = lics.reduce((s, l) => s + (l.usage?.data              || 0), 0) / 1e12;
-            const sAOD  = lics.reduce((s, l) => s + (l.average_on_demand?.data  || 0), 0) / 1e12;
-            const sQOD  = lics.reduce((s, l) => s + (l.quarter_on_demand?.data  || 0), 0) / 1e12;
+            const sRes  = lics.reduce((s, l) => s + (l.reservation?.data       || 0), 0) / 1024 ** 4;
+            const sUsed = lics.reduce((s, l) => s + (l.usage?.data              || 0), 0) / 1024 ** 4;
+            const sAOD  = lics.reduce((s, l) => s + (l.average_on_demand?.data  || 0), 0) / 1024 ** 4;
+            const sQOD  = lics.reduce((s, l) => s + (l.quarter_on_demand?.data  || 0), 0) / 1024 ** 4;
             rows += `<tr class="total-row">
                 <td>Gesamt</td><td></td>
                 <td>${sRes.toFixed(2)}</td><td>${sUsed.toFixed(2)}</td>
@@ -1027,8 +1027,8 @@ function buildSodSubTable(sodDataArg) {
             <div class="cap-table-wrap"><table class="cap-table">
                 <thead><tr>
                     <th>Lizenz-Name</th><th>Service Tier</th>
-                    <th>Reserviert [TB]</th><th>Effektiv Genutzt [TB]</th>
-                    <th>Ø On Demand [TB]</th><th>Q. On Demand [TB]</th>
+                    <th>Reserviert [TiB]</th><th>Effektiv Genutzt [TiB]</th>
+                    <th>Ø On Demand [TiB]</th><th>Q. On Demand [TiB]</th>
                     <th>Arrays (Eff. Used)</th>
                 </tr></thead>
                 <tbody>${rows}</tbody>
@@ -1306,7 +1306,7 @@ async function loadHistory(range) {
                 const sod = artData.sod;
                 const sodMany = sod.labels.length > 60;
                 datasets.push({
-                    label: 'SoD Reserviert [TB]',
+                    label: 'SoD Reserviert [TiB]',
                     data: sod.reserved.map((v, i) => ({x: sod.labels[i], y: v})),
                     borderColor: '#FF5C00',
                     backgroundColor: 'transparent',
@@ -1316,7 +1316,7 @@ async function loadHistory(range) {
                     _group: 'commercial',
                 });
                 datasets.push({
-                    label: 'SoD Effektiv Genutzt [TB]',
+                    label: 'SoD Effektiv Genutzt [TiB]',
                     data: sod.effective_used.map((v, i) => ({x: sod.labels[i], y: v})),
                     borderColor: '#C20054',
                     backgroundColor: 'rgba(194,0,84,.08)',
@@ -1326,7 +1326,7 @@ async function loadHistory(range) {
                     _group: 'commercial',
                 });
                 datasets.push({
-                    label: 'SoD On Demand [TB]',
+                    label: 'SoD On Demand [TiB]',
                     data: sod.on_demand.map((v, i) => ({x: sod.labels[i], y: v})),
                     borderColor: '#FFB800',
                     backgroundColor: 'transparent',
@@ -1337,7 +1337,7 @@ async function loadHistory(range) {
                 });
                 if (sod.effective_forecast_values && sod.effective_forecast_values.length > 0) {
                     datasets.push({
-                        label: 'SoD Eff. Genutzt Prognose [TB]',
+                        label: 'SoD Eff. Genutzt Prognose [TiB]',
                         data: sod.effective_forecast_values.map((v, i) => ({x: sod.effective_forecast_labels[i], y: v})),
                         borderColor: '#C20054',
                         backgroundColor: 'transparent',
