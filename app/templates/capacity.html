@@ -571,7 +571,7 @@ function buildSodSummarySection(sodDataArg) {
                 </tr></thead>
                 <tbody>
                     <tr class="total-row">
-                        <td>Storage on Demand</td>
+                        <td>Block ( Pure )</td>
                         <td>${totalReserved.toFixed(2)}</td>
                         <td>${totalEffective.toFixed(2)}</td>
                         <td>${pctBarHtml(utilization)}</td>
@@ -587,7 +587,7 @@ function buildSodSummarySection(sodDataArg) {
     }
     return `<div class="cap-section">
         <div class="cap-section-header">
-            <span>📊 Storage on Demand (Pure1)</span>
+            <span>📊 Storage on Demand</span>
         </div>
         ${bodyHtml}
     </div>`;
@@ -718,7 +718,7 @@ function buildSodSubTable(sodDataArg) {
     return `<div class="sod-subtable-wrap">
         <div class="sod-subtable-header" aria-expanded="false"
              onclick="toggleSodSubTable('${uid}', this)">
-            <span>📊 Storage on Demand (Pure1)</span>
+            <span>📊 Storage on Demand</span>
             <span class="sod-toggle-icon" aria-hidden="true">▶</span>
         </div>
         <div id="${uid}" class="sod-subtable-body" style="display:none;">${bodyHtml}</div>
@@ -769,7 +769,7 @@ function renderByStorageArt(data) {
             </div>
         </div>`;
     }).join('');
-    if (pure1Configured) html += buildSodSummarySection(sodData);
+    if (pure1Configured) html = buildSodSummarySection(sodData) + html;
     el.innerHTML = html;
 }
 
@@ -785,7 +785,7 @@ function renderByEnvironment(data) {
         const sodRowEffMap = pure1Configured ? (effMaps.byEnvArt[g.environment] || null) : null;
         return buildSection(g.environment, 'Gruppierung nach Storage Art', g.rows, g.total, sodRowEffMap);
     }).join('');
-    if (pure1Configured) html += buildSodSummarySection(sodData);
+    if (pure1Configured) html = buildSodSummarySection(sodData) + html;
     el.innerHTML = html;
 }
 
@@ -801,7 +801,7 @@ function renderByDepartment(data) {
         const sodRowEffMap = pure1Configured ? (effMaps.byDeptLabel[g.department] || null) : null;
         return buildSection(g.department, 'Umgebung × Storage Art', g.rows, g.total, sodRowEffMap);
     }).join('');
-    if (pure1Configured) html += buildSodSummarySection(sodData);
+    if (pure1Configured) html = buildSodSummarySection(sodData) + html;
     el.innerHTML = html;
 }
 
@@ -856,13 +856,13 @@ function renderDetails(data) {
         const sodHtml = (isBlock && pure1Configured) ? buildSodSubTable(sodData) : '';
         return `<div class="cap-section">
             <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
+            ${sodHtml}
             <div class="cap-table-wrap">
                 <table class="cap-table">
                     <thead><tr>${headerCols}</tr></thead>
                     <tbody>${rows}</tbody>
                 </table>
             </div>
-            ${sodHtml}
         </div>`;
     }).join('');
 }
