@@ -28,6 +28,7 @@ ALLOWED_COLUMNS = {
     'proxy_https': 'TEXT',
     'proxy_no_proxy': 'TEXT',
     'dashboard_refresh_interval': 'INTEGER',
+    'on_demand_tb': 'FLOAT',
 }
 
 
@@ -246,6 +247,14 @@ def seed_initial_tags():
     return seeded
 
 
+def migrate_sod_history_table():
+    """Migrate sod_history table to add missing columns."""
+    migrations_applied = []
+    if add_column_if_not_exists('sod_history', 'on_demand_tb', ALLOWED_COLUMNS['on_demand_tb']):
+        migrations_applied.append('on_demand_tb')
+    return migrations_applied
+
+
 def run_all_migrations():
     """Run all pending database migrations"""
     logger.info("Starting database migrations...")
@@ -269,6 +278,11 @@ def run_all_migrations():
         # Check if app_settings table exists and run migrations
         if 'app_settings' in inspector.get_table_names():
             migrations = migrate_app_settings_table()
+            all_migrations.extend(migrations)
+
+        # Migrate sod_history table
+        if 'sod_history' in inspector.get_table_names():
+            migrations = migrate_sod_history_table()
             all_migrations.extend(migrations)
         
         # Seed initial tags if tag_groups table exists

@@ -199,13 +199,11 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
 
     # ── 4. Fetch metrics/history in batches ───────────────────────────────────
     # Pure1 API supports up to 32 timeseries (metric × resource combinations)
-    # per request.  With 2 metrics we can fit floor(32 / 2) = 16 licenses per
+    # per request.  With 3 metrics we can fit floor(32 / 3) = 10 licenses per
     # batch.
     # Ref: Pure1 API spec – GET /api/1.latest/metrics/history description.
     MAX_TIMESERIES_PER_REQUEST = 32
-    # METRIC_ON_DEMAND is not stored in SodHistory (no model field) so we omit
-    # it from the query to avoid wasting timeseries budget.
-    metric_names = [METRIC_RESERVED, METRIC_EFFECTIVE_USED]
+    metric_names = [METRIC_RESERVED, METRIC_EFFECTIVE_USED, METRIC_ON_DEMAND]
     batch_size = max(1, MAX_TIMESERIES_PER_REQUEST // len(metric_names))
     names_qs = ",".join(f"'{n}'" for n in metric_names)
 
@@ -269,6 +267,7 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
             "service_tier": info["service_tier"],
             "reserved_tb": (values.get(METRIC_RESERVED) or 0) / 1e12,
             "effective_used_tb": (values.get(METRIC_EFFECTIVE_USED) or 0) / 1e12,
+            "on_demand_tb": (values.get(METRIC_ON_DEMAND) or 0) / 1e12,
         })
     return result
 

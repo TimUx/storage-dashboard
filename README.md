@@ -31,8 +31,17 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 ### Kapazitätsreport – Details (alle Systeme)
 ![Kapazitätsreport – Details](screenshots/capacity-details.png)
 
-### Kapazitätsreport – Verlauf mit Prognose
+### Kapazitätsreport – Verlauf mit physischen & SoD-Linien, Filter und Prognose
 ![Kapazitätsreport – Verlauf](screenshots/capacity-history.png)
+
+### Kapazitätsreport – Verlauf Steuerleiste (Zeitraum, Linienfilter, Export/Import)
+![Kapazitätsreport – Verlauf Steuerleiste](screenshots/capacity-history-controls.png)
+
+### Kapazitätsreport – Import-Dialog: Physische Systeme (CSV)
+![Import-Dialog – Physische Systeme](screenshots/capacity-import-modal-physical.png)
+
+### Kapazitätsreport – Import-Dialog: Storage on Demand / Pure1 API
+![Import-Dialog – Storage on Demand](screenshots/capacity-import-modal-sod.png)
 
 > **Hinweis**: Das Dashboard verfügt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität.
 
@@ -41,6 +50,7 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
 - **Kapazitätsreport**: Tabellarische Kapazitätsübersicht aller Systeme unter `/capacity/` – gruppiert nach Storage Art (**Block → File → Object → Archiv → Backup**), Umgebung oder Tätigkeitsfeld, mit Verlaufsgraphen und Wachstumsprognose
+- **Verlaufsdiagramme**: Historische Kapazitätsgraphen in der gleichen Reihenfolge wie die Tabellen (Block → File → Object → Archiv → Backup). Der **Block-Graph** zeigt physische und SoD-Vertragswerte parallel in zwei Liniengruppen. Über einen **Linienfilter** direkt im Block-Graph-Header können physische oder SoD-Linien ein- und ausgeblendet werden.
 - **Storage on Demand (Pure1)**: Bei konfigurierter Pure1 API wird in allen Kapazitätsansichten (Nach Storage Art, Nach Umgebung, Nach Tätigkeitsfeld) eine kompakte SoD-Zusammenfassung angezeigt (Reservierte Kapazität, Effektiv Genutzt, Auslastung [%]). Die Kapazitätstabellen zeigen zusätzlich eine Spalte **„Effektiv Genutzt [TB]"**, die die Pure1-Effektivwerte (nach Deduplikation/Komprimierung) pro Zeile summiert. Vollständige Detailinformationen (Verträge, Lizenzen, Arrays) sind im Tab **Details** verfügbar:
   - Wöchentlich automatisch abgerufen, manuell per Knopfdruck aktualisierbar
   - Wird nur angezeigt, wenn Pure1 in den Einstellungen konfiguriert ist
@@ -347,7 +357,7 @@ Der Kapazitätsreport bietet eine umfassende tabellarische und grafische Auswert
 | **Nach Umgebung** | Eine Tabelle pro Umgebung (Produktion, Test/Dev) mit Zeilen je Storage-Typ und Total. Enthält ebenfalls die Pure1 SoD-Zusammenfassung am Ende. |
 | **Nach Tätigkeitsfeld** | Eine Tabelle pro Abteilung/Tätigkeitsfeld mit Zeilen für jede Umgebung × Storage-Typ-Kombination. Enthält ebenfalls die Pure1 SoD-Zusammenfassung am Ende. |
 | **Details** | Alle Einzelsysteme mit Name, Umgebung, Tätigkeitsfeld und Kapazitätswerten, gruppiert nach Storage-Typ. Im Block-Bereich zusätzlich eine aufklappbare Untertabelle mit vollständigen Pure1 SoD-Lizenzdaten (Reserviert, Effektiv Genutzt, On Demand, Arrays). |
-| **Verlauf** | Liniendiagramme pro Storage-Typ (Genutzt [TB] / Gesamt [TB]) mit wählbarem Zeitraum (Alle / 2J / 1J / 6M / 3M) und linearer Wachstumsprognose als gestrichelte Linie. |
+| **Verlauf** | Liniendiagramme pro Storage-Typ in der gleichen Reihenfolge wie die Tabellen (Block → File → Object → Archiv → Backup) mit wählbarem Zeitraum (Alle / 2J / 1J / 6M / 3M) und linearer Wachstumsprognose als gestrichelte Linie. Der Block-Graph zeigt zusätzlich SoD-Vertragslinien mit eigenem Filter. |
 
 **Spalten in den Kapazitätstabellen:**
 - Gesamt [TB], Genutzt [TB], Frei [TB]
@@ -363,7 +373,81 @@ DEMO_RESET=1 python examples/seed_demo_data.py
 python examples/seed_demo_data.py
 ```
 
-Das Skript legt 17 Demo-Systeme (Block, File, Archiv, Object, Backup) mit 2 Jahren täglicher Verlaufshistorie an.
+Das Skript legt 17 Demo-Systeme (Block, File, Archiv, Object, Backup) mit 2 Jahren täglicher Verlaufshistorie **und** SoD-Vertragsdaten (4 Lizenzen, wöchentlich) an.
+
+### Verlaufsdiagramme (`/capacity/` → Verlauf)
+
+Der **Verlauf**-Tab zeigt historische Kapazitätsgraphen für alle Storage-Typen.
+
+![Verlauf – Übersicht mit Block-Graph und SoD-Linien](screenshots/capacity-history-controls.png)
+
+**Sortierung und Reihenfolge:**
+
+Die Graphen erscheinen in der gleichen Reihenfolge wie die Tabellen: **Block → File → Object → Archiv → Backup**.
+
+**Physische und SoD-Linien im Block-Graphen:**
+
+Der Block-Graph zeigt physische und SoD-Vertragswerte parallel. Physische Linien (Pure blau / grün) und SoD-Linien (Pure Storage Farben Orange / Dunkelrot / Goldgelb) sind klar unterschieden:
+
+| Linie | Farbe | Bedeutung |
+|-------|-------|-----------|
+| Genutzt [TB] | 🔵 Blau | Physisch genutzte Kapazität |
+| Gesamt [TB] | 🟡 Grüngelb | Physisch installierte Gesamtkapazität |
+| Prognose Genutzt [TB] | 🔴 Dunkelrot, gestrichelt | Lineare Prognose der physischen Nutzung |
+| SoD Reserviert [TB] | 🟠 Orange | Vertraglich reservierte SoD-Kapazität |
+| SoD Effektiv Genutzt [TB] | 🟣 Magenta | SoD effektiv genutzte Kapazität |
+| SoD On Demand [TB] | 🟡 Goldgelb, gestrichelt | Über-Vertrag-Nutzung (On Demand) |
+| SoD Eff. Genutzt Prognose [TB] | 🟣 Magenta, gestrichelt | Lineare Prognose der SoD-Nutzung – zeigt ab wann On-Demand-Kapazität benötigt wird |
+
+![Block-Graph mit physischen und SoD-Linien](screenshots/capacity-history.png)
+
+**Linienfilter (nur im Block-Graphen):**
+
+Die Schaltflächen **🗄️ Physisch** und **☁️ SoD** befinden sich direkt im Header des Block-Graphen und blenden die jeweiligen Liniengruppen nur für diesen Graphen ein oder aus. Aktive Gruppen erscheinen farbig hervorgehoben, inaktive ausgegraut.
+
+![Verlauf-Steuerleiste und Block-Graph mit Linienfilter](screenshots/capacity-history-controls.png)
+
+### Export und Import historischer Daten (`/capacity/` → Verlauf)
+
+**Export:**
+- **📥 CSV** – Wochenweise aggregierte Verlaufsdaten als CSV-Datei
+- **📥 Excel** – Dasselbe als formatierte Excel-Tabelle (`.xlsx`) mit farbiger Kopfzeile
+- **📥 PDF** – Druckansicht der aktuell angezeigten Verlaufsgraphen (Chart.js → PNG → Browser-Druck)
+
+Der Zeitraum der Export-Daten richtet sich nach dem gewählten Zeitraum-Filter (Alle / 2J / 1J / 6M / 3M).
+
+**Import:**
+
+Über die Schaltfläche **📤 Importieren** öffnet sich ein modaler Dialog mit zwei Tabs:
+
+**Tab 1 – 🗄️ Physische Systeme (CSV-Import):**
+
+![Import-Dialog – Physische Systeme](screenshots/capacity-import-modal-physical.png)
+
+Importiert Tages-Kapazitätswerte für physische Speichersysteme per CSV-Upload (Drag & Drop oder Datei auswählen).
+
+CSV-Format:
+```
+date,system_name,total_tb,used_tb,free_tb,percent_used
+2024-01-08,mein-system-01,100.00,45.50,54.50,45.5
+2024-01-15,mein-system-01,100.00,47.20,52.80,47.2
+```
+
+- `date`: ISO-Datum (YYYY-MM-DD)
+- `system_name`: exakter Name des Speichersystems (wie im Dashboard konfiguriert)
+- `total_tb / used_tb / free_tb`: Kapazitäten in TB
+- `percent_used`: Auslastung in Prozent (0–100)
+- Bestehende Einträge für dieselbe Kombination aus Datum und System werden überschrieben
+
+**Tab 2 – ☁️ Storage on Demand / Pure1 API:**
+
+![Import-Dialog – Storage on Demand](screenshots/capacity-import-modal-sod.png)
+
+Ruft historische Verlaufsdaten (Reserved, Effective Used, On Demand) direkt von der Pure1 REST API ab und speichert sie in der lokalen Datenbank. Nur verfügbar wenn Pure1 in den Einstellungen konfiguriert ist.
+
+- Start- und Enddatum wählen (Pure1 speichert Daten für ca. 2 Jahre)
+- Abruf via `GET /api/1.latest/metrics/history` mit wöchentlicher Auflösung
+- Bestehende Einträge werden überschrieben
 
 ### Pure1 Storage on Demand (`/capacity/`)
 
@@ -372,6 +456,7 @@ Das Skript legt 17 Demo-Systeme (Block, File, Archiv, Object, Backup) mit 2 Jahr
 **Anzeige im Kapazitätsreport:**
 - **Zusammenfassungsansichten** (Nach Storage Art, Nach Umgebung, Nach Tätigkeitsfeld): Eine kompakte SoD-Zusammenfassungszeile am Ende jeder Seite mit den kumulierten Werten über alle Verträge: Reservierte Kapazität [TB], Effektiv Genutzt [TB] und Auslastung [%]. Die Kapazitätstabellen zeigen zusätzlich in der Spalte **„Effektiv Genutzt [TB]"** die auf die jeweilige Gruppe (z. B. Betriebsumgebung) summierten Pure1-Effektivwerte.
 - **Details-Tab**: Vollständige SoD-Detailinformationen im Block-Bereich als aufklappbare Untertabelle mit Verträgen, Lizenzen, Service-Tiers und Effektivwerten je Array.
+- **Verlauf-Tab (Block-Graph)**: SoD-Historische Verlaufswerte (Reserved, Effektiv Genutzt, On Demand) erscheinen als zusätzliche Liniengruppe im Block-Graphen, wenn historische SoD-Daten per Pure1-Import eingelesen wurden. Die Werte lassen sich per Linienfilter ein-/ausblenden.
 
 **Einrichtung:**
 1. Navigieren Sie zu `/admin/settings` und öffnen Sie den Tab **🔑 API-Zugänge**
