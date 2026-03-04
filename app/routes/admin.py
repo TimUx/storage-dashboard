@@ -1074,6 +1074,11 @@ def api_pure1_test():
             '# Kodiertes JWT (header.payload.signature):',
             f'  {_trunc(jwt_token, 80)}',
             f'  [{len(jwt_token)} Zeichen gesamt]',
+            '',
+            '# curl-Befehl für Token-Anfrage (zum manuellen Testen):',
+            f"curl -s -X POST '{PURE1_TOKEN_URL}' \\",
+            f"  -H 'Authorization: Bearer {jwt_token}' \\",
+            "  -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'",
         ]
         steps.append(_step(1, 'JWT bauen (RS256)', 'success', step1_lines))
 
@@ -1115,6 +1120,13 @@ def api_pure1_test():
         for key in ('token_type', 'expires_in', 'issued_token_type'):
             if key in resp_json:
                 step2_lines.append(f'  {key:<14}= {resp_json[key]}')
+        arrays_url_full = f'{PURE1_API_BASE}/arrays'
+        step2_lines += [
+            '',
+            '# curl-Befehl für API-Anfrage (zum manuellen Testen):',
+            f"curl -s '{arrays_url_full}?limit=1' \\",
+            f"  -H 'Authorization: Bearer {access_token}'",
+        ]
         steps.append(_step(2, 'Access Token abrufen', 'success', step2_lines))
 
     except Exception as exc:
