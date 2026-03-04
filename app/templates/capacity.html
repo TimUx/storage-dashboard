@@ -1101,8 +1101,8 @@ function renderByStorageArt(data) {
             </div>
         </div>`;
     }).join('');
-    const gridHtml = `<div class="cap-grid">${html}</div>`;
-    el.innerHTML = pure1Configured ? buildSodSummarySection(sodData) + gridHtml : gridHtml;
+    const sodHtml = pure1Configured ? buildSodSummarySection(sodData) : '';
+    el.innerHTML = `<div class="cap-grid">${sodHtml}${html}</div>`;
 }
 
 // ── Render: By Environment ────────────────────────────────────────────────
@@ -1117,8 +1117,8 @@ function renderByEnvironment(data) {
         const sodRowEffMap = pure1Configured ? (effMaps.byEnvArt[g.environment] || null) : null;
         return buildSection(g.environment, 'Gruppierung nach Storage Art', g.rows, g.total, sodRowEffMap);
     }).join('');
-    const gridHtml = `<div class="cap-grid">${html}</div>`;
-    el.innerHTML = pure1Configured ? buildSodSummarySection(sodData) + gridHtml : gridHtml;
+    const sodHtml = pure1Configured ? buildSodSummarySection(sodData) : '';
+    el.innerHTML = `<div class="cap-grid">${sodHtml}${html}</div>`;
 }
 
 // ── Render: By Department ─────────────────────────────────────────────────
@@ -1133,8 +1133,8 @@ function renderByDepartment(data) {
         const sodRowEffMap = pure1Configured ? (effMaps.byDeptLabel[g.department] || null) : null;
         return buildSection(g.department, 'Umgebung × Storage Art', g.rows, g.total, sodRowEffMap);
     }).join('');
-    const gridHtml = `<div class="cap-grid">${html}</div>`;
-    el.innerHTML = pure1Configured ? buildSodSummarySection(sodData) + gridHtml : gridHtml;
+    const sodHtml = pure1Configured ? buildSodSummarySection(sodData) : '';
+    el.innerHTML = `<div class="cap-grid">${sodHtml}${html}</div>`;
 }
 
 // ── Render: Details ───────────────────────────────────────────────────────
