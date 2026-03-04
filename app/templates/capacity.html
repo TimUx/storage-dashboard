@@ -188,6 +188,190 @@
 .range-btn:hover  { background: rgba(0,152,219,.1); }
 .range-btn.active { background: var(--cap-blue); color: white; border-color: var(--cap-blue); }
 
+/* ── Export / Import buttons ── */
+.history-actions { display: flex; gap: .4rem; margin-left: auto; flex-wrap: wrap; }
+.export-btn {
+    background: var(--cap-bg);
+    border: 1px solid var(--cap-border);
+    padding: .3rem .7rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: .82rem;
+    font-weight: 500;
+    transition: all .2s;
+    text-decoration: none;
+    color: var(--cap-text);
+}
+.export-btn:hover { background: rgba(0,152,219,.1); color: var(--cap-blue); }
+.import-btn {
+    background: var(--cap-bg);
+    border: 1px solid var(--cap-border);
+    padding: .3rem .7rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: .82rem;
+    font-weight: 500;
+    transition: all .2s;
+    color: var(--cap-text);
+}
+.import-btn:hover { background: rgba(0,152,219,.1); color: var(--cap-blue); }
+
+/* ── Modal ── */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal-box {
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.18);
+    max-width: 640px;
+    width: 92%;
+    padding: 1.75rem 2rem;
+    position: relative;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+.modal-box h3 { margin: 0 0 1rem; font-size: 1.1rem; color: var(--cap-blue); }
+.modal-close {
+    position: absolute;
+    top: .75rem; right: 1rem;
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    cursor: pointer;
+    color: var(--cap-muted);
+    line-height: 1;
+}
+.modal-close:hover { color: var(--cap-red); }
+
+/* ── Modal import tabs ── */
+.import-tabs {
+    display: flex;
+    border-bottom: 2px solid var(--cap-border);
+    margin-bottom: 1rem;
+    gap: 0;
+}
+.import-tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: .5rem 1.1rem;
+    cursor: pointer;
+    font-size: .88rem;
+    font-weight: 500;
+    color: var(--cap-muted);
+    margin-bottom: -2px;
+    transition: all .2s;
+}
+.import-tab-btn:hover { color: var(--cap-blue); }
+.import-tab-btn.active { color: var(--cap-blue); border-bottom-color: var(--cap-blue); }
+.import-tab-pane { display: none; }
+.import-tab-pane.active { display: block; }
+
+.type-badge {
+    display: inline-block;
+    background: rgba(0,152,219,.12);
+    color: var(--cap-blue);
+    border-radius: 4px;
+    padding: .1rem .45rem;
+    font-size: .78rem;
+    font-weight: 600;
+    vertical-align: middle;
+    margin-left: .2rem;
+}
+.type-badge.sod { background: rgba(167,2,64,.1); color: var(--cap-red); }
+
+/* ── Pure1 historical import panel ── */
+.pure1-import-panel {
+    background: #f8fafb;
+    border: 1px solid var(--cap-border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: .75rem 0 .5rem;
+}
+.pure1-date-row {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin-bottom: .75rem;
+}
+.pure1-date-row label {
+    font-size: .85rem;
+    font-weight: 500;
+    color: var(--cap-text);
+    white-space: nowrap;
+}
+.pure1-date-row input[type="date"] {
+    padding: .35rem .6rem;
+    border: 1px solid var(--cap-border);
+    border-radius: 5px;
+    font-size: .85rem;
+    color: var(--cap-text);
+    background: white;
+}
+.pure1-import-btn {
+    background: var(--cap-blue);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: .45rem 1.1rem;
+    font-size: .88rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .2s;
+}
+.pure1-import-btn:hover { background: #007ab8; }
+.pure1-import-btn:disabled { background: #aaa; cursor: not-allowed; }
+.pure1-not-configured {
+    background: rgba(167,2,64,.05);
+    border: 1px solid rgba(167,2,64,.2);
+    border-radius: 6px;
+    padding: .75rem 1rem;
+    font-size: .85rem;
+    color: var(--cap-red);
+    margin: .75rem 0;
+}
+
+.csv-format-box {
+    background: #f5f7fa;
+    border: 1px solid var(--cap-border);
+    border-radius: 6px;
+    padding: .75rem 1rem;
+    font-family: monospace;
+    font-size: .82rem;
+    white-space: pre-wrap;
+    margin: .75rem 0 1rem;
+    color: #333;
+}
+.import-drop-area {
+    border: 2px dashed var(--cap-border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s;
+    font-size: .9rem;
+    color: var(--cap-muted);
+}
+.import-drop-area:hover, .import-drop-area.dragover { border-color: var(--cap-blue); color: var(--cap-blue); }
+.import-result {
+    margin-top: .75rem;
+    padding: .6rem .9rem;
+    border-radius: 6px;
+    font-size: .88rem;
+    display: none;
+}
+.import-result.success { background: rgba(0,180,80,.1); color: #0a7a35; border: 1px solid rgba(0,180,80,.25); }
+.import-result.error   { background: rgba(167,2,64,.07); color: var(--cap-red); border: 1px solid rgba(167,2,64,.2); }
+
 .chart-container {
     position: relative;
     padding: 1rem 1.2rem;
@@ -310,8 +494,113 @@
             <button class="range-btn"        data-range="6m"   onclick="loadHistory('6m')">6 Monate</button>
             <button class="range-btn"        data-range="3m"   onclick="loadHistory('3m')">3 Monate</button>
         </div>
+        <div class="history-actions">
+            <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV</button>
+            <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
+            <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF</button>
+            <button class="import-btn" onclick="openImportModal()" title="Historische Daten aus CSV importieren">📤 Importieren</button>
+        </div>
     </div>
     <div id="historyContent"><div class="cap-loading">Lade Verlaufsdaten…</div></div>
+</div>
+
+<!-- ── Import Modal ── -->
+<div class="modal-overlay" id="importModal" onclick="closeImportModal(event)">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeImportModal()" aria-label="Schließen">×</button>
+        <h3>📤 Historische Daten importieren</h3>
+        <p style="font-size:.85rem;color:var(--cap-muted);margin-bottom:.75rem;">
+            Der Import unterstützt <strong>zwei verschiedene Datenkategorien</strong>, die in der Datenbank
+            getrennt gespeichert werden. Wählen Sie den passenden Tab für Ihre Importdatei.
+        </p>
+
+        <!-- Tab navigation -->
+        <div class="import-tabs" role="tablist">
+            <button class="import-tab-btn active" data-import-tab="physical"
+                    onclick="switchImportTab('physical')" role="tab">
+                🗄️ Physische Systeme
+                <span class="type-badge">Block · File · Object · Archiv · Backup</span>
+            </button>
+            <button class="import-tab-btn" data-import-tab="sod"
+                    onclick="switchImportTab('sod')" role="tab">
+                ☁️ Storage on Demand (Pure1)
+                <span class="type-badge sod">Block / Evergreen One</span>
+            </button>
+        </div>
+
+        <!-- ── Tab 1: Physical systems ── -->
+        <div class="import-tab-pane active" id="import-tab-physical">
+            <p style="font-size:.85rem;color:var(--cap-muted);margin-bottom:.5rem;">
+                Importiert Kapazitätsdaten für <strong>physische Speichersysteme</strong> (Block, File,
+                Object, Archiv, Backup). Jede Zeile entspricht einer Tages-Messung eines im Dashboard
+                konfigurierten Systems. Bestehende Einträge für dieselbe Kombination aus Datum und
+                System werden überschrieben.
+            </p>
+            <p style="font-size:.85rem;font-weight:600;margin-bottom:.25rem;">CSV-Format – Physische Systeme:</p>
+            <div class="csv-format-box">date,system_name,total_tb,used_tb,free_tb,percent_used
+2024-01-08,mein-system-01,100.00,45.50,54.50,45.5
+2024-01-15,mein-system-01,100.00,47.20,52.80,47.2</div>
+            <p style="font-size:.8rem;color:var(--cap-muted);margin-bottom:1rem;">
+                • <strong>date</strong>: ISO-Datum (YYYY-MM-DD)<br>
+                • <strong>system_name</strong>: exakter Name des Speichersystems (wie im Dashboard konfiguriert)<br>
+                • <strong>total_tb / used_tb / free_tb</strong>: Kapazitäten in TB<br>
+                • <strong>percent_used</strong>: Auslastung in Prozent (0–100)
+            </p>
+            <div class="import-drop-area" id="importDropAreaPhys"
+                 onclick="document.getElementById('importFileInputPhys').click()"
+                 ondragover="handleDragOver(event, 'Phys')"
+                 ondragleave="handleDragLeave('Phys')"
+                 ondrop="handleDrop(event, 'physical')">
+                📁 CSV-Datei hierher ziehen oder klicken zum Auswählen
+            </div>
+            <input type="file" id="importFileInputPhys" accept=".csv" style="display:none"
+                   onchange="handleFileSelect(this.files[0], 'physical')">
+            <div class="import-result" id="importResultPhys"></div>
+        </div>
+
+        <!-- ── Tab 2: Storage on Demand ── -->
+        <div class="import-tab-pane" id="import-tab-sod">
+            <p style="font-size:.85rem;color:var(--cap-muted);margin-bottom:.5rem;">
+                Importiert historische Daten für <strong>Storage on Demand (Pure1 / Evergreen One)</strong>
+                direkt über die Pure1 REST API. Die Daten werden je Lizenz und Tag aus dem
+                <em>Metrics History</em>-Endpunkt von Pure1 abgerufen und in der Datenbank gespeichert.
+                Sie sind damit unabhängig vom wöchentlichen Live-Cache und erlauben eine vollständige
+                Rückerfassung historischer Werte.
+            </p>
+            <p style="font-size:.83rem;color:var(--cap-muted);margin-bottom:.5rem;">
+                <strong>Pure1 API speichert Tageswerte üblicherweise für ca. 2 Jahre</strong> zurück.
+                Für ältere Zeiträume ist kein direkter Abruf möglich.
+            </p>
+            {% if pure1_configured %}
+            <div class="pure1-import-panel">
+                <div class="pure1-date-row">
+                    <label for="sodHistoryStart">Von:</label>
+                    <input type="date" id="sodHistoryStart">
+                    <label for="sodHistoryEnd">Bis:</label>
+                    <input type="date" id="sodHistoryEnd">
+                    <button class="pure1-import-btn" id="sodImportBtn"
+                            onclick="importSodHistoryFromPure1()">
+                        ☁️ Von Pure1 importieren
+                    </button>
+                </div>
+                <p style="font-size:.79rem;color:var(--cap-muted);margin:0;">
+                    Der Abruf kann je nach Umfang einige Sekunden dauern.
+                    Bestehende Einträge für denselben Tag und dieselbe Lizenz werden überschrieben.
+                </p>
+            </div>
+            {% else %}
+            <div class="pure1-not-configured">
+                ⚠ Pure1 API-Zugangsdaten nicht konfiguriert.<br>
+                Bitte zuerst unter
+                <a href="/admin/settings" style="color:var(--cap-red);font-weight:600;">
+                    Admin → Einstellungen → API-Zugänge
+                </a>
+                konfigurieren.
+            </div>
+            {% endif %}
+            <div class="import-result" id="importResultSod"></div>
+        </div>
+    </div>
 </div>
 
 <!-- Chart.js (served locally for reliability in air-gapped environments) -->
@@ -992,6 +1281,200 @@ async function triggerSodRefresh() {
         btn.textContent = '🔄 Jetzt abrufen';
     }
 }
+
+// ── Export helpers ────────────────────────────────────────────────────────
+function exportCsv() {
+    const range = currentRange();
+    window.location.href = '/capacity/api/export/csv?range=' + encodeURIComponent(range);
+}
+
+function exportExcel() {
+    const range = currentRange();
+    window.location.href = '/capacity/api/export/excel?range=' + encodeURIComponent(range);
+}
+
+function exportPdf() {
+    // Capture each Chart.js canvas and open a print-ready page
+    const arts = Object.keys(chartInstances);
+    if (arts.length === 0) {
+        alert('Keine Verlaufsdaten vorhanden. Bitte erst einen Zeitraum laden.');
+        return;
+    }
+    let imgHtml = arts.map(art => {
+        const chart = chartInstances[art];
+        if (!chart) return '';
+        const img = chart.toBase64Image('image/png', 1.0);
+        return `<div style="margin-bottom:24px;">
+            <h3 style="font-family:sans-serif;color:#0098DB;margin-bottom:8px;">${art}</h3>
+            <img src="${img}" style="width:100%;max-width:900px;border:1px solid #e0e0e0;border-radius:6px;">
+        </div>`;
+    }).join('');
+
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head>
+        <meta charset="utf-8">
+        <title>Kapazitätsverlauf – Export</title>
+        <style>
+            body { font-family: sans-serif; margin: 2rem; color: #333; }
+            h1 { color: #0098DB; border-bottom: 2px solid #0098DB; padding-bottom: .5rem; }
+            @media print { button { display: none; } }
+        </style>
+    </head><body>
+        <h1>📊 Kapazitätsverlauf</h1>
+        <p style="color:#666;font-size:.9rem;">Exportiert am ${new Date().toLocaleString('de-DE')} – Zeitraum: ${currentRange()}</p>
+        ${imgHtml}
+        <button onclick="window.print()" style="padding:.5rem 1.5rem;background:#0098DB;color:white;border:none;border-radius:6px;cursor:pointer;font-size:1rem;margin-top:1rem;">
+            🖨 Drucken / Als PDF speichern
+        </button>
+    </body></html>`);
+    win.document.close();
+}
+
+// ── Import helpers ────────────────────────────────────────────────────────
+let _activeImportTab = 'physical';
+
+function _importSuffix(type) { return type === 'sod' ? 'Sod' : 'Phys'; }
+
+function switchImportTab(tab) {
+    _activeImportTab = tab;
+    document.querySelectorAll('.import-tab-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.importTab === tab)
+    );
+    document.querySelectorAll('.import-tab-pane').forEach(p =>
+        p.classList.toggle('active', p.id === 'import-tab-' + tab)
+    );
+}
+
+function openImportModal() {
+    document.getElementById('importModal').classList.add('open');
+    // Reset physical tab
+    const resPhys = document.getElementById('importResultPhys');
+    const dropPhys = document.getElementById('importDropAreaPhys');
+    const inpPhys  = document.getElementById('importFileInputPhys');
+    if (resPhys)  resPhys.style.display = 'none';
+    if (dropPhys) dropPhys.textContent = '📁 CSV-Datei hierher ziehen oder klicken zum Auswählen';
+    if (inpPhys)  inpPhys.value = '';
+    // Reset SoD result and pre-fill date range (last 2 years)
+    const resSod = document.getElementById('importResultSod');
+    if (resSod) resSod.style.display = 'none';
+    const today = new Date();
+    const twoYearsAgo = new Date(today);
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+    const fmt = d => d.toISOString().slice(0, 10);
+    const startEl = document.getElementById('sodHistoryStart');
+    const endEl   = document.getElementById('sodHistoryEnd');
+    if (startEl && !startEl.value) startEl.value = fmt(twoYearsAgo);
+    if (endEl   && !endEl.value)   endEl.value   = fmt(today);
+    switchImportTab('physical');
+}
+
+function closeImportModal(e) {
+    if (e && e.target !== document.getElementById('importModal')) return;
+    document.getElementById('importModal').classList.remove('open');
+}
+
+function handleDragOver(e, suffix) {
+    e.preventDefault();
+    document.getElementById('importDropArea' + suffix).classList.add('dragover');
+}
+function handleDragLeave(suffix) {
+    document.getElementById('importDropArea' + suffix).classList.remove('dragover');
+}
+function handleDrop(e, type) {
+    e.preventDefault();
+    const suffix = _importSuffix(type);
+    document.getElementById('importDropArea' + suffix).classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFileSelect(file, type);
+}
+function handleFileSelect(file, type) {
+    if (!file) return;
+    const suffix = _importSuffix(type);
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+        showImportResult(suffix, false, 'Nur CSV-Dateien werden unterstützt.');
+        return;
+    }
+    document.getElementById('importDropArea' + suffix).textContent = `📄 ${file.name} – wird hochgeladen…`;
+    uploadImportFile(file);
+}
+
+async function uploadImportFile(file) {
+    const suffix = 'Phys';
+    const form = new FormData();
+    form.append('file', file);
+    try {
+        const resp = await fetch('/capacity/api/import/history', {method: 'POST', body: form});
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+            showImportResult(suffix, false, data.error || 'Unbekannter Fehler.');
+        } else {
+            let msg = `✅ ${data.imported} Datensatz/Datensätze importiert.`;
+            if (data.skipped > 0) msg += ` ${data.skipped} übersprungen.`;
+            if (data.errors && data.errors.length > 0) {
+                msg += '\n\nHinweise:\n' + data.errors.join('\n');
+            }
+            showImportResult(suffix, true, msg);
+            document.getElementById('importDropAreaPhys').textContent =
+                '📁 CSV-Datei hierher ziehen oder klicken zum Auswählen';
+            loadHistory(currentRange());
+        }
+    } catch (err) {
+        showImportResult(suffix, false, 'Fehler beim Hochladen: ' + err.message);
+    }
+}
+
+async function importSodHistoryFromPure1() {
+    const startDate = document.getElementById('sodHistoryStart')?.value;
+    const endDate   = document.getElementById('sodHistoryEnd')?.value;
+    if (!startDate || !endDate) {
+        showImportResult('Sod', false, 'Bitte Start- und Enddatum angeben.');
+        return;
+    }
+    if (endDate < startDate) {
+        showImportResult('Sod', false, 'Enddatum darf nicht vor Startdatum liegen.');
+        return;
+    }
+    const btn = document.getElementById('sodImportBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Importiere…'; }
+    showImportResult('Sod', true, '⏳ Daten werden von Pure1 abgerufen…');
+    try {
+        const resp = await fetch('/capacity/api/import/sod-history-pure1', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({start_date: startDate, end_date: endDate}),
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+            showImportResult('Sod', false, data.error || 'Unbekannter Fehler.');
+        } else {
+            let msg = `✅ ${data.imported} Datensatz/Datensätze importiert.`;
+            if (data.skipped > 0) msg += ` ${data.skipped} übersprungen.`;
+            if (data.errors && data.errors.length > 0) {
+                msg += '\n\nHinweise:\n' + data.errors.join('\n');
+            }
+            showImportResult('Sod', true, msg);
+        }
+    } catch (err) {
+        showImportResult('Sod', false, 'Fehler beim Abrufen: ' + err.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '☁️ Von Pure1 importieren'; }
+    }
+}
+
+function showImportResult(suffix, success, msg) {
+    const el = document.getElementById('importResult' + suffix);
+    el.className = 'import-result ' + (success ? 'success' : 'error');
+    el.style.display = 'block';
+    el.textContent = msg;
+    el.style.whiteSpace = 'pre-wrap';
+}
+
+// ── Escape key closes import modal ────────────────────────────────────────
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('importModal').classList.contains('open')) {
+        document.getElementById('importModal').classList.remove('open');
+    }
+});
 
 // ── Init ───────────────────────────────────────────────────────────────────
 loadCapacityData();

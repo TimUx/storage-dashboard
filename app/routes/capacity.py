@@ -1,6 +1,8 @@
 """Capacity Report routes – /capacity/"""
+import csv
+import io
 import logging
-from flask import Blueprint, render_template, jsonify, request, current_app
+from flask import Blueprint, render_template, jsonify, request, current_app, Response
 
 bp = Blueprint('capacity', __name__, url_prefix='/capacity')
 logger = logging.getLogger(__name__)
@@ -108,3 +110,158 @@ def api_refresh():
     app = current_app._get_current_object()
     trigger_refresh(app)
     return jsonify({'status': 'refresh_triggered'})
+
+
+@bp.route('/api/export/csv')
+def api_export_csv():
+    """Export weekly capacity history as CSV file."""
+    from app.capacity_service import get_weekly_history_data
+
+    range_param = request.args.get('range', 'all')
+    days_map = {'3m': 90, '6m': 180, '1y': 365, '2y': 730}
+    days = days_map.get(range_param)
+
+    rows = get_weekly_history_data(days=days)
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=[
+        'week', 'week_start', 'storage_art',
+        'total_tb', 'used_tb', 'free_tb', 'percent_used',
+    ])
+    writer.writeheader()
+    writer.writerows(rows)
+
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="kapazitaet_wochenweise.csv"'},
+    )
+
+
+@bp.route('/api/export/excel')
+def api_export_excel():
+    """Export weekly capacity history as Excel (.xlsx) file."""
+    from app.capacity_service import get_weekly_history_data
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    range_param = request.args.get('range', 'all')
+    days_map = {'3m': 90, '6m': 180, '1y': 365, '2y': 730}
+    days = days_map.get(range_param)
+
+    rows = get_weekly_history_data(days=days)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Kapazität wochenweise'
+
+    headers = ['Woche (ISO)', 'Wochenstart', 'Storage Art',
+               'Gesamt [TB]', 'Genutzt [TB]', 'Frei [TB]', 'Genutzt [%]']
+    header_fill = PatternFill(fill_type='solid', fgColor='0098DB')
+    header_font = Font(bold=True, color='FFFFFF')
+
+    for col, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    for row in rows:
+        ws.append([
+            row['week'],
+            row['week_start'],
+            row['storage_art'],
+            row['total_tb'],
+            row['used_tb'],
+            row['free_tb'],
+            row['percent_used'],
+        ])
+
+    # Auto-fit column widths
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 30)
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return Response(
+        output.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': 'attachment; filename="kapazitaet_wochenweise.xlsx"'},
+    )
+
+
+@bp.route('/api/import/history', methods=['POST'])
+def api_import_history():
+    """Import historical capacity data from a CSV file."""
+    from app.models import StorageSystem
+    from app.capacity_service import import_history_from_csv
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'Keine Datei übermittelt.'}), 400
+
+    f = request.files['file']
+    if not f.filename.lower().endswith('.csv'):
+        return jsonify({'error': 'Nur CSV-Dateien werden unterstützt.'}), 400
+
+    systems = StorageSystem.query.all()
+    system_map = {s.name.lower(): s for s in systems}
+
+    try:
+        raw = f.stream.read()
+        try:
+            text = raw.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return jsonify({
+                'error': 'CSV-Datei konnte nicht dekodiert werden. Bitte UTF-8-Kodierung verwenden.'
+            }), 400
+        stream = io.StringIO(text)
+        imported, skipped, errors = import_history_from_csv(stream, system_map)
+    except Exception as exc:
+        logger.exception('History import failed')
+        return jsonify({'error': str(exc)}), 500
+
+    return jsonify({
+        'imported': imported,
+        'skipped': skipped,
+        'errors': errors[:20],  # cap error list
+    })
+
+
+@bp.route('/api/import/sod-history-pure1', methods=['POST'])
+def api_import_sod_history_pure1():
+    """Import historical Storage on Demand data directly from the Pure1 API."""
+    from datetime import date as _date
+    from app.capacity_service import import_sod_history_from_pure1
+
+    body = request.get_json(silent=True) or {}
+    start_str = body.get('start_date', '')
+    end_str = body.get('end_date', '')
+
+    if not start_str or not end_str:
+        return jsonify({'error': 'start_date und end_date sind Pflichtfelder (YYYY-MM-DD).'}), 400
+
+    try:
+        start_date = _date.fromisoformat(start_str)
+        end_date = _date.fromisoformat(end_str)
+    except ValueError as exc:
+        return jsonify({'error': f'Ungültiges Datumsformat: {exc}'}), 400
+
+    if end_date < start_date:
+        return jsonify({'error': 'end_date darf nicht vor start_date liegen.'}), 400
+
+    try:
+        imported, skipped, errors = import_sod_history_from_pure1(start_date, end_date)
+    except RuntimeError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        logger.exception('SoD Pure1 history import failed')
+        return jsonify({'error': str(exc)}), 500
+
+    return jsonify({
+        'imported': imported,
+        'skipped': skipped,
+        'errors': errors[:20],
+    })

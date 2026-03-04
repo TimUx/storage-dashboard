@@ -466,6 +466,309 @@ def get_history_data(days=None):
     return result
 
 
+def get_weekly_history_data(days=None):
+    """
+    Return history aggregated by ISO calendar week for export.
+
+    days: None = all, or int = last N days
+
+    Returns list of dicts:
+      [{'week': 'YYYY-Www', 'week_start': 'YYYY-MM-DD', 'storage_art': str,
+        'total_tb': float, 'used_tb': float, 'free_tb': float, 'percent_used': float}]
+    sorted by (week, storage_art).
+    """
+    from collections import defaultdict
+    from app.models import CapacityHistory, StorageSystem
+
+    query = CapacityHistory.query.order_by(CapacityHistory.date)
+    if days:
+        cutoff = date.today() - timedelta(days=days)
+        query = query.filter(CapacityHistory.date >= cutoff)
+    records = query.all()
+
+    systems = {s.id: s for s in StorageSystem.query.all()}
+    system_arts = {}
+    for sid, system in systems.items():
+        tgs = _tags_by_group(system)
+        system_arts[sid] = tgs.get('Storage Art', ['Sonstige'])
+
+    # Accumulate by (iso_week_str, week_start_date, storage_art)
+    week_art_total = defaultdict(float)
+    week_art_used = defaultdict(float)
+    week_art_free = defaultdict(float)
+    week_start_map = {}  # iso_week_str → week_start date
+
+    for rec in records:
+        arts = system_arts.get(rec.system_id, ['Sonstige'])
+        iso = rec.date.isocalendar()
+        week_str = f'{iso[0]}-W{iso[1]:02d}'
+        # Monday of that ISO week (date.fromisocalendar available since Python 3.8)
+        if week_str not in week_start_map:
+            week_start_map[week_str] = date.fromisocalendar(iso[0], iso[1], 1)
+        for art in arts:
+            key = (week_str, art)
+            week_art_total[key] += rec.total_tb or 0.0
+            week_art_used[key] += rec.used_tb or 0.0
+            week_art_free[key] += rec.free_tb or 0.0
+
+    result = []
+    for (week_str, art) in sorted(week_art_total.keys(), key=lambda k: (k[0], _art_sort_key(k[1]))):
+        total = round(week_art_total[(week_str, art)], 2)
+        used = round(week_art_used[(week_str, art)], 2)
+        free = round(week_art_free[(week_str, art)], 2)
+        pct = round(used / total * 100, 1) if total > 0 else 0.0
+        result.append({
+            'week': week_str,
+            'week_start': week_start_map[week_str].isoformat(),
+            'storage_art': art,
+            'total_tb': total,
+            'used_tb': used,
+            'free_tb': free,
+            'percent_used': pct,
+        })
+    return result
+
+
+def import_history_from_csv(csv_file, system_map):
+    """
+    Import capacity history records from a CSV file object.
+
+    Expected CSV columns (case-insensitive):
+      date, system_name, total_tb, used_tb, free_tb, percent_used
+
+    ``system_map`` is a dict {name_lower: StorageSystem} for name lookup.
+
+    Returns (imported_count, skipped_count, errors[]).
+    """
+    import csv as _csv
+    from app import db
+    from app.models import CapacityHistory
+
+    reader = _csv.DictReader(csv_file)
+    imported = 0
+    skipped = 0
+    errors = []
+
+    for row in reader:
+        lineno = reader.line_num
+        norm = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+        try:
+            date_str = norm.get('date', '')
+            system_name = norm.get('system_name', '')
+            total_tb = float(norm.get('total_tb', 0) or 0)
+            used_tb = float(norm.get('used_tb', 0) or 0)
+            free_tb = float(norm.get('free_tb', 0) or 0)
+            percent_used = float(norm.get('percent_used', 0) or 0)
+
+            if not date_str or not system_name:
+                errors.append(f'Zeile {lineno}: date und system_name sind Pflichtfelder.')
+                skipped += 1
+                continue
+
+            try:
+                rec_date = date.fromisoformat(date_str)
+            except ValueError:
+                errors.append(f'Zeile {lineno}: Ungültiges Datumsformat "{date_str}" (erwartet: YYYY-MM-DD).')
+                skipped += 1
+                continue
+            system = system_map.get(system_name.lower())
+            if system is None:
+                errors.append(f'Zeile {lineno}: System "{system_name}" nicht gefunden – übersprungen.')
+                skipped += 1
+                continue
+
+            existing = CapacityHistory.query.filter_by(system_id=system.id, date=rec_date).first()
+            if existing:
+                existing.total_tb = total_tb
+                existing.used_tb = used_tb
+                existing.free_tb = free_tb
+                existing.percent_used = percent_used
+            else:
+                hist = CapacityHistory(
+                    system_id=system.id,
+                    date=rec_date,
+                    total_tb=total_tb,
+                    used_tb=used_tb,
+                    free_tb=free_tb,
+                    percent_used=percent_used,
+                )
+                db.session.add(hist)
+            imported += 1
+        except Exception as exc:
+            errors.append(f'Zeile {lineno}: {exc}')
+            skipped += 1
+
+    db.session.commit()
+    return imported, skipped, errors
+
+
+def import_sod_history_from_csv(csv_file):
+    """
+    Import Storage on Demand (Pure1) historical data from a CSV file object.
+
+    Expected CSV columns (case-insensitive):
+      date, subscription_name, license_name, reserved_tb, effective_used_tb
+    Optional column:
+      service_tier
+
+    Returns (imported_count, skipped_count, errors[]).
+    """
+    import csv as _csv
+    from app import db
+    from app.models import SodHistory
+
+    reader = _csv.DictReader(csv_file)
+    imported = 0
+    skipped = 0
+    errors = []
+
+    for row in reader:
+        lineno = reader.line_num
+        norm = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+        try:
+            date_str = norm.get('date', '')
+            subscription_name = norm.get('subscription_name', '')
+            license_name = norm.get('license_name', '')
+            try:
+                reserved_tb = float(norm.get('reserved_tb') or 0)
+            except ValueError:
+                errors.append(f'Zeile {lineno}: Ungültiger Wert für reserved_tb.')
+                skipped += 1
+                continue
+            try:
+                effective_used_tb = float(norm.get('effective_used_tb') or 0)
+            except ValueError:
+                errors.append(f'Zeile {lineno}: Ungültiger Wert für effective_used_tb.')
+                skipped += 1
+                continue
+            service_tier = norm.get('service_tier') or None
+
+            if not date_str or not subscription_name or not license_name:
+                errors.append(
+                    f'Zeile {lineno}: date, subscription_name und license_name sind Pflichtfelder.'
+                )
+                skipped += 1
+                continue
+
+            try:
+                rec_date = date.fromisoformat(date_str)
+            except ValueError:
+                errors.append(
+                    f'Zeile {lineno}: Ungültiges Datumsformat "{date_str}" (erwartet: YYYY-MM-DD).'
+                )
+                skipped += 1
+                continue
+
+            existing = SodHistory.query.filter_by(
+                date=rec_date,
+                subscription_name=subscription_name,
+                license_name=license_name,
+            ).first()
+            if existing:
+                existing.reserved_tb = reserved_tb
+                existing.effective_used_tb = effective_used_tb
+                if service_tier is not None:
+                    existing.service_tier = service_tier
+            else:
+                hist = SodHistory(
+                    date=rec_date,
+                    subscription_name=subscription_name,
+                    license_name=license_name,
+                    service_tier=service_tier,
+                    reserved_tb=reserved_tb,
+                    effective_used_tb=effective_used_tb,
+                )
+                db.session.add(hist)
+            imported += 1
+        except Exception as exc:
+            errors.append(f'Zeile {lineno}: {exc}')
+            skipped += 1
+
+    db.session.commit()
+    return imported, skipped, errors
+
+
+def import_sod_history_from_pure1(start_date, end_date) -> tuple:
+    """Fetch historical SoD data directly from the Pure1 API and persist it.
+
+    Uses ``app.api.pure1_client.fetch_sod_license_history`` to retrieve
+    daily metrics for all subscription licenses in the given date range,
+    then upserts the results into :class:`~app.models.SodHistory`.
+
+    Args:
+        start_date: :class:`datetime.date` – start of the history window.
+        end_date:   :class:`datetime.date` – end of the history window (inclusive).
+
+    Returns:
+        ``(imported, skipped, errors)`` tuple where *imported* is the number of
+        rows written/updated and *skipped*/*errors* capture any issues.
+
+    Raises:
+        RuntimeError: When Pure1 credentials are not configured.
+    """
+    from app import db
+    from app.models import AppSettings, SodHistory
+    from app.api.pure1_client import fetch_sod_license_history
+
+    settings = AppSettings.query.first()
+    if not settings or not settings.pure1_app_id or not settings.pure1_private_key:
+        raise RuntimeError(
+            "Pure1 API-Zugangsdaten nicht konfiguriert. "
+            "Bitte unter Admin → Einstellungen → API-Zugänge konfigurieren."
+        )
+
+    items = fetch_sod_license_history(
+        settings.pure1_app_id,
+        settings.pure1_private_key,
+        start_date=start_date,
+        end_date=end_date,
+        passphrase=settings.pure1_private_key_passphrase,
+        proxies=settings.get_proxies() or None,
+    )
+
+    imported = 0
+    skipped = 0
+    errors = []
+
+    for item in items:
+        try:
+            rec_date = item["date"]
+            sub_name = item["subscription_name"]
+            lic_name = item["license_name"]
+            if not sub_name or not lic_name:
+                errors.append(
+                    f"{rec_date}: Fehlender subscription_name oder license_name – übersprungen."
+                )
+                skipped += 1
+                continue
+
+            existing = SodHistory.query.filter_by(
+                date=rec_date,
+                subscription_name=sub_name,
+                license_name=lic_name,
+            ).first()
+            if existing:
+                existing.reserved_tb = item["reserved_tb"]
+                existing.effective_used_tb = item["effective_used_tb"]
+                existing.service_tier = item.get("service_tier")
+            else:
+                db.session.add(SodHistory(
+                    date=rec_date,
+                    subscription_name=sub_name,
+                    license_name=lic_name,
+                    service_tier=item.get("service_tier"),
+                    reserved_tb=item["reserved_tb"],
+                    effective_used_tb=item["effective_used_tb"],
+                ))
+            imported += 1
+        except Exception as exc:
+            errors.append(f"{item.get('date')}: {exc}")
+            skipped += 1
+
+    db.session.commit()
+    return imported, skipped, errors
+
+
 def compute_forecast(labels, values, forecast_days=90):
     """
     Simple linear regression forecast.

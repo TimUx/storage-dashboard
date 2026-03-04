@@ -615,3 +615,39 @@ class SubscriptionLicenseCache(db.Model):
     def __repr__(self):
         return f'<SubscriptionLicenseCache fetched_at={self.fetched_at}>'
 
+
+class SodHistory(db.Model):
+    """Daily historical snapshot for Pure1 Storage on Demand subscription licences.
+
+    One row per (date, subscription_name, license_name) combination.
+    Values mirror the Pure1 /subscription-licenses API fields, converted to TB.
+    """
+    __tablename__ = 'sod_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False, index=True)
+    subscription_name = db.Column(db.String(200), nullable=False)
+    license_name = db.Column(db.String(200), nullable=False)
+    service_tier = db.Column(db.String(100))   # optional, e.g. "//GOLD"
+    reserved_tb = db.Column(db.Float, default=0.0)        # reservation.data / 1e12
+    effective_used_tb = db.Column(db.Float, default=0.0)  # usage.data / 1e12
+
+    __table_args__ = (
+        db.UniqueConstraint('date', 'subscription_name', 'license_name',
+                            name='uq_sod_history_date_sub_lic'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'date': self.date.isoformat() if self.date else None,
+            'subscription_name': self.subscription_name,
+            'license_name': self.license_name,
+            'service_tier': self.service_tier,
+            'reserved_tb': self.reserved_tb,
+            'effective_used_tb': self.effective_used_tb,
+        }
+
+    def __repr__(self):
+        return f'<SodHistory {self.date} {self.subscription_name}/{self.license_name}>'
+

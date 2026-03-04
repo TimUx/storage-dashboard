@@ -993,3 +993,68 @@ def delete_tag(tag_id):
         flash(f'Fehler: {str(e)}', 'error')
     return redirect(url_for('admin.tags'))
 
+
+@bp.route('/api/pure1-test', methods=['POST'])
+@login_required
+def api_pure1_test():
+    """Test the Pure1 API connection using the configured credentials."""
+    from app.models import AppSettings
+    from app.api.pure1_client import get_pure1_access_token, PURE1_API_BASE
+    import requests as req_lib
+
+    settings = AppSettings.query.first()
+    if not settings or not settings.pure1_app_id or not settings.pure1_private_key:
+        return jsonify({
+            'success': False,
+            'error': 'Pure1 API-Zugangsdaten nicht konfiguriert. '
+                     'Bitte App ID und Private Key in den Einstellungen hinterlegen.',
+        })
+
+    try:
+        token = get_pure1_access_token(
+            settings.pure1_app_id,
+            settings.pure1_private_key,
+            passphrase=settings.pure1_private_key_passphrase,
+            proxies=settings.get_proxies() or None,
+        )
+    except Exception as exc:
+        msg = str(exc)
+        detail = None
+        if hasattr(exc, 'response') and exc.response is not None:
+            detail = f'HTTP {exc.response.status_code}: {exc.response.text[:500]}'
+        return jsonify({
+            'success': False,
+            'error': f'Token-Generierung fehlgeschlagen: {msg}',
+            'detail': detail,
+        })
+
+    # Verify the token with a lightweight API call (list arrays, limit=1)
+    try:
+        resp = req_lib.get(
+            f'{PURE1_API_BASE}/arrays',
+            headers={'Authorization': f'Bearer {token}'},
+            params={'limit': 1},
+            timeout=15,
+            proxies=settings.get_proxies() or None,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        array_count = len(data.get('items', []))
+        return jsonify({
+            'success': True,
+            'message': (
+                f'Verbindung erfolgreich. '
+                f'Token gültig. '
+                f'Pure1 API erreichbar ({array_count} Array(s) gefunden).'
+            ),
+        })
+    except Exception as exc:
+        msg = str(exc)
+        detail = None
+        if hasattr(exc, 'response') and exc.response is not None:
+            detail = f'HTTP {exc.response.status_code}: {exc.response.text[:500]}'
+        return jsonify({
+            'success': False,
+            'error': f'Token erhalten, aber API-Aufruf fehlgeschlagen: {msg}',
+            'detail': detail,
+        })

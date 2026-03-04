@@ -24,6 +24,16 @@ logger = logging.getLogger(__name__)
 PURE1_TOKEN_URL = "https://api.pure1.purestorage.com/oauth2/1.0/token"
 PURE1_API_BASE  = "https://api.pure1.purestorage.com/api/1.latest"
 
+# ── Hardcoded Pure1 metric names for subscription-license historical data ─────
+# These exact names are confirmed by the Pure1 REST API (1.latest).
+METRIC_RESERVED       = "subscription_license_reserved_space"
+METRIC_ON_DEMAND      = "subscription_license_on_demand_space"
+METRIC_EFFECTIVE_USED = "subscription_license_effective_used_space"
+
+# Weekly resolution in milliseconds (604 800 000 ms = 7 days).
+# Pure1 retains weekly SoD metrics for up to ~2 years.
+WEEKLY_MS = 604_800_000
+
 
 def _b64url(data: bytes) -> str:
     """Base64url-encode *data* without padding characters."""
@@ -95,6 +105,172 @@ def get_pure1_access_token(app_id: str, private_key_pem: str,
     )
     resp.raise_for_status()
     return resp.json()["access_token"]
+
+
+def fetch_sod_license_history(app_id: str, private_key_pem: str,
+                              start_date, end_date,
+                              passphrase: str | None = None,
+                              proxies: dict | None = None) -> list:
+    """Fetch historical SoD (subscription-license) usage and reservation data.
+
+    Calls ``GET /api/1.latest/metrics/history`` with:
+
+    * ``names``: the three hardcoded SoD metric names
+      (``subscription_license_reserved_space``,
+      ``subscription_license_on_demand_space``,
+      ``subscription_license_effective_used_space``)
+    * ``resource_names``: comma-separated list of **all** subscription-license
+      names (retrieved first from ``/subscription-licenses``)
+    * ``aggregation=max``, ``resolution=604800000`` (weekly)
+
+    This matches the Pure1 API query confirmed by Pure Storage:
+
+    .. code-block:: bash
+
+        curl -G 'https://api.pure1.purestorage.com/api/1.latest/metrics/history' \\
+          --data-urlencode "aggregation=max" \\
+          --data-urlencode "names='subscription_license_reserved_space','subscription_license_on_demand_space','subscription_license_effective_used_space'" \\
+          --data-urlencode "resource_names='<license1>','<license2>'" \\
+          --data-urlencode "resolution=604800000" \\
+          --data-urlencode "start_time=<ms>" \\
+          --data-urlencode "end_time=<ms>"
+
+    Args:
+        app_id: Pure1 application ID.
+        private_key_pem: PEM-encoded RSA private key.
+        start_date: :class:`datetime.date` – start of the history window (inclusive).
+        end_date: :class:`datetime.date` – end of the history window (inclusive).
+        passphrase: Optional passphrase for an encrypted private key.
+        proxies: Optional requests-compatible proxy dict.
+
+    Returns:
+        List of dicts with keys ``date`` (:class:`datetime.date`),
+        ``subscription_name``, ``license_name``, ``service_tier``,
+        ``reserved_tb``, ``effective_used_tb``.
+
+    Raises:
+        requests.HTTPError: On non-2xx API responses.
+    """
+    import datetime as _dt
+
+    token = get_pure1_access_token(app_id, private_key_pem,
+                                   passphrase=passphrase, proxies=proxies)
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    # ── 1. Fetch all subscription licenses (paginated) ───────────────────────
+    # We need the license names for resource_names and the subscription /
+    # service-tier metadata for the result records.
+    licenses = []
+    continuation = None
+    while True:
+        params = {"limit": 200}
+        if continuation:
+            params["continuation_token"] = continuation
+        resp = requests.get(
+            f"{PURE1_API_BASE}/subscription-licenses",
+            headers=headers, params=params, timeout=30, proxies=proxies,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        licenses.extend(body.get("items", []))
+        continuation = body.get("continuation_token")
+        if not continuation:
+            break
+
+    if not licenses:
+        return []
+
+    # ── 2. Build license lookup map keyed by license name ────────────────────
+    # Key: license name (str) → {"subscription_name": ..., "service_tier": ...}
+    license_info: dict = {}
+    for lic in licenses:
+        lic_name = lic.get("name", "")
+        if lic_name:
+            license_info[lic_name] = {
+                "subscription_name": (lic.get("subscription") or {}).get("name", ""),
+                "service_tier": lic.get("service_tier") or None,
+            }
+
+    # ── 3. Convert dates to Unix millisecond timestamps ──────────────────────
+    start_ms = int(_dt.datetime.combine(start_date, _dt.time.min).timestamp() * 1000)
+    end_ms = int(_dt.datetime.combine(
+        end_date + _dt.timedelta(days=1), _dt.time.min
+    ).timestamp() * 1000)
+
+    # ── 4. Fetch metrics/history in batches ───────────────────────────────────
+    # Pure1 API supports up to 32 timeseries (metric × resource combinations)
+    # per request.  With 2 metrics we can fit floor(32 / 2) = 16 licenses per
+    # batch.
+    # Ref: Pure1 API spec – GET /api/1.latest/metrics/history description.
+    MAX_TIMESERIES_PER_REQUEST = 32
+    # METRIC_ON_DEMAND is not stored in SodHistory (no model field) so we omit
+    # it from the query to avoid wasting timeseries budget.
+    metric_names = [METRIC_RESERVED, METRIC_EFFECTIVE_USED]
+    batch_size = max(1, MAX_TIMESERIES_PER_REQUEST // len(metric_names))
+    names_qs = ",".join(f"'{n}'" for n in metric_names)
+
+    lic_names = list(license_info.keys())
+
+    # key: (date, license_name) → {metric_name: value_bytes}
+    data_map: dict = {}
+
+    for i in range(0, len(lic_names), batch_size):
+        batch = lic_names[i: i + batch_size]
+        # Build query string without URL-encoding the single quotes.
+        # The Pure1 API spec marks string-array parameters as "x-quoted: true",
+        # meaning string values must be wrapped in single quotes in the raw query
+        # string (e.g. names='metric1','metric2'). URL-encoding the quotes would
+        # prevent correct server-side parsing.
+        resource_names_qs = ",".join(f"'{n}'" for n in batch)
+        qs = (
+            f"names={names_qs}"
+            f"&resource_names={resource_names_qs}"
+            f"&start_time={start_ms}"
+            f"&end_time={end_ms}"
+            f"&resolution={WEEKLY_MS}"
+            f"&aggregation=max"
+        )
+        resp = requests.get(
+            f"{PURE1_API_BASE}/metrics/history?{qs}",
+            headers=headers, timeout=60, proxies=proxies,
+        )
+        if resp.status_code == 404:
+            logger.debug("metrics/history 404 for batch starting at index %d", i)
+            continue
+        resp.raise_for_status()
+
+        for item in resp.json().get("items", []):
+            m_name = item.get("name", "")
+            resources = item.get("resources", [])
+            if not resources:
+                continue
+            # resources[0].name is the subscription-license name
+            lic_name = resources[0].get("name", "")
+            for point in item.get("data", []):
+                if len(point) < 2 or point[1] is None:
+                    continue
+                ts_ms, value = point[0], point[1]
+                rec_date = _dt.date.fromtimestamp(ts_ms / 1000)
+                key = (rec_date, lic_name)
+                if key not in data_map:
+                    data_map[key] = {}
+                data_map[key][m_name] = value
+
+    # ── 5. Build result ───────────────────────────────────────────────────────
+    result = []
+    for (rec_date, lic_name), values in sorted(data_map.items()):
+        info = license_info.get(lic_name)
+        if not info:
+            continue
+        result.append({
+            "date": rec_date,
+            "subscription_name": info["subscription_name"],
+            "license_name": lic_name,
+            "service_tier": info["service_tier"],
+            "reserved_tb": (values.get(METRIC_RESERVED) or 0) / 1e12,
+            "effective_used_tb": (values.get(METRIC_EFFECTIVE_USED) or 0) / 1e12,
+        })
+    return result
 
 
 def fetch_subscription_licenses(app_id: str, private_key_pem: str,
