@@ -511,7 +511,7 @@
                     <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #e0e0e0;">
                         <button type="button" id="pure1TestBtn" class="btn btn-secondary"
                                 onclick="testPure1Connection()">🔌 Verbindung testen</button>
-                        <div id="pure1TestResult" style="display:none;margin-top:.75rem;padding:.75rem 1rem;border-radius:6px;font-size:.9rem;"></div>
+                        <div id="pure1TestResult" style="display:none;margin-top:.75rem;"></div>
                     </div>
                 </div>
             </div>
@@ -652,36 +652,100 @@ async function testPure1Connection() {
     const resultEl = document.getElementById('pure1TestResult');
     btn.disabled = true;
     btn.textContent = '⏳ Teste Verbindung…';
-    resultEl.style.display = 'none';
+
+    // Show a "running" shell box immediately so the user sees feedback.
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = renderPure1ShellBox([
+        {step: 1, title: 'Verbindungstest wird gestartet…', status: 'running', lines: []}
+    ], null);
 
     try {
         const resp = await fetch('/admin/api/pure1-test', {method: 'POST'});
         const data = await resp.json();
-        resultEl.style.display = 'block';
-        if (data.success) {
-            resultEl.style.background = 'rgba(0,180,80,.1)';
-            resultEl.style.color = '#0a7a35';
-            resultEl.style.border = '1px solid rgba(0,180,80,.25)';
-            resultEl.textContent = '✅ ' + data.message;
-        } else {
-            resultEl.style.background = 'rgba(167,2,64,.07)';
-            resultEl.style.color = '#A70240';
-            resultEl.style.border = '1px solid rgba(167,2,64,.2)';
-            let msg = '❌ ' + data.error;
-            if (data.detail) msg += '\n\nDetails: ' + data.detail;
-            resultEl.textContent = msg;
-            resultEl.style.whiteSpace = 'pre-wrap';
-        }
+        resultEl.innerHTML = renderPure1ShellBox(data.steps || [], data.success);
     } catch (err) {
-        resultEl.style.display = 'block';
-        resultEl.style.background = 'rgba(167,2,64,.07)';
-        resultEl.style.color = '#A70240';
-        resultEl.style.border = '1px solid rgba(167,2,64,.2)';
-        resultEl.textContent = '❌ Verbindungsfehler: ' + err.message;
+        resultEl.innerHTML = renderPure1ShellBox([
+            {step: 1, title: 'Netzwerkfehler', status: 'error',
+             lines: ['Fehler: ' + err.message]}
+        ], false);
     } finally {
         btn.disabled = false;
         btn.textContent = '🔌 Verbindung testen';
     }
+}
+
+/**
+ * Render a terminal-style shell box from a list of step objects.
+ * Each step: { step, title, status ('success'|'error'|'running'), lines[] }
+ */
+function renderPure1ShellBox(steps, overallSuccess) {
+    function esc(s) {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    // Title bar icon
+    const titleIcon = overallSuccess === true  ? '✅'
+                    : overallSuccess === false ? '❌'
+                    : '⏳';
+
+    let stepsHtml = '';
+    for (const s of (steps || [])) {
+        // Per-step header colour
+        const hdrCol = s.status === 'success' ? '#a6e3a1'
+                     : s.status === 'error'   ? '#f38ba8'
+                     : '#f9e2af';
+        const hdrIcon = s.status === 'success' ? '✔'
+                      : s.status === 'error'   ? '✘'
+                      : '▶';
+
+        // Render lines with syntax colouring
+        let linesHtml = '';
+        for (const raw of (s.lines || [])) {
+            const line = String(raw);
+            if (line === '') {
+                linesHtml += '\n';
+                continue;
+            }
+            let col = '#cdd6f4';                        // default: light
+            if (line.startsWith('#'))      col = '#585b70'; // comment: dimmed
+            else if (line.startsWith('→')) col = '#89b4fa'; // response arrow: blue
+            else if (line.startsWith('Fehler')) col = '#f38ba8'; // error: red
+            linesHtml += `<span style="color:${col};">${esc(line)}</span>\n`;
+        }
+
+        stepsHtml += `
+<div style="margin-bottom:.9rem;">
+  <span style="color:${hdrCol};font-weight:bold;">[${hdrIcon}] ${esc(s.title)}</span>
+  ${linesHtml
+      ? `<pre style="margin:.3rem 0 0 1.4rem;padding:0;background:none;border:none;` +
+        `color:inherit;white-space:pre-wrap;font-family:inherit;font-size:inherit;` +
+        `line-height:1.55;">${linesHtml}</pre>`
+      : ''}
+</div>`;
+    }
+
+    return `
+<div style="background:#1e1e2e;border-radius:8px;overflow:hidden;
+            font-family:'Courier New',Consolas,monospace;font-size:.82rem;">
+  <!-- macOS-style title bar -->
+  <div style="background:#181825;padding:.4rem .85rem;border-bottom:1px solid #313244;
+              display:flex;align-items:center;gap:.35rem;">
+    <span style="color:#f38ba8;font-size:.6rem;line-height:1;">●</span>
+    <span style="color:#f9e2af;font-size:.6rem;line-height:1;">●</span>
+    <span style="color:#a6e3a1;font-size:.6rem;line-height:1;">●</span>
+    <span style="color:#cdd6f4;margin-left:.5rem;font-size:.78rem;">
+      ${titleIcon} Pure1 Verbindungstest
+    </span>
+  </div>
+  <!-- Step content -->
+  <div style="padding:.85rem 1.1rem;color:#cdd6f4;line-height:1.5;
+              max-height:480px;overflow-y:auto;">
+    ${stepsHtml || '<span style="color:#585b70;">Keine Schritte verfügbar.</span>'}
+  </div>
+</div>`;
 }
 </script>
 {% endblock %}
