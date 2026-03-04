@@ -506,6 +506,10 @@
             📊 %
         </button>
         <div class="history-actions">
+            <button class="refresh-btn" id="historyRefreshBtn" onclick="triggerHistoryRefresh()"
+                    title="Heutige Kapazitätswerte aller Systeme erfassen und (falls Pure1 konfiguriert) SoD-Verlauf der letzten 2 Jahre von Pure1 abrufen">
+                🔄 Verlauf abrufen
+            </button>
             <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV</button>
             <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
             <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF</button>
@@ -1498,6 +1502,60 @@ async function triggerSodRefresh() {
     } catch (err) {
         btn.disabled = false;
         btn.textContent = '🔄 Jetzt abrufen';
+    }
+}
+
+// ── History full refresh (physical + SoD history from Pure1) ──────────────
+async function triggerHistoryRefresh() {
+    const btn = document.getElementById('historyRefreshBtn');
+    const statusEl = document.getElementById('capStatus');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Abruf läuft…'; }
+
+    const fmtDate = d => d.toISOString().slice(0, 10);
+    const today = new Date();
+    const twoYearsAgo = new Date(today);
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+
+    try {
+        // 1. Refresh physical capacity (records today's values into CapacityHistory).
+        //    The endpoint starts a background thread and returns immediately, so we wait
+        //    a few seconds (same pattern as the global "Aktualisieren" button) before
+        //    moving on to step 2 – the thread typically finishes within 1–2 s for small
+        //    deployments but may take longer for many systems.
+        if (btn) btn.textContent = '⏳ Systeme werden abgefragt…';
+        const refreshResp = await fetch('/capacity/api/refresh', {method: 'POST'});
+        if (!refreshResp.ok) {
+            throw new Error(`Kapazitätsabfrage fehlgeschlagen (HTTP ${refreshResp.status})`);
+        }
+        await new Promise(r => setTimeout(r, 3000));
+
+        // 2. Fetch SoD history from Pure1 (last 2 years → today), if configured
+        if (pure1Configured) {
+            if (btn) btn.textContent = '⏳ SoD-Verlauf wird abgerufen…';
+            const sodResp = await fetch('/capacity/api/import/sod-history-pure1', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({start_date: fmtDate(twoYearsAgo), end_date: fmtDate(today)}),
+            });
+            const sodData = await sodResp.json();
+            if (!sodResp.ok || sodData.error) {
+                if (statusEl) statusEl.innerHTML =
+                    `⚠ SoD-Verlauf: ${escHtml(sodData.error || 'Unbekannter Fehler')}`;
+            } else {
+                const skippedInfo = sodData.skipped > 0 ? `, ${sodData.skipped} übersprungen` : '';
+                if (statusEl) statusEl.innerHTML =
+                    `✅ Verlauf aktualisiert – ${sodData.imported} SoD-Datensätze importiert${skippedInfo}.`;
+            }
+        } else {
+            if (statusEl) statusEl.innerHTML = '✅ Kapazitätsdaten aktualisiert.';
+        }
+
+        // 3. Reload charts to show freshly imported data
+        await loadHistory(currentRange());
+    } catch (err) {
+        if (statusEl) statusEl.innerHTML = `⚠ Fehler beim Abrufen der Verlaufsdaten: ${escHtml(err.message)}`;
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 Verlauf abrufen'; }
     }
 }
 
