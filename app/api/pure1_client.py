@@ -79,6 +79,15 @@ def get_pure1_access_token(app_id: str, private_key_pem: str,
                            proxies: dict | None = None) -> str:
     """Exchange a freshly-built JWT for a Pure1 Bearer access token.
 
+    The Pure1 REST API uses the OAuth 2.0 Token Exchange grant type
+    (RFC 8693 / ``urn:ietf:params:oauth:grant-type:token-exchange``).
+    The JWT is passed as ``subject_token`` together with the required
+    ``subject_token_type`` of ``urn:ietf:params:oauth:token-type:jwt``.
+
+    Reference: Pure1 REST API spec – ``POST /oauth2/1.0/token``,
+    parameters ``OauthGrantType``, ``OauthSubjectToken``,
+    ``OauthSubjectTokenType``.
+
     Args:
         app_id: Pure1 application ID.
         private_key_pem: PEM-encoded RSA private key.
@@ -94,12 +103,20 @@ def get_pure1_access_token(app_id: str, private_key_pem: str,
         KeyError: If the response JSON does not contain ``access_token``.
     """
     jwt_token = build_pure1_jwt(app_id, private_key_pem, passphrase=passphrase)
+    token_request_data = {
+        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+        "subject_token": jwt_token,
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+    }
+    logger.debug(
+        "Pure1 token request: POST %s  grant_type=%s  subject_token_type=%s",
+        PURE1_TOKEN_URL,
+        token_request_data["grant_type"],
+        token_request_data["subject_token_type"],
+    )
     resp = requests.post(
         PURE1_TOKEN_URL,
-        data={
-            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            "assertion": jwt_token,
-        },
+        data=token_request_data,
         timeout=15,
         proxies=proxies,
     )

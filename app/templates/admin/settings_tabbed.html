@@ -658,19 +658,35 @@ async function testPure1Connection() {
         const resp = await fetch('/admin/api/pure1-test', {method: 'POST'});
         const data = await resp.json();
         resultEl.style.display = 'block';
+        resultEl.style.whiteSpace = 'pre-wrap';
+
+        // Build token-request info block (always shown so the user can verify
+        // that the correct OAuth parameters are being used).
+        let tokenInfo = '';
+        if (data.token_request) {
+            const tr = data.token_request;
+            tokenInfo = (
+                '\n\n──── Verwendeter API-Aufruf (Token-Request) ────\n' +
+                'POST ' + tr.url + '\n' +
+                'Content-Type: ' + tr.content_type + '\n' +
+                'Body:\n' +
+                Object.entries(tr.body).map(([k, v]) => '  ' + k + '=' + v).join('\n')
+            );
+        }
+
         if (data.success) {
             resultEl.style.background = 'rgba(0,180,80,.1)';
             resultEl.style.color = '#0a7a35';
             resultEl.style.border = '1px solid rgba(0,180,80,.25)';
-            resultEl.textContent = '✅ ' + data.message;
+            resultEl.textContent = '✅ ' + data.message + tokenInfo;
         } else {
             resultEl.style.background = 'rgba(167,2,64,.07)';
             resultEl.style.color = '#A70240';
             resultEl.style.border = '1px solid rgba(167,2,64,.2)';
             let msg = '❌ ' + data.error;
             if (data.detail) msg += '\n\nDetails: ' + data.detail;
+            msg += tokenInfo;
             resultEl.textContent = msg;
-            resultEl.style.whiteSpace = 'pre-wrap';
         }
     } catch (err) {
         resultEl.style.display = 'block';

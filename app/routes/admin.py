@@ -999,7 +999,10 @@ def delete_tag(tag_id):
 def api_pure1_test():
     """Test the Pure1 API connection using the configured credentials."""
     from app.models import AppSettings
-    from app.api.pure1_client import get_pure1_access_token, PURE1_API_BASE
+    from app.api.pure1_client import (
+        build_pure1_jwt, get_pure1_access_token,
+        PURE1_TOKEN_URL, PURE1_API_BASE,
+    )
     import requests as req_lib
 
     settings = AppSettings.query.first()
@@ -1009,6 +1012,18 @@ def api_pure1_test():
             'error': 'Pure1 API-Zugangsdaten nicht konfiguriert. '
                      'Bitte App ID und Private Key in den Einstellungen hinterlegen.',
         })
+
+    # Build a preview of the token request so the caller can inspect it.
+    token_request_info = {
+        'url': PURE1_TOKEN_URL,
+        'method': 'POST',
+        'content_type': 'application/x-www-form-urlencoded',
+        'body': {
+            'grant_type': 'urn:ietf:params:oauth:grant-type:token-exchange',
+            'subject_token': '<JWT signed with your private key>',
+            'subject_token_type': 'urn:ietf:params:oauth:token-type:jwt',
+        },
+    }
 
     try:
         token = get_pure1_access_token(
@@ -1026,6 +1041,7 @@ def api_pure1_test():
             'success': False,
             'error': f'Token-Generierung fehlgeschlagen: {msg}',
             'detail': detail,
+            'token_request': token_request_info,
         })
 
     # Verify the token with a lightweight API call (list arrays, limit=1)
@@ -1047,6 +1063,7 @@ def api_pure1_test():
                 f'Token gültig. '
                 f'Pure1 API erreichbar ({array_count} Array(s) gefunden).'
             ),
+            'token_request': token_request_info,
         })
     except Exception as exc:
         msg = str(exc)
@@ -1057,4 +1074,5 @@ def api_pure1_test():
             'success': False,
             'error': f'Token erhalten, aber API-Aufruf fehlgeschlagen: {msg}',
             'detail': detail,
+            'token_request': token_request_info,
         })
