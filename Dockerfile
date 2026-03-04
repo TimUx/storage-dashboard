@@ -6,10 +6,15 @@ FROM python:3.11-slim as builder
 # Set working directory
 WORKDIR /build
 
-# Install build dependencies including PostgreSQL client libraries
+# Install build dependencies including PostgreSQL client libraries and
+# cryptography build prerequisites (libssl-dev + libffi-dev are required
+# by the 'cryptography' package when compiling from source – needed for
+# Pure1 JWT token generation via RSA signing).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
+    libssl-dev \
+    libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching

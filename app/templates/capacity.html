@@ -494,16 +494,126 @@ function getSodResourceMap() {
     return map;
 }
 
-function buildSection(title, subtitle, rows, totalRow, sodEffectiveUsedTb) {
+/**
+ * Build per-row effective used maps from SoD resource data matched to dashboard systems.
+ * Uses capacityData.details (system names per art/env) and getSodResourceMap().
+ * Returns { byArtEnv: {art: {env: tb}}, byEnvArt: {env: {art: tb}}, byDeptLabel: {dept: {'env – art': tb}} }
+ */
+function buildSodEffUsedMaps() {
+    const empty = { byArtEnv: {}, byEnvArt: {}, byDeptLabel: {} };
+    if (!capacityData?.details || !sodData?.items || sodData.items.length === 0) return empty;
+    const sodResMap = getSodResourceMap();
+    const { byArtEnv, byEnvArt, byDeptLabel } = empty;
+
+    for (const artGroup of capacityData.details) {
+        const art = artGroup.storage_art;
+        for (const sys of artGroup.systems) {
+            const effTb = sodResMap[(sys.system_name || '').toLowerCase()];
+            if (effTb == null) continue;
+            const envs = (sys.environment || '').split(', ').filter(s => s.length > 0);
+            const depts = (sys.department || '').split(', ').filter(s => s.length > 0);
+            const envList = envs.length ? envs : ['Unbekannt'];
+            const deptList = depts.length ? depts : ['Sonstige'];
+
+            if (!byArtEnv[art]) byArtEnv[art] = {};
+            for (const env of envList) {
+                byArtEnv[art][env] = (byArtEnv[art][env] || 0) + effTb;
+            }
+            for (const env of envList) {
+                if (!byEnvArt[env]) byEnvArt[env] = {};
+                byEnvArt[env][art] = (byEnvArt[env][art] || 0) + effTb;
+            }
+            for (const dept of deptList) {
+                if (!byDeptLabel[dept]) byDeptLabel[dept] = {};
+                for (const env of envList) {
+                    const label = `${env} \u2013 ${art}`;
+                    byDeptLabel[dept][label] = (byDeptLabel[dept][label] || 0) + effTb;
+                }
+            }
+        }
+    }
+    return { byArtEnv, byEnvArt, byDeptLabel };
+}
+
+/**
+ * Build a simple SoD summary section showing one accumulated row:
+ * Reserved Capacity, Effective Used, and utilization percentage.
+ * Only the high-level totals are shown; contract/array details stay in the Details tab.
+ */
+function buildSodSummarySection(sodDataArg) {
+    let bodyHtml = '';
+    if (!sodDataArg) return '';
+
+    if (sodDataArg.error && (!sodDataArg.items || sodDataArg.items.length === 0)) {
+        bodyHtml = `<div class="sod-error-box">⚠ Fehler beim letzten Abruf: ${escHtml(sodDataArg.error)}</div>`;
+    } else if (!sodDataArg.items || sodDataArg.items.length === 0) {
+        bodyHtml = '<div style="padding:.5rem 1.2rem;color:var(--cap-muted);font-size:.85rem;">Keine SoD-Lizenzdaten vorhanden.</div>';
+    } else {
+        let totalReserved = 0, totalEffective = 0;
+        for (const it of sodDataArg.items) {
+            totalReserved += it.reservation?.data || 0;
+            totalEffective += it.usage?.data || 0;
+        }
+        totalReserved /= 1e12;
+        totalEffective /= 1e12;
+        const utilization = totalReserved > 0 ? (totalEffective / totalReserved * 100) : 0;
+        const ts = sodDataArg.fetched_at ? new Date(
+            sodDataArg.fetched_at.endsWith('Z') ? sodDataArg.fetched_at : sodDataArg.fetched_at + 'Z'
+        ).toLocaleString('de-DE') : null;
+
+        bodyHtml = `<div class="cap-table-wrap">
+            <table class="cap-table">
+                <thead><tr>
+                    <th>Bezeichnung</th>
+                    <th>Reservierte Kapazität [TB]</th>
+                    <th>Effektiv Genutzt [TB]</th>
+                    <th>Auslastung [%]</th>
+                </tr></thead>
+                <tbody>
+                    <tr class="total-row">
+                        <td>Storage on Demand</td>
+                        <td>${totalReserved.toFixed(2)}</td>
+                        <td>${totalEffective.toFixed(2)}</td>
+                        <td>${pctBarHtml(utilization)}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>`;
+        if (ts) {
+            bodyHtml += `<div style="padding:.3rem 1.2rem .5rem;font-size:.78rem;color:var(--cap-muted);">
+                Letzte Pure1 Aktualisierung: ${ts}
+            </div>`;
+        }
+    }
+    return `<div class="cap-section">
+        <div class="cap-section-header">
+            <span>📊 Storage on Demand (Pure1)</span>
+        </div>
+        ${bodyHtml}
+    </div>`;
+}
+
+function buildSection(title, subtitle, rows, totalRow, sodRowEffMap) {
     const showProvisioned = hasProvisioned(rows, totalRow);
-    const showEffectiveUsed = sodEffectiveUsedTb != null;
+
+    let showEffectiveUsed = false;
+    let effTotal = null;
+    if (pure1Configured && sodRowEffMap) {
+        let sum = 0, hasAny = false;
+        for (const r of rows) {
+            const v = sodRowEffMap[r.label];
+            if (v != null) { sum += v; hasAny = true; }
+        }
+        if (hasAny) { effTotal = sum; showEffectiveUsed = true; }
+    }
+
     const rowsHtml = rows.map(r => rowHtml(
         r.label, r, false, showProvisioned,
-        showEffectiveUsed, null   // column visible but no value for sub-rows
+        showEffectiveUsed, sodRowEffMap ? (sodRowEffMap[r.label] ?? null) : null
     )).join('');
     const totalHtml = rowHtml(
         'Total', totalRow, true, showProvisioned,
-        showEffectiveUsed, showEffectiveUsed ? sodEffectiveUsedTb : null
+        showEffectiveUsed, effTotal
     );
     return `<div class="cap-section">
         <div class="cap-section-header">
@@ -622,35 +732,45 @@ function renderByStorageArt(data) {
         el.innerHTML = '<div class="cap-empty">Keine Daten verfügbar. Bitte Systeme konfigurieren und Aktualisierung abwarten.</div>';
         return;
     }
-    const sodTotal = getSodTotalEffectiveUsedTb();
-    el.innerHTML = data.map(g => {
-        const isBlock = g.storage_art === 'Block';
-        const effUsed = (isBlock && pure1Configured) ? sodTotal : null;
+    const effMaps = buildSodEffUsedMaps();
+    let html = data.map(g => {
+        const sodRowEffMap = pure1Configured ? (effMaps.byArtEnv[g.storage_art] || null) : null;
         const showProvisioned = hasProvisioned(g.rows, g.total);
-        const showEffectiveUsed = effUsed != null;
+
+        let showEffectiveUsed = false;
+        let effTotal = null;
+        if (sodRowEffMap) {
+            let sum = 0, hasAny = false;
+            for (const r of g.rows) {
+                const v = sodRowEffMap[r.label];
+                if (v != null) { sum += v; hasAny = true; }
+            }
+            if (hasAny) { effTotal = sum; showEffectiveUsed = true; }
+        }
+
         const rowsHtml = g.rows.map(r => rowHtml(
             r.label, r, false, showProvisioned,
-            showEffectiveUsed, null
+            showEffectiveUsed, sodRowEffMap ? (sodRowEffMap[r.label] ?? null) : null
         )).join('');
         const totalHtml = rowHtml(
             'Total', g.total, true, showProvisioned,
-            showEffectiveUsed, showEffectiveUsed ? effUsed : null
+            showEffectiveUsed, effTotal
         );
-        const tableHtml = `<div class="cap-table-wrap">
-            <table class="cap-table">
-                ${tableHeader('Gruppe', showProvisioned, showEffectiveUsed)}
-                <tbody>${rowsHtml}${totalHtml}</tbody>
-            </table>
-        </div>`;
-        const sodHtml = (isBlock && pure1Configured) ? buildSodSubTable(sodData) : '';
         return `<div class="cap-section">
             <div class="cap-section-header">
                 <span>${escHtml(g.storage_art)}</span>
                 <span class="section-subtitle">Gruppierung nach Betriebsumgebung</span>
             </div>
-            ${tableHtml}${sodHtml}
+            <div class="cap-table-wrap">
+                <table class="cap-table">
+                    ${tableHeader('Gruppe', showProvisioned, showEffectiveUsed)}
+                    <tbody>${rowsHtml}${totalHtml}</tbody>
+                </table>
+            </div>
         </div>`;
     }).join('');
+    if (pure1Configured) html += buildSodSummarySection(sodData);
+    el.innerHTML = html;
 }
 
 // ── Render: By Environment ────────────────────────────────────────────────
@@ -660,9 +780,13 @@ function renderByEnvironment(data) {
         el.innerHTML = '<div class="cap-empty">Keine Daten verfügbar.</div>';
         return;
     }
-    el.innerHTML = data.map(g =>
-        buildSection(g.environment, 'Gruppierung nach Storage Art', g.rows, g.total)
-    ).join('');
+    const effMaps = buildSodEffUsedMaps();
+    let html = data.map(g => {
+        const sodRowEffMap = pure1Configured ? (effMaps.byEnvArt[g.environment] || null) : null;
+        return buildSection(g.environment, 'Gruppierung nach Storage Art', g.rows, g.total, sodRowEffMap);
+    }).join('');
+    if (pure1Configured) html += buildSodSummarySection(sodData);
+    el.innerHTML = html;
 }
 
 // ── Render: By Department ─────────────────────────────────────────────────
@@ -672,9 +796,13 @@ function renderByDepartment(data) {
         el.innerHTML = '<div class="cap-empty">Keine Daten verfügbar.</div>';
         return;
     }
-    el.innerHTML = data.map(g =>
-        buildSection(g.department, 'Umgebung × Storage Art', g.rows, g.total)
-    ).join('');
+    const effMaps = buildSodEffUsedMaps();
+    let html = data.map(g => {
+        const sodRowEffMap = pure1Configured ? (effMaps.byDeptLabel[g.department] || null) : null;
+        return buildSection(g.department, 'Umgebung × Storage Art', g.rows, g.total, sodRowEffMap);
+    }).join('');
+    if (pure1Configured) html += buildSodSummarySection(sodData);
+    el.innerHTML = html;
 }
 
 // ── Render: Details ───────────────────────────────────────────────────────
