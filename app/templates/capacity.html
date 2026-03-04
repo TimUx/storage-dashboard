@@ -112,6 +112,17 @@
     width: 100%;
     border-collapse: collapse;
     font-size: .88rem;
+    table-layout: fixed;
+}
+
+/* ── 2-column grid for sections ── */
+.cap-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+}
+@media (max-width: 900px) {
+    .cap-grid { grid-template-columns: 1fr; }
 }
 .cap-table th {
     background: #f8fafc;
@@ -753,17 +764,24 @@ function hasProvisioned(rows, totalRow) {
 }
 
 function tableHeader(label, showProvisioned, showEffectiveUsed) {
+    // Determine widths based on number of columns
+    // Base: label + 3 TB cols + 1 pct col = 5 cols
+    // With provisioned: + 2 cols = 7 cols
+    // With effectiveUsed: + 1 col = up to 8 cols
+    let totalCols = 5 + (showProvisioned ? 2 : 0) + (showEffectiveUsed ? 1 : 0);
+    const pctColWidth = totalCols <= 5 ? '28%' : '20%';
+    const tbColWidth  = totalCols <= 5 ? '18%' : '13%';
+
     let cols = `<th>${label}</th>
-        <th>Gesamt [TB]</th>
-        <th>Genutzt [TB]</th>
-        <th>Frei [TB]</th>
-        <th>Genutzt [%]</th>
-        <th>Frei [%]</th>`;
+        <th style="width:${tbColWidth}">Gesamt [TB]</th>
+        <th style="width:${tbColWidth}">Genutzt [TB]</th>
+        <th style="width:${tbColWidth}">Frei [TB]</th>
+        <th style="width:${pctColWidth}">Genutzt [%]</th>`;
     if (showProvisioned) {
-        cols += `<th>Provisioniert [TB]</th><th>Provisioniert [%]</th>`;
+        cols += `<th style="width:${tbColWidth}">Provisioniert [TB]</th><th style="width:${pctColWidth}">Provisioniert [%]</th>`;
     }
     if (showEffectiveUsed) {
-        cols += `<th>Effektiv Genutzt [TB]</th>`;
+        cols += `<th style="width:${tbColWidth}">Effektiv Genutzt [TB]</th>`;
     }
     return `<thead><tr>${cols}</tr></thead>`;
 }
@@ -775,8 +793,7 @@ function rowHtml(label, row, isTotalRow, showProvisioned, showEffectiveUsedCol, 
         <td>${fmt(row.total_tb)}</td>
         <td>${fmt(row.used_tb)}</td>
         <td>${fmt(row.free_tb)}</td>
-        <td>${pctBarHtml(row.percent_used)}</td>
-        <td>${pctBarHtml(row.percent_free)}</td>`;
+        <td>${pctBarHtml(row.percent_used)}</td>`;
     if (showProvisioned) {
         html += `<td>${fmt(row.provisioned_tb)}</td>
         <td>${pctBarHtmlProv(row.percent_provisioned)}</td>`;
@@ -1084,8 +1101,8 @@ function renderByStorageArt(data) {
             </div>
         </div>`;
     }).join('');
-    if (pure1Configured) html = buildSodSummarySection(sodData) + html;
-    el.innerHTML = html;
+    const gridHtml = `<div class="cap-grid">${html}</div>`;
+    el.innerHTML = pure1Configured ? buildSodSummarySection(sodData) + gridHtml : gridHtml;
 }
 
 // ── Render: By Environment ────────────────────────────────────────────────
@@ -1100,8 +1117,8 @@ function renderByEnvironment(data) {
         const sodRowEffMap = pure1Configured ? (effMaps.byEnvArt[g.environment] || null) : null;
         return buildSection(g.environment, 'Gruppierung nach Storage Art', g.rows, g.total, sodRowEffMap);
     }).join('');
-    if (pure1Configured) html = buildSodSummarySection(sodData) + html;
-    el.innerHTML = html;
+    const gridHtml = `<div class="cap-grid">${html}</div>`;
+    el.innerHTML = pure1Configured ? buildSodSummarySection(sodData) + gridHtml : gridHtml;
 }
 
 // ── Render: By Department ─────────────────────────────────────────────────
@@ -1116,8 +1133,8 @@ function renderByDepartment(data) {
         const sodRowEffMap = pure1Configured ? (effMaps.byDeptLabel[g.department] || null) : null;
         return buildSection(g.department, 'Umgebung × Storage Art', g.rows, g.total, sodRowEffMap);
     }).join('');
-    if (pure1Configured) html = buildSodSummarySection(sodData) + html;
-    el.innerHTML = html;
+    const gridHtml = `<div class="cap-grid">${html}</div>`;
+    el.innerHTML = pure1Configured ? buildSodSummarySection(sodData) + gridHtml : gridHtml;
 }
 
 // ── Render: Details ───────────────────────────────────────────────────────
@@ -1141,8 +1158,7 @@ function renderDetails(data) {
                 <td>${fmt(s.total_tb)}</td>
                 <td>${fmt(s.used_tb)}</td>
                 <td>${fmt(s.free_tb)}</td>
-                <td>${pctBarHtml(s.percent_used)}</td>
-                <td>${pctBarHtml(s.percent_free)}</td>`;
+                <td>${pctBarHtml(s.percent_used)}</td>`;
             if (showProvisioned) {
                 row += `<td>${fmt(s.provisioned_tb)}</td>
                 <td>${pctBarHtmlProv(s.percent_provisioned)}</td>`;
@@ -1157,16 +1173,15 @@ function renderDetails(data) {
         let headerCols = `<th>System</th>
                         <th>Umgebung</th>
                         <th>Tätigkeitsfeld</th>
-                        <th>Gesamt [TB]</th>
-                        <th>Genutzt [TB]</th>
-                        <th>Frei [TB]</th>
-                        <th>Genutzt [%]</th>
-                        <th>Frei [%]</th>`;
+                        <th style="width:10%">Gesamt [TB]</th>
+                        <th style="width:10%">Genutzt [TB]</th>
+                        <th style="width:10%">Frei [TB]</th>
+                        <th style="width:18%">Genutzt [%]</th>`;
         if (showProvisioned) {
-            headerCols += `<th>Provisioniert [TB]</th><th>Provisioniert [%]</th>`;
+            headerCols += `<th style="width:10%">Provisioniert [TB]</th><th style="width:18%">Provisioniert [%]</th>`;
         }
         if (showEffectiveUsed) {
-            headerCols += `<th>Effektiv Genutzt [TB]</th>`;
+            headerCols += `<th style="width:10%">Effektiv Genutzt [TB]</th>`;
         }
         const sodHtml = (isBlock && pure1Configured) ? buildSodSubTable(sodData) : '';
         return `<div class="cap-section">
@@ -1215,7 +1230,7 @@ async function loadHistory(range) {
             el.innerHTML = '<div class="cap-empty">Keine Verlaufsdaten vorhanden. Daten werden täglich gespeichert.</div>';
             return;
         }
-        el.innerHTML = arts.map(art => {
+        el.innerHTML = '<div class="cap-grid">' + arts.map(art => {
             const hasSod = art === 'Block' && data[art].sod;
             const subtitle = hasSod
                 ? 'Verlauf – Physische &amp; SoD Kapazität'
@@ -1239,7 +1254,7 @@ async function loadHistory(range) {
                 </div>
                 <div class="chart-container"><canvas id="chart-${escHtml(art).replace(/\s+/g,'-')}"></canvas></div>
             </div>`;
-        }).join('');
+        }).join('') + '</div>';
 
         // Render charts
         arts.forEach(art => {
