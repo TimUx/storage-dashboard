@@ -49,15 +49,18 @@ def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 315
     Pure Storage reference script (pure1:apikey token exchange utility by
     Cody Hosterman, Pure Storage 2020).
 
-    The payload includes the four standard claims expected by the Pure1
+    The payload includes the standard claims expected by the Pure1
     OAuth token endpoint:
 
     * ``iss`` – issuer: the Pure1 application ID.
     * ``sub`` – subject: same as ``iss`` for Pure1 API-key clients.
-    * ``aud`` – audience: the Pure1 token URL (prevents token reuse on
-      other services).
     * ``iat`` / ``exp`` – issued-at / expiry timestamps (seconds since
       UNIX epoch, standard JWT).
+
+    Note: the ``aud`` (audience) claim is intentionally **omitted**.
+    Pure1 identifies the API-key user solely by the ``iss`` claim.
+    Including an ``aud`` value causes Pure1 to perform a ``(iss, aud)``
+    lookup that fails with HTTP 401 "Audience does not exist".
 
     Args:
         app_id: The Pure1 application/issuer ID (e.g. ``pure1:apikey:…``).
@@ -77,7 +80,6 @@ def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 315
             {
                 "iss": app_id,
                 "sub": app_id,
-                "aud": PURE1_TOKEN_URL,
                 "iat": now,
                 "exp": now + expiry_seconds,
             },

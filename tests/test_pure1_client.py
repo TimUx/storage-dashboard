@@ -72,14 +72,16 @@ class TestBuildPure1Jwt:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
         assert payload["sub"] == app_id, "sub must equal app_id for Pure1 API-key clients"
 
-    def test_jwt_payload_aud_is_token_url(self):
+    def test_jwt_payload_no_aud_claim(self):
         import base64
-        from app.api.pure1_client import build_pure1_jwt, PURE1_TOKEN_URL
+        from app.api.pure1_client import build_pure1_jwt
         jwt = build_pure1_jwt("pure1:apikey:test", self.private_key_pem)
         payload_b64 = jwt.split(".")[1]
         payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
-        assert payload["aud"] == PURE1_TOKEN_URL, (
-            f"aud must be the Pure1 token URL '{PURE1_TOKEN_URL}'"
+        assert "aud" not in payload, (
+            "aud must NOT be present in the JWT payload – including it causes "
+            "Pure1 to perform a (iss, aud) lookup that fails with HTTP 401 "
+            "'Audience does not exist'"
         )
 
     def test_jwt_payload_contains_iat_and_exp(self):
@@ -218,7 +220,6 @@ class TestApiPure1TestStepLogging:
                 '# Payload (Claims):',
                 f'  iss : {pay["iss"]}',
                 f'  sub : {pay["sub"]}',
-                f'  aud : {pay["aud"]}',
                 f'  iat : {pay["iat"]}  ({iat_str})',
                 f'  exp : {pay["exp"]}  ({exp_str})',
                 '',
@@ -315,7 +316,7 @@ class TestApiPure1TestStepLogging:
         combined = '\n'.join(step1['lines'])
         assert 'iss' in combined
         assert 'sub' in combined
-        assert 'aud' in combined
+        assert 'aud' not in combined
         assert 'RS256' in combined
         assert self.app_id in combined
 
