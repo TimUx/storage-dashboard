@@ -31,7 +31,7 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 ### Kapazitätsreport – Details (alle Systeme)
 ![Kapazitätsreport – Details](screenshots/capacity-details.png)
 
-### Kapazitätsreport – Verlauf mit physischen & kaufmännischen Linien, Filter und Prognose
+### Kapazitätsreport – Verlauf mit physischen & SoD-Linien, Filter und Prognose
 ![Kapazitätsreport – Verlauf](screenshots/capacity-history.png)
 
 ### Kapazitätsreport – Verlauf Steuerleiste (Zeitraum, Linienfilter, Export/Import)
@@ -50,7 +50,7 @@ Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschieden
 - **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
 - **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
 - **Kapazitätsreport**: Tabellarische Kapazitätsübersicht aller Systeme unter `/capacity/` – gruppiert nach Storage Art (**Block → File → Object → Archiv → Backup**), Umgebung oder Tätigkeitsfeld, mit Verlaufsgraphen und Wachstumsprognose
-- **Verlaufsdiagramme**: Historische Kapazitätsgraphen in der gleichen Reihenfolge wie die Tabellen (Block → File → Object → Archiv → Backup). Der **Block-Graph** zeigt physische und kaufmännische (SoD) Werte parallel in zwei Liniengruppen. Über einen **Linienfilter** können physische oder kaufmännische Linien ein- und ausgeblendet werden.
+- **Verlaufsdiagramme**: Historische Kapazitätsgraphen in der gleichen Reihenfolge wie die Tabellen (Block → File → Object → Archiv → Backup). Der **Block-Graph** zeigt physische und SoD-Vertragswerte parallel in zwei Liniengruppen. Über einen **Linienfilter** direkt im Block-Graph-Header können physische oder SoD-Linien ein- und ausgeblendet werden.
 - **Storage on Demand (Pure1)**: Bei konfigurierter Pure1 API wird in allen Kapazitätsansichten (Nach Storage Art, Nach Umgebung, Nach Tätigkeitsfeld) eine kompakte SoD-Zusammenfassung angezeigt (Reservierte Kapazität, Effektiv Genutzt, Auslastung [%]). Die Kapazitätstabellen zeigen zusätzlich eine Spalte **„Effektiv Genutzt [TB]"**, die die Pure1-Effektivwerte (nach Deduplikation/Komprimierung) pro Zeile summiert. Vollständige Detailinformationen (Verträge, Lizenzen, Arrays) sind im Tab **Details** verfügbar:
   - Wöchentlich automatisch abgerufen, manuell per Knopfdruck aktualisierbar
   - Wird nur angezeigt, wenn Pure1 in den Einstellungen konfiguriert ist
@@ -357,7 +357,7 @@ Der Kapazitätsreport bietet eine umfassende tabellarische und grafische Auswert
 | **Nach Umgebung** | Eine Tabelle pro Umgebung (Produktion, Test/Dev) mit Zeilen je Storage-Typ und Total. Enthält ebenfalls die Pure1 SoD-Zusammenfassung am Ende. |
 | **Nach Tätigkeitsfeld** | Eine Tabelle pro Abteilung/Tätigkeitsfeld mit Zeilen für jede Umgebung × Storage-Typ-Kombination. Enthält ebenfalls die Pure1 SoD-Zusammenfassung am Ende. |
 | **Details** | Alle Einzelsysteme mit Name, Umgebung, Tätigkeitsfeld und Kapazitätswerten, gruppiert nach Storage-Typ. Im Block-Bereich zusätzlich eine aufklappbare Untertabelle mit vollständigen Pure1 SoD-Lizenzdaten (Reserviert, Effektiv Genutzt, On Demand, Arrays). |
-| **Verlauf** | Liniendiagramme pro Storage-Typ in der gleichen Reihenfolge wie die Tabellen (Block → File → Object → Archiv → Backup) mit wählbarem Zeitraum (Alle / 2J / 1J / 6M / 3M) und linearer Wachstumsprognose als gestrichelte Linie. Der Block-Graph zeigt zusätzlich kaufmännische SoD-Linien. |
+| **Verlauf** | Liniendiagramme pro Storage-Typ in der gleichen Reihenfolge wie die Tabellen (Block → File → Object → Archiv → Backup) mit wählbarem Zeitraum (Alle / 2J / 1J / 6M / 3M) und linearer Wachstumsprognose als gestrichelte Linie. Der Block-Graph zeigt zusätzlich SoD-Vertragslinien mit eigenem Filter. |
 
 **Spalten in den Kapazitätstabellen:**
 - Gesamt [TB], Genutzt [TB], Frei [TB]
@@ -385,9 +385,9 @@ Der **Verlauf**-Tab zeigt historische Kapazitätsgraphen für alle Storage-Typen
 
 Die Graphen erscheinen in der gleichen Reihenfolge wie die Tabellen: **Block → File → Object → Archiv → Backup**.
 
-**Physische und kaufmännische Linien im Block-Graphen:**
+**Physische und SoD-Linien im Block-Graphen:**
 
-Der Block-Graph zeigt physische und SoD-Vertragswerte parallel. Physische Linien (Pure blau / grün) und kaufmännische Linien (Pure Storage Farben Orange / Dunkelrot / Goldgelb) sind klar unterschieden:
+Der Block-Graph zeigt physische und SoD-Vertragswerte parallel. Physische Linien (Pure blau / grün) und SoD-Linien (Pure Storage Farben Orange / Dunkelrot / Goldgelb) sind klar unterschieden:
 
 | Linie | Farbe | Bedeutung |
 |-------|-------|-----------|
@@ -395,15 +395,17 @@ Der Block-Graph zeigt physische und SoD-Vertragswerte parallel. Physische Linien
 | Gesamt [TB] | 🟡 Grüngelb | Physisch installierte Gesamtkapazität |
 | Prognose Genutzt [TB] | 🔴 Dunkelrot, gestrichelt | Lineare Prognose der physischen Nutzung |
 | SoD Reserviert [TB] | 🟠 Orange | Vertraglich reservierte SoD-Kapazität |
-| SoD Effektiv Genutzt [TB] | 🟣 Magenta | Kaufmännisch effektiv genutzte Kapazität |
+| SoD Effektiv Genutzt [TB] | 🟣 Magenta | SoD effektiv genutzte Kapazität |
 | SoD On Demand [TB] | 🟡 Goldgelb, gestrichelt | Über-Vertrag-Nutzung (On Demand) |
-| SoD Demand Prognose [TB] | 🟡 Goldgelb, gestrichelt | Lineare Prognose der On-Demand-Nutzung |
+| SoD Eff. Genutzt Prognose [TB] | 🟣 Magenta, gestrichelt | Lineare Prognose der SoD-Nutzung – zeigt ab wann On-Demand-Kapazität benötigt wird |
 
-![Block-Graph mit physischen und kaufmännischen Linien](screenshots/capacity-history.png)
+![Block-Graph mit physischen und SoD-Linien](screenshots/capacity-history.png)
 
-**Linienfilter:**
+**Linienfilter (nur im Block-Graphen):**
 
-Über die Schaltflächen **🗄️ Physisch** und **💼 Kaufmännisch** in der Steuerleiste können physische oder kaufmännische Linien in allen Charts gleichzeitig ein- und ausgeblendet werden. Aktive Gruppen erscheinen farbig, inaktive ausgegraut.
+Die Schaltflächen **🗄️ Physisch** und **☁️ SoD** befinden sich direkt im Header des Block-Graphen und blenden die jeweiligen Liniengruppen nur für diesen Graphen ein oder aus. Aktive Gruppen erscheinen farbig hervorgehoben, inaktive ausgegraut.
+
+![Verlauf-Steuerleiste und Block-Graph mit Linienfilter](screenshots/capacity-history-controls.png)
 
 ### Export und Import historischer Daten (`/capacity/` → Verlauf)
 

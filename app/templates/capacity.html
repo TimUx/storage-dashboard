@@ -510,17 +510,6 @@
             <button class="range-btn"        data-range="6m"   onclick="loadHistory('6m')">6 Monate</button>
             <button class="range-btn"        data-range="3m"   onclick="loadHistory('3m')">3 Monate</button>
         </div>
-        <label style="margin-left:.5rem;">Linien:</label>
-        <div class="line-filter-group">
-            <button class="line-filter-btn active" data-filter="physical"
-                    onclick="toggleLineFilter('physical')" title="Physische Linien ein-/ausblenden">
-                🗄️ Physisch
-            </button>
-            <button class="line-filter-btn active commercial" data-filter="commercial"
-                    onclick="toggleLineFilter('commercial')" title="Kaufmännische Linien ein-/ausblenden">
-                💼 Kaufmännisch
-            </button>
-        </div>
         <div class="history-actions">
             <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV</button>
             <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
@@ -1229,10 +1218,25 @@ async function loadHistory(range) {
         el.innerHTML = arts.map(art => {
             const hasSod = art === 'Block' && data[art].sod;
             const subtitle = hasSod
-                ? 'Verlauf – Physische &amp; Kaufmännische Kapazität'
+                ? 'Verlauf – Physische &amp; SoD Kapazität'
                 : 'Verlauf – Genutzte Kapazität';
+            const filterHtml = hasSod ? `
+                <span class="line-filter-group" style="margin-left:auto;">
+                    <button class="line-filter-btn active" data-filter="physical"
+                            onclick="toggleLineFilter('physical')" title="Physische Linien ein-/ausblenden">
+                        🗄️ Physisch
+                    </button>
+                    <button class="line-filter-btn active commercial" data-filter="commercial"
+                            onclick="toggleLineFilter('commercial')" title="SoD Linien ein-/ausblenden">
+                        ☁️ SoD
+                    </button>
+                </span>` : '';
             return `<div class="cap-section">
-                <div class="cap-section-header"><span>${escHtml(art)}</span><span class="section-subtitle">${subtitle}</span></div>
+                <div class="cap-section-header" style="display:flex;align-items:center;gap:.5rem;">
+                    <span>${escHtml(art)}</span>
+                    <span class="section-subtitle">${subtitle}</span>
+                    ${filterHtml}
+                </div>
                 <div class="chart-container"><canvas id="chart-${escHtml(art).replace(/\s+/g,'-')}"></canvas></div>
             </div>`;
         }).join('');
@@ -1313,11 +1317,11 @@ async function loadHistory(range) {
                     borderDash: [3, 3],
                     _group: 'commercial',
                 });
-                if (sod.demand_forecast_values && sod.demand_forecast_values.length > 0) {
+                if (sod.effective_forecast_values && sod.effective_forecast_values.length > 0) {
                     datasets.push({
-                        label: 'SoD Demand Prognose [TB]',
-                        data: sod.demand_forecast_values.map((v, i) => ({x: sod.demand_forecast_labels[i], y: v})),
-                        borderColor: '#FFB800',
+                        label: 'SoD Eff. Genutzt Prognose [TB]',
+                        data: sod.effective_forecast_values.map((v, i) => ({x: sod.effective_forecast_labels[i], y: v})),
+                        borderColor: '#C20054',
                         backgroundColor: 'transparent',
                         tension: 0.3,
                         pointRadius: 0,
@@ -1367,19 +1371,21 @@ async function loadHistory(range) {
     }
 }
 
-// ── Line filter toggle ────────────────────────────────────────────────────
+// ── Line filter toggle (Block chart only) ────────────────────────────────
 function toggleLineFilter(group) {
     lineFilterState[group] = !lineFilterState[group];
-    const btn = document.querySelector(`.line-filter-btn[data-filter="${group}"]`);
-    if (btn) btn.classList.toggle('active', lineFilterState[group]);
-
-    // Update visibility on all existing charts
-    Object.values(chartInstances).forEach(chart => {
-        chart.data.datasets.forEach(ds => {
-            if (ds._group === group) ds.hidden = !lineFilterState[group];
-        });
-        chart.update();
+    // Update button state (the buttons live inside the Block chart header)
+    document.querySelectorAll(`.line-filter-btn[data-filter="${group}"]`).forEach(btn => {
+        btn.classList.toggle('active', lineFilterState[group]);
     });
+
+    // Only update the Block chart instance
+    const blockChart = chartInstances['Block'];
+    if (!blockChart) return;
+    blockChart.data.datasets.forEach(ds => {
+        if (ds._group === group) ds.hidden = !lineFilterState[group];
+    });
+    blockChart.update();
 }
 
 // ── Storage on Demand refresh ─────────────────────────────────────────────

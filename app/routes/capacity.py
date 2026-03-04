@@ -81,14 +81,14 @@ def api_history():
                 'labels': [], 'used': [], 'total': [],
                 'forecast_labels': [], 'forecast_values': [],
             }
-        fc_demand = compute_forecast(sod['labels'], sod['on_demand'], forecast_days=90)
+        fc_demand = compute_forecast(sod['labels'], sod['effective_used'], forecast_days=90)
         history[block_art]['sod'] = {
             'labels': sod['labels'],
             'reserved': sod['reserved'],
             'effective_used': sod['effective_used'],
             'on_demand': sod['on_demand'],
-            'demand_forecast_labels': fc_demand['labels'],
-            'demand_forecast_values': fc_demand['values'],
+            'effective_forecast_labels': fc_demand['labels'],
+            'effective_forecast_values': fc_demand['values'],
         }
 
     return jsonify(history)
