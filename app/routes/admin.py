@@ -1067,6 +1067,7 @@ def api_pure1_test():
             '# Payload (Claims):',
             f'  iss : {pay["iss"]}',
             f'  sub : {pay["sub"]}',
+            f'  aud : {pay.get("aud", "(not set)")}',
             f'  iat : {pay["iat"]}  ({iat_str})',
             f'  exp : {pay["exp"]}  ({exp_str})',
             '',
