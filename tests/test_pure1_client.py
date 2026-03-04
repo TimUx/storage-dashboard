@@ -160,3 +160,196 @@ class TestGetPure1AccessTokenOAuthParams:
                    return_value=self._mock_response("my-bearer-token")):
             token = get_pure1_access_token("pure1:apikey:test", self.private_key_pem)
         assert token == "my-bearer-token"
+
+
+# ---------------------------------------------------------------------------
+# api_pure1_test step-logging logic
+# ---------------------------------------------------------------------------
+
+class TestApiPure1TestStepLogging:
+    """Test the step-logging logic used by the /api/pure1-test route.
+
+    We test the logic directly by importing ``build_pure1_jwt`` and simulating
+    the three-step flow (JWT → token → API call) with mocked HTTP calls,
+    verifying that the expected ``steps`` structure is produced.
+    """
+
+    def setup_method(self):
+        self.private_key_pem = _generate_test_private_key_pem()
+        self.app_id = "pure1:apikey:unittest"
+
+    def _run_steps(self, mock_token_status=200, mock_token_body=None,
+                   mock_api_status=200, mock_api_body=None):
+        """Execute the three-step logic used in api_pure1_test() and return steps."""
+        import base64 as _b64
+        import datetime as _dt
+        import json as _json
+        import requests as req_lib
+        from unittest.mock import MagicMock
+        from app.api.pure1_client import build_pure1_jwt, PURE1_TOKEN_URL, PURE1_API_BASE
+
+        if mock_token_body is None:
+            mock_token_body = {"access_token": "fake-access-token-xyz"}
+        if mock_api_body is None:
+            mock_api_body = {"items": [{"name": "array-01"}], "total_item_count": 1}
+
+        steps = []
+
+        def _step(num, title, status, lines):
+            return {'step': num, 'title': title, 'status': status, 'lines': lines}
+
+        def _trunc(s, n=60):
+            return s[:n] + '…' if len(s) > n else s
+
+        # Step 1 – build JWT
+        jwt_token = None
+        step1_lines = []
+        try:
+            jwt_token = build_pure1_jwt(self.app_id, self.private_key_pem)
+            hdr_b64, pay_b64, _ = jwt_token.split('.')
+            hdr  = _json.loads(_b64.urlsafe_b64decode(hdr_b64  + '=='))
+            pay  = _json.loads(_b64.urlsafe_b64decode(pay_b64  + '=='))
+            iat_str = _dt.datetime.fromtimestamp(pay['iat'], tz=_dt.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            exp_str = _dt.datetime.fromtimestamp(pay['exp'], tz=_dt.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            step1_lines = [
+                '# Header:',
+                f'  {_json.dumps(hdr)}',
+                '',
+                '# Payload (Claims):',
+                f'  iss : {pay["iss"]}',
+                f'  sub : {pay["sub"]}',
+                f'  aud : {pay["aud"]}',
+                f'  iat : {pay["iat"]}  ({iat_str})',
+                f'  exp : {pay["exp"]}  ({exp_str})',
+                '',
+                '# Signierung: RS256 (PKCS#1 v1.5 / SHA-256)',
+                '',
+                '# Kodiertes JWT (header.payload.signature):',
+                f'  {_trunc(jwt_token, 80)}',
+                f'  [{len(jwt_token)} Zeichen gesamt]',
+            ]
+            steps.append(_step(1, 'JWT bauen (RS256)', 'success', step1_lines))
+        except Exception as exc:
+            step1_lines += ['', f'Fehler: {exc}']
+            steps.append(_step(1, 'JWT bauen (RS256)', 'error', step1_lines))
+            return False, steps
+
+        # Step 2 – token request (mocked)
+        step2_lines = [
+            f'POST {PURE1_TOKEN_URL}',
+            'Content-Type: application/x-www-form-urlencoded',
+            '',
+            'grant_type         = urn:ietf:params:oauth:grant-type:token-exchange',
+            'subject_token_type = urn:ietf:params:oauth:token-type:jwt',
+            f'subject_token      = {_trunc(jwt_token, 50)}',
+        ]
+        token_mock = MagicMock()
+        token_mock.status_code = mock_token_status
+        token_mock.reason = 'OK' if mock_token_status == 200 else 'Unauthorized'
+        token_mock.json.return_value = mock_token_body
+        if mock_token_status >= 400:
+            from requests.exceptions import HTTPError
+            http_err = HTTPError(response=token_mock)
+            token_mock.raise_for_status.side_effect = http_err
+        else:
+            token_mock.raise_for_status.return_value = None
+
+        access_token = None
+        try:
+            step2_lines += ['', f'→  HTTP {token_mock.status_code} {token_mock.reason}']
+            token_mock.raise_for_status()
+            resp_json = token_mock.json()
+            access_token = resp_json.get('access_token', '')
+            step2_lines += ['', '# Antwort:', f'  access_token  = {_trunc(access_token, 50)}']
+            steps.append(_step(2, 'Access Token abrufen', 'success', step2_lines))
+        except Exception as exc:
+            step2_lines += ['', f'Fehler: {exc}']
+            steps.append(_step(2, 'Access Token abrufen', 'error', step2_lines))
+            return False, steps
+
+        # Step 3 – API call (mocked)
+        step3_lines = [f'GET {PURE1_API_BASE}/arrays?limit=1']
+        api_mock = MagicMock()
+        api_mock.status_code = mock_api_status
+        api_mock.reason = 'OK' if mock_api_status == 200 else 'Forbidden'
+        api_mock.json.return_value = mock_api_body
+        if mock_api_status >= 400:
+            from requests.exceptions import HTTPError
+            http_err = HTTPError(response=api_mock)
+            api_mock.raise_for_status.side_effect = http_err
+        else:
+            api_mock.raise_for_status.return_value = None
+
+        try:
+            step3_lines += ['', f'→  HTTP {api_mock.status_code} {api_mock.reason}']
+            api_mock.raise_for_status()
+            api_data = api_mock.json()
+            items = api_data.get('items', [])
+            step3_lines += ['', '# Antwort:', f'  items (limit=1)  = {len(items)}']
+            steps.append(_step(3, 'API-Test  GET /arrays?limit=1', 'success', step3_lines))
+            return True, steps
+        except Exception as exc:
+            step3_lines += ['', f'Fehler: {exc}']
+            steps.append(_step(3, 'API-Test  GET /arrays?limit=1', 'error', step3_lines))
+            return False, steps
+
+    # -- Tests ----------------------------------------------------------------
+
+    def test_full_success_returns_three_steps(self):
+        success, steps = self._run_steps()
+        assert success is True
+        assert len(steps) == 3
+
+    def test_all_steps_have_required_keys(self):
+        _, steps = self._run_steps()
+        for s in steps:
+            assert 'step'   in s
+            assert 'title'  in s
+            assert 'status' in s
+            assert 'lines'  in s
+
+    def test_step1_success_contains_jwt_claims(self):
+        _, steps = self._run_steps()
+        step1 = steps[0]
+        assert step1['status'] == 'success'
+        combined = '\n'.join(step1['lines'])
+        assert 'iss' in combined
+        assert 'sub' in combined
+        assert 'aud' in combined
+        assert 'RS256' in combined
+        assert self.app_id in combined
+
+    def test_step2_success_contains_token_endpoint_and_response(self):
+        from app.api.pure1_client import PURE1_TOKEN_URL
+        _, steps = self._run_steps()
+        step2 = steps[1]
+        assert step2['status'] == 'success'
+        combined = '\n'.join(step2['lines'])
+        assert PURE1_TOKEN_URL in combined
+        assert 'token-exchange' in combined
+        assert 'access_token' in combined
+
+    def test_step3_success_contains_arrays_url_and_response(self):
+        from app.api.pure1_client import PURE1_API_BASE
+        _, steps = self._run_steps()
+        step3 = steps[2]
+        assert step3['status'] == 'success'
+        combined = '\n'.join(step3['lines'])
+        assert f'{PURE1_API_BASE}/arrays' in combined
+        assert 'HTTP 200' in combined
+
+    def test_token_failure_stops_at_step2_with_error(self):
+        success, steps = self._run_steps(mock_token_status=401)
+        assert success is False
+        assert len(steps) == 2
+        assert steps[1]['status'] == 'error'
+        # Step 3 should not be present
+        assert all(s['step'] != 3 for s in steps)
+
+    def test_api_failure_stops_at_step3_with_error(self):
+        success, steps = self._run_steps(mock_api_status=403)
+        assert success is False
+        assert len(steps) == 3
+        assert steps[2]['status'] == 'error'
+        assert steps[0]['status'] == 'success'
+        assert steps[1]['status'] == 'success'
