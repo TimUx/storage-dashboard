@@ -7,14 +7,35 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Allowed column names and types for validation (whitelist approach)
+# Allowed column names and types for validation (whitelist approach).
+# Values are the default SQL type string; dialect-specific overrides are
+# handled by _get_column_type() below (e.g. DATETIME vs TIMESTAMP, BLOB vs BYTEA).
 ALLOWED_COLUMNS = {
+    # storage_systems – originally present columns that may be absent in older installs
+    'cluster_type': 'VARCHAR(50)',
+    'node_count': 'INTEGER',
+    'site_count': 'INTEGER',
+    'dns_names': 'TEXT',
+    'all_ips': 'TEXT',
+    'node_details': 'TEXT',
+    'partner_cluster_id': 'INTEGER',
+    'last_discovery': 'DATETIME',   # overridden to TIMESTAMP on PostgreSQL
+    'discovery_error': 'TEXT',
+    # storage_systems – columns added via previous migrations
     'os_version': 'VARCHAR(100)',
     'api_version': 'VARCHAR(50)',
     'peer_connections': 'TEXT',
     'metrocluster_info': 'TEXT',
     'metrocluster_dr_groups': 'TEXT',
     'ha_info': 'TEXT',
+    # app_settings – originally present columns that may be absent in older installs
+    'primary_color': 'VARCHAR(7)',
+    'secondary_color': 'VARCHAR(7)',
+    'accent_color': 'VARCHAR(7)',
+    'logo_filename': 'VARCHAR(255)',
+    'logo_data': 'BLOB',            # overridden to BYTEA on PostgreSQL
+    'company_name': 'VARCHAR(100)',
+    # app_settings – columns added via previous migrations
     'timezone': 'VARCHAR(50)',
     'max_logs_per_system': 'INTEGER',
     'log_retention_days': 'INTEGER',
@@ -28,8 +49,23 @@ ALLOWED_COLUMNS = {
     'proxy_https': 'TEXT',
     'proxy_no_proxy': 'TEXT',
     'dashboard_refresh_interval': 'INTEGER',
+    # sod_history
     'on_demand_tb': 'FLOAT',
 }
+
+# Dialect-specific type overrides: {column_name: {dialect_name: sql_type}}
+_DIALECT_TYPE_OVERRIDES = {
+    'last_discovery': {'postgresql': 'TIMESTAMP'},
+    'logo_data':      {'postgresql': 'BYTEA'},
+}
+
+
+def _get_column_type(column_name):
+    """Return the SQL type string for *column_name*, adjusted for the active DB dialect."""
+    base_type = ALLOWED_COLUMNS[column_name]
+    dialect = db.engine.dialect.name
+    overrides = _DIALECT_TYPE_OVERRIDES.get(column_name, {})
+    return overrides.get(dialect, base_type)
 
 
 def validate_identifier(identifier, allowed_pattern=r'^[a-zA-Z_][a-zA-Z0-9_]*$'):
@@ -53,7 +89,8 @@ def add_column_if_not_exists(table_name, column_name, column_type, default=None)
     Args:
         table_name: Table name (validated against SQL injection)
         column_name: Column name (validated against SQL injection)
-        column_type: Column type (validated against whitelist)
+        column_type: Column type (validated against whitelist; ignored in favour of
+                     the whitelisted type to prevent injection)
         default: Default value (not currently used to avoid injection risk)
     """
     # Validate table and column names
@@ -64,10 +101,11 @@ def add_column_if_not_exists(table_name, column_name, column_type, default=None)
     if column_name not in ALLOWED_COLUMNS:
         raise ValueError(f"Column {column_name} not in allowed migration list")
     
-    # Use whitelisted column type
-    if ALLOWED_COLUMNS[column_name] != column_type:
-        logger.warning(f"Column type mismatch for {column_name}: expected {ALLOWED_COLUMNS[column_name]}, got {column_type}")
-        column_type = ALLOWED_COLUMNS[column_name]
+    # Always use the whitelisted type (dialect-adjusted) to prevent injection
+    base_type = ALLOWED_COLUMNS[column_name]
+    column_type = _get_column_type(column_name)
+    if base_type != column_type:
+        logger.debug(f"Using dialect-specific type for {column_name}: {column_type}")
     
     existing_columns = get_column_names(table_name)
     
@@ -104,30 +142,28 @@ def add_column_if_not_exists(table_name, column_name, column_type, default=None)
 def migrate_storage_systems_table():
     """Migrate storage_systems table to add missing columns"""
     migrations_applied = []
-    
-    # Add os_version column if missing
-    if add_column_if_not_exists('storage_systems', 'os_version', 'VARCHAR(100)'):
-        migrations_applied.append('os_version')
-    
-    # Add api_version column if missing
-    if add_column_if_not_exists('storage_systems', 'api_version', 'VARCHAR(50)'):
-        migrations_applied.append('api_version')
-    
-    # Add peer_connections column if missing
-    if add_column_if_not_exists('storage_systems', 'peer_connections', 'TEXT'):
-        migrations_applied.append('peer_connections')
-    
-    # Add metrocluster_info column if missing
-    if add_column_if_not_exists('storage_systems', 'metrocluster_info', 'TEXT'):
-        migrations_applied.append('metrocluster_info')
-    
-    # Add metrocluster_dr_groups column if missing
-    if add_column_if_not_exists('storage_systems', 'metrocluster_dr_groups', 'TEXT'):
-        migrations_applied.append('metrocluster_dr_groups')
-    
-    # Add ha_info column if missing (for DataDomain HA clusters)
-    if add_column_if_not_exists('storage_systems', 'ha_info', 'TEXT'):
-        migrations_applied.append('ha_info')
+
+    # Columns that may be absent in older installations (nullable, no default needed)
+    nullable_columns = [
+        ('cluster_type',        ALLOWED_COLUMNS['cluster_type']),
+        ('node_count',          ALLOWED_COLUMNS['node_count']),
+        ('site_count',          ALLOWED_COLUMNS['site_count']),
+        ('dns_names',           ALLOWED_COLUMNS['dns_names']),
+        ('all_ips',             ALLOWED_COLUMNS['all_ips']),
+        ('node_details',        ALLOWED_COLUMNS['node_details']),
+        ('partner_cluster_id',  ALLOWED_COLUMNS['partner_cluster_id']),
+        ('last_discovery',      ALLOWED_COLUMNS['last_discovery']),
+        ('discovery_error',     ALLOWED_COLUMNS['discovery_error']),
+        ('os_version',          ALLOWED_COLUMNS['os_version']),
+        ('api_version',         ALLOWED_COLUMNS['api_version']),
+        ('peer_connections',    ALLOWED_COLUMNS['peer_connections']),
+        ('metrocluster_info',   ALLOWED_COLUMNS['metrocluster_info']),
+        ('metrocluster_dr_groups', ALLOWED_COLUMNS['metrocluster_dr_groups']),
+        ('ha_info',             ALLOWED_COLUMNS['ha_info']),
+    ]
+    for col_name, col_type in nullable_columns:
+        if add_column_if_not_exists('storage_systems', col_name, col_type):
+            migrations_applied.append(col_name)
     
     return migrations_applied
 
@@ -135,35 +171,37 @@ def migrate_storage_systems_table():
 def migrate_app_settings_table():
     """Migrate app_settings table to add missing columns"""
     migrations_applied = []
-    
-    # Add timezone column if missing
-    if add_column_if_not_exists('app_settings', 'timezone', ALLOWED_COLUMNS['timezone']):
-        migrations_applied.append('timezone')
-    
-    # Add log retention settings columns if missing
-    if add_column_if_not_exists('app_settings', 'max_logs_per_system', ALLOWED_COLUMNS['max_logs_per_system']):
-        migrations_applied.append('max_logs_per_system')
-    
-    if add_column_if_not_exists('app_settings', 'log_retention_days', ALLOWED_COLUMNS['log_retention_days']):
-        migrations_applied.append('log_retention_days')
-    
-    if add_column_if_not_exists('app_settings', 'min_log_level', ALLOWED_COLUMNS['min_log_level']):
-        migrations_applied.append('min_log_level')
 
-    # Add Pure1 API credential columns if missing
-    for col in ('pure1_display_name', 'pure1_app_id', 'pure1_private_key',
-                'pure1_private_key_passphrase', 'pure1_public_key'):
-        if add_column_if_not_exists('app_settings', col, ALLOWED_COLUMNS[col]):
-            migrations_applied.append(col)
-
-    # Add proxy setting columns if missing
-    for col in ('proxy_http', 'proxy_https', 'proxy_no_proxy'):
-        if add_column_if_not_exists('app_settings', col, ALLOWED_COLUMNS[col]):
-            migrations_applied.append(col)
-
-    # Add dashboard refresh interval column if missing
-    if add_column_if_not_exists('app_settings', 'dashboard_refresh_interval', ALLOWED_COLUMNS['dashboard_refresh_interval']):
-        migrations_applied.append('dashboard_refresh_interval')
+    # Columns that may be absent in older installations
+    columns = [
+        # Branding / UI columns (may predate log/Pure1/proxy columns in some installs)
+        ('primary_color',   ALLOWED_COLUMNS['primary_color']),
+        ('secondary_color', ALLOWED_COLUMNS['secondary_color']),
+        ('accent_color',    ALLOWED_COLUMNS['accent_color']),
+        ('logo_filename',   ALLOWED_COLUMNS['logo_filename']),
+        ('logo_data',       ALLOWED_COLUMNS['logo_data']),
+        ('company_name',    ALLOWED_COLUMNS['company_name']),
+        # Log retention settings
+        ('timezone',            ALLOWED_COLUMNS['timezone']),
+        ('max_logs_per_system', ALLOWED_COLUMNS['max_logs_per_system']),
+        ('log_retention_days',  ALLOWED_COLUMNS['log_retention_days']),
+        ('min_log_level',       ALLOWED_COLUMNS['min_log_level']),
+        # Pure1 API credential columns
+        ('pure1_display_name',          ALLOWED_COLUMNS['pure1_display_name']),
+        ('pure1_app_id',                ALLOWED_COLUMNS['pure1_app_id']),
+        ('pure1_private_key',           ALLOWED_COLUMNS['pure1_private_key']),
+        ('pure1_private_key_passphrase', ALLOWED_COLUMNS['pure1_private_key_passphrase']),
+        ('pure1_public_key',            ALLOWED_COLUMNS['pure1_public_key']),
+        # Proxy settings
+        ('proxy_http',     ALLOWED_COLUMNS['proxy_http']),
+        ('proxy_https',    ALLOWED_COLUMNS['proxy_https']),
+        ('proxy_no_proxy', ALLOWED_COLUMNS['proxy_no_proxy']),
+        # Dashboard refresh interval
+        ('dashboard_refresh_interval', ALLOWED_COLUMNS['dashboard_refresh_interval']),
+    ]
+    for col_name, col_type in columns:
+        if add_column_if_not_exists('app_settings', col_name, col_type):
+            migrations_applied.append(col_name)
 
     return migrations_applied
 
