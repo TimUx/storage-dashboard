@@ -72,16 +72,15 @@ class TestBuildPure1Jwt:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
         assert payload["sub"] == app_id, "sub must equal app_id for Pure1 API-key clients"
 
-    def test_jwt_payload_aud_is_pure1_apikey(self):
+    def test_jwt_payload_aud_is_token_url(self):
         import base64
-        from app.api.pure1_client import build_pure1_jwt
+        from app.api.pure1_client import build_pure1_jwt, PURE1_TOKEN_URL
         jwt = build_pure1_jwt("pure1:apikey:test", self.private_key_pem)
         payload_b64 = jwt.split(".")[1]
         payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=="))
-        assert payload.get("aud") == "pure1:apikey", (
-            "aud must be 'pure1:apikey' – without it Pure1 routes auth to the "
-            "On Demand Provisioning path and returns HTTP 401 "
-            "'On Demand Provisioning is not enabled on audience (…, None)'"
+        assert payload.get("aud") == PURE1_TOKEN_URL, (
+            f"aud must be '{PURE1_TOKEN_URL}' – using the legacy 'pure1:apikey' "
+            "audience causes Pure1 to return HTTP 401 'Audience does not exist'"
         )
 
     def test_jwt_payload_contains_iat_and_exp(self):

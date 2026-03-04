@@ -57,12 +57,12 @@ def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 315
     * ``iat`` / ``exp`` – issued-at / expiry timestamps (seconds since
       UNIX epoch, standard JWT).
 
-    Note: the ``aud`` (audience) claim **must** be set to ``"pure1:apikey"``.
-    Without this claim, Pure1 routes the authentication request to the
-    *On Demand Provisioning* path instead of standard API-key auth, which
-    produces HTTP 401 "On Demand Provisioning is not enabled on audience
-    (…, None)".  Setting ``aud = "pure1:apikey"`` directs Pure1 to the
-    correct API-key authentication path.
+    Note: the ``aud`` (audience) claim **must** be set to the Pure1 OAuth
+    token endpoint URL (``PURE1_TOKEN_URL``,
+    ``"https://api.pure1.purestorage.com/oauth2/1.0/token"``).
+    Using the legacy value ``"pure1:apikey"`` causes Pure1 to return
+    HTTP 401 "Audience does not exist".  Setting ``aud`` to the token
+    endpoint URL directs Pure1 to the correct API-key authentication path.
 
     Args:
         app_id: The Pure1 application/issuer ID (e.g. ``pure1:apikey:…``).
@@ -82,7 +82,7 @@ def build_pure1_jwt(app_id: str, private_key_pem: str, expiry_seconds: int = 315
             {
                 "iss": app_id,
                 "sub": app_id,
-                "aud": "pure1:apikey",
+                "aud": PURE1_TOKEN_URL,
                 "iat": now,
                 "exp": now + expiry_seconds,
             },
