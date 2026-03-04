@@ -1076,9 +1076,10 @@ def api_pure1_test():
             f'  [{len(jwt_token)} Zeichen gesamt]',
             '',
             '# curl-Befehl für Token-Anfrage (zum manuellen Testen):',
-            f"curl -s -X POST '{PURE1_TOKEN_URL}' \\",
-            f"  -H 'Authorization: Bearer {jwt_token}' \\",
-            "  -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'",
+            f"curl -X POST '{PURE1_TOKEN_URL}' \\",
+            "  -H 'accept: application/json' \\",
+            "  -H 'Content-Type: application/x-www-form-urlencoded' \\",
+            f"  -d 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&subject_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Ajwt&subject_token={jwt_token}'",
         ]
         steps.append(_step(1, 'JWT bauen (RS256)', 'success', step1_lines))
 
@@ -1092,15 +1093,19 @@ def api_pure1_test():
     step2_lines = [
         f'POST {PURE1_TOKEN_URL}',
         'Content-Type: application/x-www-form-urlencoded',
-        f'Authorization: Bearer {_trunc(jwt_token, 50)}',
         '',
-        'grant_type = urn:ietf:params:oauth:grant-type:token-exchange',
+        'grant_type         = urn:ietf:params:oauth:grant-type:token-exchange',
+        'subject_token_type = urn:ietf:params:oauth:token-type:jwt',
+        f'subject_token      = {_trunc(jwt_token, 50)}',
     ]
     try:
         token_resp = req_lib.post(
             PURE1_TOKEN_URL,
-            headers={'Authorization': f'Bearer {jwt_token}'},
-            data={'grant_type': 'urn:ietf:params:oauth:grant-type:token-exchange'},
+            data={
+                'grant_type': 'urn:ietf:params:oauth:grant-type:token-exchange',
+                'subject_token_type': 'urn:ietf:params:oauth:token-type:jwt',
+                'subject_token': jwt_token,
+            },
             timeout=15,
             proxies=settings.get_proxies() or None,
         )

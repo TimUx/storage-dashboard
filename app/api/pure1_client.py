@@ -99,14 +99,12 @@ def get_pure1_access_token(app_id: str, private_key_pem: str,
                            proxies: dict | None = None) -> str:
     """Exchange a freshly-built JWT for a Pure1 Bearer access token.
 
-    The Pure1 REST API token endpoint accepts the signed JWT as an
-    ``Authorization: Bearer`` header together with the OAuth 2.0 Token
-    Exchange grant type (RFC 8693).  This matches the approach documented
-    in the official Pure Storage reference script (Cody Hosterman, 2020):
-    *"Token Exchange requires a JWT in the Authorization Bearer header"*.
+    The Pure1 REST API token endpoint (``POST /oauth2/1.0/token``) expects the
+    JWT to be submitted as the ``subject_token`` form field together with
+    ``subject_token_type=urn:ietf:params:oauth:token-type:jwt`` and
+    ``grant_type=urn:ietf:params:oauth:grant-type:token-exchange``.
 
-    Reference: Pure1 REST API spec – ``POST /oauth2/1.0/token``,
-    parameter ``OauthGrantType``.
+    Reference: Pure1 REST API Swagger – ``POST /oauth2/1.0/token``.
 
     Args:
         app_id: Pure1 application ID.
@@ -124,13 +122,16 @@ def get_pure1_access_token(app_id: str, private_key_pem: str,
     """
     jwt_token = build_pure1_jwt(app_id, private_key_pem, passphrase=passphrase)
     logger.debug(
-        "Pure1 token request: POST %s  Authorization: Bearer <jwt>  grant_type=token-exchange",
+        "Pure1 token request: POST %s  subject_token=<jwt>  grant_type=token-exchange",
         PURE1_TOKEN_URL,
     )
     resp = requests.post(
         PURE1_TOKEN_URL,
-        headers={"Authorization": f"Bearer {jwt_token}"},
-        data={"grant_type": "urn:ietf:params:oauth:grant-type:token-exchange"},
+        data={
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+            "subject_token": jwt_token,
+        },
         timeout=15,
         proxies=proxies,
     )
