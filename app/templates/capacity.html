@@ -288,6 +288,58 @@
 }
 .type-badge.sod { background: rgba(167,2,64,.1); color: var(--cap-red); }
 
+/* ── Pure1 historical import panel ── */
+.pure1-import-panel {
+    background: #f8fafb;
+    border: 1px solid var(--cap-border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: .75rem 0 .5rem;
+}
+.pure1-date-row {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin-bottom: .75rem;
+}
+.pure1-date-row label {
+    font-size: .85rem;
+    font-weight: 500;
+    color: var(--cap-text);
+    white-space: nowrap;
+}
+.pure1-date-row input[type="date"] {
+    padding: .35rem .6rem;
+    border: 1px solid var(--cap-border);
+    border-radius: 5px;
+    font-size: .85rem;
+    color: var(--cap-text);
+    background: white;
+}
+.pure1-import-btn {
+    background: var(--cap-blue);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: .45rem 1.1rem;
+    font-size: .88rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .2s;
+}
+.pure1-import-btn:hover { background: #007ab8; }
+.pure1-import-btn:disabled { background: #aaa; cursor: not-allowed; }
+.pure1-not-configured {
+    background: rgba(167,2,64,.05);
+    border: 1px solid rgba(167,2,64,.2);
+    border-radius: 6px;
+    padding: .75rem 1rem;
+    font-size: .85rem;
+    color: var(--cap-red);
+    margin: .75rem 0;
+}
+
 .csv-format-box {
     background: #f5f7fa;
     border: 1px solid var(--cap-border);
@@ -509,39 +561,43 @@
         <!-- ── Tab 2: Storage on Demand ── -->
         <div class="import-tab-pane" id="import-tab-sod">
             <p style="font-size:.85rem;color:var(--cap-muted);margin-bottom:.5rem;">
-                Importiert historische Daten für <strong>Storage on Demand (Pure1 / Evergreen One)</strong>.
-                Diese Daten betreffen ausschließlich <em>Block-Storage</em>-Systeme, die über einen
-                Pure1 Evergreen-One-Vertrag betrieben werden. Sie werden von der physischen Kapazität
-                (<em>Physische Systeme</em>-Tab) getrennt gespeichert und in der Ansicht als
-                „Effektiv Genutzt" ausgewiesen.
+                Importiert historische Daten für <strong>Storage on Demand (Pure1 / Evergreen One)</strong>
+                direkt über die Pure1 REST API. Die Daten werden je Lizenz und Tag aus dem
+                <em>Metrics History</em>-Endpunkt von Pure1 abgerufen und in der Datenbank gespeichert.
+                Sie sind damit unabhängig vom wöchentlichen Live-Cache und erlauben eine vollständige
+                Rückerfassung historischer Werte.
             </p>
-            <p style="font-size:.85rem;color:var(--cap-muted);margin-bottom:.5rem;">
-                Unter normalen Bedingungen bezieht das Dashboard SoD-Daten <em>automatisch</em> wöchentlich
-                von der Pure1-API. Dieser Import dient dazu, bereits vorliegende historische Werte
-                (z.&nbsp;B. aus einem früheren Reporting-Tool) nachzuerfassen.
+            <p style="font-size:.83rem;color:var(--cap-muted);margin-bottom:.5rem;">
+                <strong>Pure1 API speichert Tageswerte üblicherweise für ca. 2 Jahre</strong> zurück.
+                Für ältere Zeiträume ist kein direkter Abruf möglich.
             </p>
-            <p style="font-size:.85rem;font-weight:600;margin-bottom:.25rem;">CSV-Format – Storage on Demand:</p>
-            <div class="csv-format-box">date,subscription_name,license_name,reserved_tb,effective_used_tb,service_tier
-2024-01-08,ESS-3043,ESS-3043-C1,10.00,8.76,//GOLD
-2024-01-15,ESS-3043,ESS-3043-C1,10.00,9.12,//GOLD
-2024-01-08,ESS-3043,ESS-3043-C2,5.00,3.41,//SILVER</div>
-            <p style="font-size:.8rem;color:var(--cap-muted);margin-bottom:1rem;">
-                • <strong>date</strong>: ISO-Datum (YYYY-MM-DD)<br>
-                • <strong>subscription_name</strong>: Name des Pure1-Vertrags (z.&nbsp;B. ESS-3043)<br>
-                • <strong>license_name</strong>: Name der Lizenz innerhalb des Vertrags (z.&nbsp;B. ESS-3043-C1)<br>
-                • <strong>reserved_tb</strong>: Reservierte / gebuchte Kapazität in TB<br>
-                • <strong>effective_used_tb</strong>: Effektiv genutzter Speicher (Daten-Footprint) in TB<br>
-                • <strong>service_tier</strong>: Service-Tier (optional, z.&nbsp;B. //GOLD, //SILVER)
-            </p>
-            <div class="import-drop-area" id="importDropAreaSod"
-                 onclick="document.getElementById('importFileInputSod').click()"
-                 ondragover="handleDragOver(event, 'Sod')"
-                 ondragleave="handleDragLeave('Sod')"
-                 ondrop="handleDrop(event, 'sod')">
-                📁 CSV-Datei hierher ziehen oder klicken zum Auswählen
+            {% if pure1_configured %}
+            <div class="pure1-import-panel">
+                <div class="pure1-date-row">
+                    <label for="sodHistoryStart">Von:</label>
+                    <input type="date" id="sodHistoryStart">
+                    <label for="sodHistoryEnd">Bis:</label>
+                    <input type="date" id="sodHistoryEnd">
+                    <button class="pure1-import-btn" id="sodImportBtn"
+                            onclick="importSodHistoryFromPure1()">
+                        ☁️ Von Pure1 importieren
+                    </button>
+                </div>
+                <p style="font-size:.79rem;color:var(--cap-muted);margin:0;">
+                    Der Abruf kann je nach Umfang einige Sekunden dauern.
+                    Bestehende Einträge für denselben Tag und dieselbe Lizenz werden überschrieben.
+                </p>
             </div>
-            <input type="file" id="importFileInputSod" accept=".csv" style="display:none"
-                   onchange="handleFileSelect(this.files[0], 'sod')">
+            {% else %}
+            <div class="pure1-not-configured">
+                ⚠ Pure1 API-Zugangsdaten nicht konfiguriert.<br>
+                Bitte zuerst unter
+                <a href="/admin/settings" style="color:var(--cap-red);font-weight:600;">
+                    Admin → Einstellungen → API-Zugänge
+                </a>
+                konfigurieren.
+            </div>
+            {% endif %}
             <div class="import-result" id="importResultSod"></div>
         </div>
     </div>
@@ -1291,15 +1347,24 @@ function switchImportTab(tab) {
 
 function openImportModal() {
     document.getElementById('importModal').classList.add('open');
-    // Reset both tabs
-    ['Phys', 'Sod'].forEach(suffix => {
-        const res = document.getElementById('importResult' + suffix);
-        const drop = document.getElementById('importDropArea' + suffix);
-        const inp  = document.getElementById('importFileInput' + suffix);
-        if (res)  { res.style.display = 'none'; }
-        if (drop) { drop.textContent = '📁 CSV-Datei hierher ziehen oder klicken zum Auswählen'; }
-        if (inp)  { inp.value = ''; }
-    });
+    // Reset physical tab
+    const resPhys = document.getElementById('importResultPhys');
+    const dropPhys = document.getElementById('importDropAreaPhys');
+    const inpPhys  = document.getElementById('importFileInputPhys');
+    if (resPhys)  resPhys.style.display = 'none';
+    if (dropPhys) dropPhys.textContent = '📁 CSV-Datei hierher ziehen oder klicken zum Auswählen';
+    if (inpPhys)  inpPhys.value = '';
+    // Reset SoD result and pre-fill date range (last 2 years)
+    const resSod = document.getElementById('importResultSod');
+    if (resSod) resSod.style.display = 'none';
+    const today = new Date();
+    const twoYearsAgo = new Date(today);
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+    const fmt = d => d.toISOString().slice(0, 10);
+    const startEl = document.getElementById('sodHistoryStart');
+    const endEl   = document.getElementById('sodHistoryEnd');
+    if (startEl && !startEl.value) startEl.value = fmt(twoYearsAgo);
+    if (endEl   && !endEl.value)   endEl.value   = fmt(today);
     switchImportTab('physical');
 }
 
@@ -1330,18 +1395,15 @@ function handleFileSelect(file, type) {
         return;
     }
     document.getElementById('importDropArea' + suffix).textContent = `📄 ${file.name} – wird hochgeladen…`;
-    uploadImportFile(file, type);
+    uploadImportFile(file);
 }
 
-async function uploadImportFile(file, type) {
-    const suffix = _importSuffix(type);
-    const endpoint = type === 'sod'
-        ? '/capacity/api/import/sod-history'
-        : '/capacity/api/import/history';
+async function uploadImportFile(file) {
+    const suffix = 'Phys';
     const form = new FormData();
     form.append('file', file);
     try {
-        const resp = await fetch(endpoint, {method: 'POST', body: form});
+        const resp = await fetch('/capacity/api/import/history', {method: 'POST', body: form});
         const data = await resp.json();
         if (!resp.ok || data.error) {
             showImportResult(suffix, false, data.error || 'Unbekannter Fehler.');
@@ -1352,12 +1414,50 @@ async function uploadImportFile(file, type) {
                 msg += '\n\nHinweise:\n' + data.errors.join('\n');
             }
             showImportResult(suffix, true, msg);
-            document.getElementById('importDropArea' + suffix).textContent =
+            document.getElementById('importDropAreaPhys').textContent =
                 '📁 CSV-Datei hierher ziehen oder klicken zum Auswählen';
-            if (type === 'physical') loadHistory(currentRange());
+            loadHistory(currentRange());
         }
     } catch (err) {
         showImportResult(suffix, false, 'Fehler beim Hochladen: ' + err.message);
+    }
+}
+
+async function importSodHistoryFromPure1() {
+    const startDate = document.getElementById('sodHistoryStart')?.value;
+    const endDate   = document.getElementById('sodHistoryEnd')?.value;
+    if (!startDate || !endDate) {
+        showImportResult('Sod', false, 'Bitte Start- und Enddatum angeben.');
+        return;
+    }
+    if (endDate < startDate) {
+        showImportResult('Sod', false, 'Enddatum darf nicht vor Startdatum liegen.');
+        return;
+    }
+    const btn = document.getElementById('sodImportBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Importiere…'; }
+    showImportResult('Sod', true, '⏳ Daten werden von Pure1 abgerufen…');
+    try {
+        const resp = await fetch('/capacity/api/import/sod-history-pure1', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({start_date: startDate, end_date: endDate}),
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+            showImportResult('Sod', false, data.error || 'Unbekannter Fehler.');
+        } else {
+            let msg = `✅ ${data.imported} Datensatz/Datensätze importiert.`;
+            if (data.skipped > 0) msg += ` ${data.skipped} übersprungen.`;
+            if (data.errors && data.errors.length > 0) {
+                msg += '\n\nHinweise:\n' + data.errors.join('\n');
+            }
+            showImportResult('Sod', true, msg);
+        }
+    } catch (err) {
+        showImportResult('Sod', false, 'Fehler beim Abrufen: ' + err.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '☁️ Von Pure1 importieren'; }
     }
 }
 

@@ -230,30 +230,34 @@ def api_import_history():
     })
 
 
-@bp.route('/api/import/sod-history', methods=['POST'])
-def api_import_sod_history():
-    """Import historical Storage on Demand (Pure1) data from a CSV file."""
-    from app.capacity_service import import_sod_history_from_csv
+@bp.route('/api/import/sod-history-pure1', methods=['POST'])
+def api_import_sod_history_pure1():
+    """Import historical Storage on Demand data directly from the Pure1 API."""
+    from datetime import date as _date
+    from app.capacity_service import import_sod_history_from_pure1
 
-    if 'file' not in request.files:
-        return jsonify({'error': 'Keine Datei übermittelt.'}), 400
+    body = request.get_json(silent=True) or {}
+    start_str = body.get('start_date', '')
+    end_str = body.get('end_date', '')
 
-    f = request.files['file']
-    if not f.filename.lower().endswith('.csv'):
-        return jsonify({'error': 'Nur CSV-Dateien werden unterstützt.'}), 400
+    if not start_str or not end_str:
+        return jsonify({'error': 'start_date und end_date sind Pflichtfelder (YYYY-MM-DD).'}), 400
 
     try:
-        raw = f.stream.read()
-        try:
-            text = raw.decode('utf-8-sig')
-        except UnicodeDecodeError:
-            return jsonify({
-                'error': 'CSV-Datei konnte nicht dekodiert werden. Bitte UTF-8-Kodierung verwenden.'
-            }), 400
-        stream = io.StringIO(text)
-        imported, skipped, errors = import_sod_history_from_csv(stream)
+        start_date = _date.fromisoformat(start_str)
+        end_date = _date.fromisoformat(end_str)
+    except ValueError as exc:
+        return jsonify({'error': f'Ungültiges Datumsformat: {exc}'}), 400
+
+    if end_date < start_date:
+        return jsonify({'error': 'end_date darf nicht vor start_date liegen.'}), 400
+
+    try:
+        imported, skipped, errors = import_sod_history_from_pure1(start_date, end_date)
+    except RuntimeError as exc:
+        return jsonify({'error': str(exc)}), 400
     except Exception as exc:
-        logger.exception('SoD history import failed')
+        logger.exception('SoD Pure1 history import failed')
         return jsonify({'error': str(exc)}), 500
 
     return jsonify({

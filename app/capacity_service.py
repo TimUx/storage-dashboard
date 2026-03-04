@@ -688,6 +688,87 @@ def import_sod_history_from_csv(csv_file):
     return imported, skipped, errors
 
 
+def import_sod_history_from_pure1(start_date, end_date) -> tuple:
+    """Fetch historical SoD data directly from the Pure1 API and persist it.
+
+    Uses ``app.api.pure1_client.fetch_sod_license_history`` to retrieve
+    daily metrics for all subscription licenses in the given date range,
+    then upserts the results into :class:`~app.models.SodHistory`.
+
+    Args:
+        start_date: :class:`datetime.date` – start of the history window.
+        end_date:   :class:`datetime.date` – end of the history window (inclusive).
+
+    Returns:
+        ``(imported, skipped, errors)`` tuple where *imported* is the number of
+        rows written/updated and *skipped*/*errors* capture any issues.
+
+    Raises:
+        RuntimeError: When Pure1 credentials are not configured.
+    """
+    from app import db
+    from app.models import AppSettings, SodHistory
+    from app.api.pure1_client import fetch_sod_license_history
+
+    settings = AppSettings.query.first()
+    if not settings or not settings.pure1_app_id or not settings.pure1_private_key:
+        raise RuntimeError(
+            "Pure1 API-Zugangsdaten nicht konfiguriert. "
+            "Bitte unter Admin → Einstellungen → API-Zugänge konfigurieren."
+        )
+
+    items = fetch_sod_license_history(
+        settings.pure1_app_id,
+        settings.pure1_private_key,
+        start_date=start_date,
+        end_date=end_date,
+        passphrase=settings.pure1_private_key_passphrase,
+        proxies=settings.get_proxies() or None,
+    )
+
+    imported = 0
+    skipped = 0
+    errors = []
+
+    for item in items:
+        try:
+            rec_date = item["date"]
+            sub_name = item["subscription_name"]
+            lic_name = item["license_name"]
+            if not sub_name or not lic_name:
+                errors.append(
+                    f"{rec_date}: Fehlender subscription_name oder license_name – übersprungen."
+                )
+                skipped += 1
+                continue
+
+            existing = SodHistory.query.filter_by(
+                date=rec_date,
+                subscription_name=sub_name,
+                license_name=lic_name,
+            ).first()
+            if existing:
+                existing.reserved_tb = item["reserved_tb"]
+                existing.effective_used_tb = item["effective_used_tb"]
+                existing.service_tier = item.get("service_tier")
+            else:
+                db.session.add(SodHistory(
+                    date=rec_date,
+                    subscription_name=sub_name,
+                    license_name=lic_name,
+                    service_tier=item.get("service_tier"),
+                    reserved_tb=item["reserved_tb"],
+                    effective_used_tb=item["effective_used_tb"],
+                ))
+            imported += 1
+        except Exception as exc:
+            errors.append(f"{item.get('date')}: {exc}")
+            skipped += 1
+
+    db.session.commit()
+    return imported, skipped, errors
+
+
 def compute_forecast(labels, values, forecast_days=90):
     """
     Simple linear regression forecast.
