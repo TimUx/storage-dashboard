@@ -713,6 +713,7 @@ function renderPure1ShellBox(steps, overallSuccess) {
             if (line.startsWith('#'))      col = '#585b70'; // comment: dimmed
             else if (line.startsWith('→')) col = '#89b4fa'; // response arrow: blue
             else if (line.startsWith('Fehler')) col = '#f38ba8'; // error: red
+            else if (line.startsWith('curl') || line.startsWith("  -H '") || line.startsWith("  -d '")) col = '#cba6f7'; // curl command: purple
             linesHtml += `<span style="color:${col};">${esc(line)}</span>\n`;
         }
 

@@ -232,6 +232,11 @@ class TestApiPure1TestStepLogging:
                 '# Kodiertes JWT (header.payload.signature):',
                 f'  {_trunc(jwt_token, 80)}',
                 f'  [{len(jwt_token)} Zeichen gesamt]',
+                '',
+                '# curl-Befehl für Token-Anfrage (zum manuellen Testen):',
+                f"curl -s -X POST '{PURE1_TOKEN_URL}' \\",
+                f"  -H 'Authorization: Bearer {jwt_token}' \\",
+                "  -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'",
             ]
             steps.append(_step(1, 'JWT bauen (RS256)', 'success', step1_lines))
         except Exception as exc:
@@ -265,6 +270,13 @@ class TestApiPure1TestStepLogging:
             resp_json = token_mock.json()
             access_token = resp_json.get('access_token', '')
             step2_lines += ['', '# Antwort:', f'  access_token  = {_trunc(access_token, 50)}']
+            arrays_url_full = f'{PURE1_API_BASE}/arrays'
+            step2_lines += [
+                '',
+                '# curl-Befehl für API-Anfrage (zum manuellen Testen):',
+                f"curl -s '{arrays_url_full}?limit=1' \\",
+                f"  -H 'Authorization: Bearer {access_token}'",
+            ]
             steps.append(_step(2, 'Access Token abrufen', 'success', step2_lines))
         except Exception as exc:
             step2_lines += ['', f'Fehler: {exc}']
@@ -355,3 +367,49 @@ class TestApiPure1TestStepLogging:
         assert steps[2]['status'] == 'error'
         assert steps[0]['status'] == 'success'
         assert steps[1]['status'] == 'success'
+
+    def test_step1_success_contains_curl_command_for_token_endpoint(self):
+        """Step 1 must include a full curl command for the token endpoint."""
+        from app.api.pure1_client import PURE1_TOKEN_URL
+        _, steps = self._run_steps()
+        step1 = steps[0]
+        assert step1['status'] == 'success'
+        combined = '\n'.join(step1['lines'])
+        assert 'curl' in combined
+        assert PURE1_TOKEN_URL in combined
+        assert 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' in combined
+
+    def test_step1_curl_command_contains_full_jwt_not_truncated(self):
+        """The curl command in step 1 must embed the complete JWT, not a truncated version."""
+        _, steps = self._run_steps()
+        step1 = steps[0]
+        auth_line = next(
+            (l for l in step1['lines'] if l.startswith("  -H 'Authorization: Bearer ")),
+            None,
+        )
+        assert auth_line is not None, "No Authorization header found in step 1 curl command"
+        assert '…' not in auth_line, "JWT must not be truncated in curl command"
+
+    def test_step2_success_contains_curl_command_for_api_endpoint(self):
+        """Step 2 must include a full curl command for the API endpoint."""
+        from app.api.pure1_client import PURE1_API_BASE
+        _, steps = self._run_steps()
+        step2 = steps[1]
+        assert step2['status'] == 'success'
+        combined = '\n'.join(step2['lines'])
+        assert 'curl' in combined
+        assert f'{PURE1_API_BASE}/arrays' in combined
+
+    def test_step2_curl_command_contains_full_access_token(self):
+        """The curl command in step 2 must embed the complete access token."""
+        _, steps = self._run_steps()
+        step2 = steps[1]
+        auth_line = next(
+            (l for l in step2['lines'] if l.startswith("  -H 'Authorization: Bearer ")),
+            None,
+        )
+        assert auth_line is not None, "No Authorization header found in step 2 curl command"
+        assert '…' not in auth_line, "Access token must not be truncated in curl command"
+        assert 'fake-access-token-xyz' in auth_line
+
+
