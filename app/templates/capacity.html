@@ -428,28 +428,7 @@
     margin-left: .4rem;
 }
 
-/* ── Storage on Demand sub-table (embedded in Block section) ── */
-.sod-subtable-wrap {
-    border-top: 2px solid var(--cap-border);
-    background: #fafbfd;
-}
-.sod-subtable-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: .5rem 1.2rem;
-    background: #f0f4f8;
-    border-bottom: 1px solid var(--cap-border);
-    font-size: .85rem;
-    font-weight: 600;
-    color: var(--cap-muted);
-    cursor: pointer;
-    user-select: none;
-}
-.sod-subtable-header:hover { background: #e8eef5; }
-.sod-subtable-body { padding: .5rem 1.2rem 1rem; }
-.sod-subtable-body .cap-table { font-size: .83rem; }
-.sod-subtable-body .cap-table th { background: #f0f4f8; font-size: .8rem; }
+
 .sod-resources {
     font-size: .82rem;
     color: var(--cap-muted);
@@ -805,22 +784,22 @@ function rowHtml(label, row, isTotalRow, showProvisioned, showEffectiveUsedCol, 
     return html;
 }
 
-/** Compute total SoD effective used [TB] across all subscription items. */
+/** Compute total SoD effective used [TiB] across all subscription items. */
 function getSodTotalEffectiveUsedTb() {
     if (!sodData || !sodData.items || sodData.items.length === 0) return null;
     let total = 0;
     for (const it of sodData.items) { total += it.usage?.data || 0; }
-    return total / 1e12;
+    return total / 1024 ** 4;
 }
 
-/** Build a map: resource/array name (lowercase) → effective used TB. */
+/** Build a map: resource/array name (lowercase) → effective used TiB. */
 function getSodResourceMap() {
     const map = {};
     if (!sodData || !sodData.items) return map;
     for (const it of sodData.items) {
         for (const r of (it.resources || [])) {
             const name = (r.name || '').toLowerCase();
-            if (name) map[name] = (map[name] || 0) + (r.usage?.data || 0) / 1e12;
+            if (name) map[name] = (map[name] || 0) + (r.usage?.data || 0) / 1024 ** 4;
         }
     }
     return map;
@@ -886,9 +865,10 @@ function buildSodSummarySection(sodDataArg) {
             totalReserved += it.reservation?.data || 0;
             totalEffective += it.usage?.data || 0;
         }
-        totalReserved /= 1e12;
-        totalEffective /= 1e12;
+        totalReserved /= 1024 ** 4;
+        totalEffective /= 1024 ** 4;
         const utilization = totalReserved > 0 ? (totalEffective / totalReserved * 100) : 0;
+        const onDemandTb = Math.max(0, totalEffective - totalReserved);
         const ts = sodDataArg.fetched_at ? new Date(
             sodDataArg.fetched_at.endsWith('Z') ? sodDataArg.fetched_at : sodDataArg.fetched_at + 'Z'
         ).toLocaleString('de-DE') : null;
@@ -897,16 +877,18 @@ function buildSodSummarySection(sodDataArg) {
             <table class="cap-table">
                 <thead><tr>
                     <th>Bezeichnung</th>
-                    <th>Reservierte Kapazität [TB]</th>
-                    <th>Effektiv Genutzt [TB]</th>
+                    <th>Reservierte Kapazität [TiB]</th>
+                    <th>Effektiv Genutzt [TiB]</th>
                     <th>Auslastung [%]</th>
+                    <th>On Demand [TiB]</th>
                 </tr></thead>
                 <tbody>
                     <tr class="total-row">
                         <td>Block ( Pure )</td>
                         <td>${totalReserved.toFixed(2)}</td>
                         <td>${totalEffective.toFixed(2)}</td>
-                        <td>${pctBarHtml(utilization)}</td>
+                        <td>${pctBarHtmlProv(utilization)}</td>
+                        <td>${onDemandTb > 0 ? onDemandTb.toFixed(2) : '–'}</td>
                     </tr>
                 </tbody>
             </table>
@@ -961,25 +943,20 @@ function buildSection(title, subtitle, rows, totalRow, sodRowEffMap) {
     </div>`;
 }
 
-/** Toggle the SoD sub-table body visibility. */
-function toggleSodSubTable(uid, headerEl) {
-    const body = document.getElementById(uid);
-    const open = body.style.display !== 'none';
-    body.style.display = open ? 'none' : 'block';
-    headerEl.setAttribute('aria-expanded', String(!open));
-    headerEl.querySelector('.sod-toggle-icon').textContent = open ? '▶' : '▼';
-}
 
-/** Build the collapsible SoD sub-table HTML to embed in the Block section. */
-function buildSodSubTable(sodDataArg) {
+/**
+ * Build a standalone (non-collapsible) SoD detail section for the Details view.
+ * Renders one table per subscription contract directly inside a cap-section.
+ */
+function buildSodDetailSection(sodDataArg) {
     if (!sodDataArg) return '';
     let bodyHtml = '';
 
     if (sodDataArg.error) {
-        bodyHtml += `<div class="sod-error-box">⚠ Fehler beim letzten Abruf: ${escHtml(sodDataArg.error)}</div>`;
+        bodyHtml += `<div class="sod-error-box" style="margin:1rem 1.2rem;">⚠ Fehler beim letzten Abruf: ${escHtml(sodDataArg.error)}</div>`;
     }
     if (!sodDataArg.items || sodDataArg.items.length === 0) {
-        bodyHtml += '<div style="padding:.5rem 0;color:var(--cap-muted);font-size:.85rem;">Keine Lizenzdaten vorhanden.</div>';
+        bodyHtml += '<div style="padding:.75rem 1.2rem;color:var(--cap-muted);font-size:.85rem;">Keine SoD-Lizenzdaten vorhanden.</div>';
     } else {
         const bySub = {};
         for (const it of sodDataArg.items) {
@@ -989,15 +966,15 @@ function buildSodSubTable(sodDataArg) {
         for (const [subName, lics] of Object.entries(bySub).sort((a, b) => a[0].localeCompare(b[0]))) {
             let rows = '';
             for (const lic of lics) {
-                const res  = (lic.reservation?.data       || 0) / 1e12;
-                const used = (lic.usage?.data              || 0) / 1e12;
-                const aOD  = (lic.average_on_demand?.data  || 0) / 1e12;
-                const qOD  = (lic.quarter_on_demand?.data  || 0) / 1e12;
+                const res  = (lic.reservation?.data       || 0) / 1024 ** 4;
+                const used = (lic.usage?.data              || 0) / 1024 ** 4;
+                const aOD  = (lic.average_on_demand?.data  || 0) / 1024 ** 4;
+                const qOD  = (lic.quarter_on_demand?.data  || 0) / 1024 ** 4;
                 let arrCell = '–';
                 if (lic.resources && lic.resources.length) {
                     arrCell = '<ul class="sod-resources">'
                         + lic.resources.map(r =>
-                            `<li>${escHtml(r.name)}: ${((r.usage?.data || 0) / 1e12).toFixed(2)} TB</li>`
+                            `<li>${escHtml(r.name)}: ${((r.usage?.data || 0) / 1024 ** 4).toFixed(2)} TiB</li>`
                         ).join('') + '</ul>';
                 }
                 rows += `<tr>
@@ -1010,50 +987,45 @@ function buildSodSubTable(sodDataArg) {
                     <td>${arrCell}</td>
                 </tr>`;
             }
-            const sRes  = lics.reduce((s, l) => s + (l.reservation?.data       || 0), 0) / 1e12;
-            const sUsed = lics.reduce((s, l) => s + (l.usage?.data              || 0), 0) / 1e12;
-            const sAOD  = lics.reduce((s, l) => s + (l.average_on_demand?.data  || 0), 0) / 1e12;
-            const sQOD  = lics.reduce((s, l) => s + (l.quarter_on_demand?.data  || 0), 0) / 1e12;
+            const sRes  = lics.reduce((s, l) => s + (l.reservation?.data       || 0), 0) / 1024 ** 4;
+            const sUsed = lics.reduce((s, l) => s + (l.usage?.data              || 0), 0) / 1024 ** 4;
+            const sAOD  = lics.reduce((s, l) => s + (l.average_on_demand?.data  || 0), 0) / 1024 ** 4;
+            const sQOD  = lics.reduce((s, l) => s + (l.quarter_on_demand?.data  || 0), 0) / 1024 ** 4;
             rows += `<tr class="total-row">
                 <td>Gesamt</td><td></td>
                 <td>${sRes.toFixed(2)}</td><td>${sUsed.toFixed(2)}</td>
                 <td>${sAOD.toFixed(2)}</td><td>${sQOD.toFixed(2)}</td>
                 <td></td>
             </tr>`;
-            bodyHtml += `<p style="font-weight:600;font-size:.85rem;margin:.75rem 0 .25rem;">📋 Vertrag ${escHtml(subName)}</p>
+            bodyHtml += `<p style="font-weight:600;font-size:.85rem;margin:.75rem 1.2rem .25rem;">📋 Vertrag ${escHtml(subName)}</p>
             <div class="cap-table-wrap"><table class="cap-table">
                 <thead><tr>
                     <th>Lizenz-Name</th><th>Service Tier</th>
-                    <th>Reserviert [TB]</th><th>Effektiv Genutzt [TB]</th>
-                    <th>Ø On Demand [TB]</th><th>Q. On Demand [TB]</th>
+                    <th>Reserviert [TiB]</th><th>Effektiv Genutzt [TiB]</th>
+                    <th>Ø On Demand [TiB]</th><th>Q. On Demand [TiB]</th>
                     <th>Arrays (Eff. Used)</th>
                 </tr></thead>
                 <tbody>${rows}</tbody>
             </table></div>`;
         }
-        // Fetch-timestamp
         if (sodDataArg.fetched_at) {
             const ts = new Date(
                 sodDataArg.fetched_at.endsWith('Z') ? sodDataArg.fetched_at : sodDataArg.fetched_at + 'Z'
             ).toLocaleString('de-DE');
-            bodyHtml += `<p style="font-size:.78rem;color:var(--cap-muted);margin-top:.5rem;">
+            bodyHtml += `<div style="padding:.3rem 1.2rem .5rem;font-size:.78rem;color:var(--cap-muted);">
                 Letzte Pure1 Aktualisierung: ${ts}
                 <em>(automatisch wöchentlich)</em>
                 &nbsp;
                 <button class="refresh-btn" style="font-size:.78rem;padding:.2rem .6rem;"
-                    id="sodRefreshBtn" onclick="triggerSodRefresh()">🔄 Jetzt abrufen</button>
-            </p>`;
+                    onclick="triggerSodRefresh()">🔄 Jetzt abrufen</button>
+            </div>`;
         }
     }
-
-    const uid = 'sodSubTable_' + Math.random().toString(36).slice(2);
-    return `<div class="sod-subtable-wrap">
-        <div class="sod-subtable-header" aria-expanded="false"
-             onclick="toggleSodSubTable('${uid}', this)">
+    return `<div class="cap-section" style="grid-column: 1 / -1;">
+        <div class="cap-section-header">
             <span>📊 Storage on Demand</span>
-            <span class="sod-toggle-icon" aria-hidden="true">▶</span>
         </div>
-        <div id="${uid}" class="sod-subtable-body" style="display:none;">${bodyHtml}</div>
+        ${bodyHtml}
     </div>`;
 }
 
@@ -1145,7 +1117,7 @@ function renderDetails(data) {
         return;
     }
     const sodResMap = getSodResourceMap();
-    el.innerHTML = data.map(g => {
+    const html = data.map(g => {
         const isBlock = g.storage_art === 'Block';
         const showProvisioned = g.systems.some(s => s.provisioned_tb != null);
         const showEffectiveUsed = isBlock && pure1Configured && Object.keys(sodResMap).length > 0;
@@ -1181,12 +1153,10 @@ function renderDetails(data) {
             headerCols += `<th style="width:10%">Provisioniert [TB]</th><th style="width:18%">Provisioniert [%]</th>`;
         }
         if (showEffectiveUsed) {
-            headerCols += `<th style="width:10%">Effektiv Genutzt [TB]</th>`;
+            headerCols += `<th style="width:10%">Effektiv Genutzt [TiB]</th>`;
         }
-        const sodHtml = (isBlock && pure1Configured) ? buildSodSubTable(sodData) : '';
-        return `<div class="cap-section">
+        return `<div class="cap-section" style="grid-column: 1 / -1;">
             <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
-            ${sodHtml}
             <div class="cap-table-wrap">
                 <table class="cap-table">
                     <thead><tr>${headerCols}</tr></thead>
@@ -1195,6 +1165,8 @@ function renderDetails(data) {
             </div>
         </div>`;
     }).join('');
+    const sodDetailHtml = pure1Configured ? buildSodDetailSection(sodData) : '';
+    el.innerHTML = `<div class="cap-grid">${sodDetailHtml}${html}</div>`;
 }
 
 function escHtml(str) {
@@ -1303,7 +1275,7 @@ async function loadHistory(range) {
                 const sod = artData.sod;
                 const sodMany = sod.labels.length > 60;
                 datasets.push({
-                    label: 'SoD Reserviert [TB]',
+                    label: 'SoD Reserviert [TiB]',
                     data: sod.reserved.map((v, i) => ({x: sod.labels[i], y: v})),
                     borderColor: '#FF5C00',
                     backgroundColor: 'transparent',
@@ -1313,7 +1285,7 @@ async function loadHistory(range) {
                     _group: 'commercial',
                 });
                 datasets.push({
-                    label: 'SoD Effektiv Genutzt [TB]',
+                    label: 'SoD Effektiv Genutzt [TiB]',
                     data: sod.effective_used.map((v, i) => ({x: sod.labels[i], y: v})),
                     borderColor: '#C20054',
                     backgroundColor: 'rgba(194,0,84,.08)',
@@ -1323,7 +1295,7 @@ async function loadHistory(range) {
                     _group: 'commercial',
                 });
                 datasets.push({
-                    label: 'SoD On Demand [TB]',
+                    label: 'SoD On Demand [TiB]',
                     data: sod.on_demand.map((v, i) => ({x: sod.labels[i], y: v})),
                     borderColor: '#FFB800',
                     backgroundColor: 'transparent',
@@ -1334,7 +1306,7 @@ async function loadHistory(range) {
                 });
                 if (sod.effective_forecast_values && sod.effective_forecast_values.length > 0) {
                     datasets.push({
-                        label: 'SoD Eff. Genutzt Prognose [TB]',
+                        label: 'SoD Eff. Genutzt Prognose [TiB]',
                         data: sod.effective_forecast_values.map((v, i) => ({x: sod.effective_forecast_labels[i], y: v})),
                         borderColor: '#C20054',
                         backgroundColor: 'transparent',

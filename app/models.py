@@ -620,7 +620,7 @@ class SodHistory(db.Model):
     """Daily historical snapshot for Pure1 Storage on Demand subscription licences.
 
     One row per (date, subscription_name, license_name) combination.
-    Values mirror the Pure1 /subscription-licenses API fields, converted to TB.
+    Values mirror the Pure1 /subscription-licenses API fields, converted to TiB.
     """
     __tablename__ = 'sod_history'
 
@@ -629,9 +629,9 @@ class SodHistory(db.Model):
     subscription_name = db.Column(db.String(200), nullable=False)
     license_name = db.Column(db.String(200), nullable=False)
     service_tier = db.Column(db.String(100))   # optional, e.g. "//GOLD"
-    reserved_tb = db.Column(db.Float, default=0.0)        # reservation.data / 1e12
-    effective_used_tb = db.Column(db.Float, default=0.0)  # usage.data / 1e12
-    on_demand_tb = db.Column(db.Float, default=0.0)       # on_demand_space metric / 1e12
+    reserved_tb = db.Column(db.Float, default=0.0)        # reservation.data / 1024**4
+    effective_used_tb = db.Column(db.Float, default=0.0)  # usage.data / 1024**4
+    on_demand_tb = db.Column(db.Float, default=0.0)       # on_demand_space metric / 1024**4
 
     __table_args__ = (
         db.UniqueConstraint('date', 'subscription_name', 'license_name',

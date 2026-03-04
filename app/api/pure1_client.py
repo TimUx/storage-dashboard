@@ -297,9 +297,9 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
             "subscription_name": info["subscription_name"],
             "license_name": lic_name,
             "service_tier": info["service_tier"],
-            "reserved_tb": (values.get(METRIC_RESERVED) or 0) / 1e12,
-            "effective_used_tb": (values.get(METRIC_EFFECTIVE_USED) or 0) / 1e12,
-            "on_demand_tb": (values.get(METRIC_ON_DEMAND) or 0) / 1e12,
+            "reserved_tb": (values.get(METRIC_RESERVED) or 0) / 1024**4,
+            "effective_used_tb": (values.get(METRIC_EFFECTIVE_USED) or 0) / 1024**4,
+            "on_demand_tb": (values.get(METRIC_ON_DEMAND) or 0) / 1024**4,
         })
     return result
 
