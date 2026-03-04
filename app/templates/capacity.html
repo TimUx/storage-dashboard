@@ -231,10 +231,12 @@
     background: white;
     border-radius: 10px;
     box-shadow: 0 8px 32px rgba(0,0,0,.18);
-    max-width: 560px;
-    width: 90%;
+    max-width: 640px;
+    width: 92%;
     padding: 1.75rem 2rem;
     position: relative;
+    max-height: 90vh;
+    overflow-y: auto;
 }
 .modal-box h3 { margin: 0 0 1rem; font-size: 1.1rem; color: var(--cap-blue); }
 .modal-close {
@@ -248,6 +250,44 @@
     line-height: 1;
 }
 .modal-close:hover { color: var(--cap-red); }
+
+/* ── Modal import tabs ── */
+.import-tabs {
+    display: flex;
+    border-bottom: 2px solid var(--cap-border);
+    margin-bottom: 1rem;
+    gap: 0;
+}
+.import-tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: .5rem 1.1rem;
+    cursor: pointer;
+    font-size: .88rem;
+    font-weight: 500;
+    color: var(--cap-muted);
+    margin-bottom: -2px;
+    transition: all .2s;
+}
+.import-tab-btn:hover { color: var(--cap-blue); }
+.import-tab-btn.active { color: var(--cap-blue); border-bottom-color: var(--cap-blue); }
+.import-tab-pane { display: none; }
+.import-tab-pane.active { display: block; }
+
+.type-badge {
+    display: inline-block;
+    background: rgba(0,152,219,.12);
+    color: var(--cap-blue);
+    border-radius: 4px;
+    padding: .1rem .45rem;
+    font-size: .78rem;
+    font-weight: 600;
+    vertical-align: middle;
+    margin-left: .2rem;
+}
+.type-badge.sod { background: rgba(167,2,64,.1); color: var(--cap-red); }
+
 .csv-format-box {
     background: #f5f7fa;
     border: 1px solid var(--cap-border);
@@ -417,30 +457,93 @@
     <div class="modal-box">
         <button class="modal-close" onclick="closeImportModal()" aria-label="Schließen">×</button>
         <h3>📤 Historische Daten importieren</h3>
-        <p style="font-size:.88rem;color:var(--cap-muted);margin-bottom:.5rem;">
-            Importieren Sie vorhandene historische Kapazitätsdaten aus einer CSV-Datei.
-            Bestehende Einträge für dieselbe Kombination aus Datum und System werden überschrieben.
+        <p style="font-size:.85rem;color:var(--cap-muted);margin-bottom:.75rem;">
+            Der Import unterstützt <strong>zwei verschiedene Datenkategorien</strong>, die in der Datenbank
+            getrennt gespeichert werden. Wählen Sie den passenden Tab für Ihre Importdatei.
         </p>
-        <p style="font-size:.88rem;font-weight:600;margin-bottom:.25rem;">Erwartetes CSV-Format:</p>
-        <div class="csv-format-box">date,system_name,total_tb,used_tb,free_tb,percent_used
+
+        <!-- Tab navigation -->
+        <div class="import-tabs" role="tablist">
+            <button class="import-tab-btn active" data-import-tab="physical"
+                    onclick="switchImportTab('physical')" role="tab">
+                🗄️ Physische Systeme
+                <span class="type-badge">Block · File · Object · Archiv · Backup</span>
+            </button>
+            <button class="import-tab-btn" data-import-tab="sod"
+                    onclick="switchImportTab('sod')" role="tab">
+                ☁️ Storage on Demand (Pure1)
+                <span class="type-badge sod">Block / Evergreen One</span>
+            </button>
+        </div>
+
+        <!-- ── Tab 1: Physical systems ── -->
+        <div class="import-tab-pane active" id="import-tab-physical">
+            <p style="font-size:.85rem;color:var(--cap-muted);margin-bottom:.5rem;">
+                Importiert Kapazitätsdaten für <strong>physische Speichersysteme</strong> (Block, File,
+                Object, Archiv, Backup). Jede Zeile entspricht einer Tages-Messung eines im Dashboard
+                konfigurierten Systems. Bestehende Einträge für dieselbe Kombination aus Datum und
+                System werden überschrieben.
+            </p>
+            <p style="font-size:.85rem;font-weight:600;margin-bottom:.25rem;">CSV-Format – Physische Systeme:</p>
+            <div class="csv-format-box">date,system_name,total_tb,used_tb,free_tb,percent_used
 2024-01-08,mein-system-01,100.00,45.50,54.50,45.5
 2024-01-15,mein-system-01,100.00,47.20,52.80,47.2</div>
-        <p style="font-size:.8rem;color:var(--cap-muted);margin-bottom:1rem;">
-            • <strong>date</strong>: ISO-Datum (YYYY-MM-DD)<br>
-            • <strong>system_name</strong>: exakter Name des Speichersystems (wie im Dashboard)<br>
-            • <strong>total_tb / used_tb / free_tb</strong>: Kapazitäten in TB<br>
-            • <strong>percent_used</strong>: Auslastung in Prozent
-        </p>
-        <div class="import-drop-area" id="importDropArea"
-             onclick="document.getElementById('importFileInput').click()"
-             ondragover="handleDragOver(event)"
-             ondragleave="handleDragLeave(event)"
-             ondrop="handleDrop(event)">
-            📁 CSV-Datei hierher ziehen oder klicken zum Auswählen
+            <p style="font-size:.8rem;color:var(--cap-muted);margin-bottom:1rem;">
+                • <strong>date</strong>: ISO-Datum (YYYY-MM-DD)<br>
+                • <strong>system_name</strong>: exakter Name des Speichersystems (wie im Dashboard konfiguriert)<br>
+                • <strong>total_tb / used_tb / free_tb</strong>: Kapazitäten in TB<br>
+                • <strong>percent_used</strong>: Auslastung in Prozent (0–100)
+            </p>
+            <div class="import-drop-area" id="importDropAreaPhys"
+                 onclick="document.getElementById('importFileInputPhys').click()"
+                 ondragover="handleDragOver(event, 'Phys')"
+                 ondragleave="handleDragLeave('Phys')"
+                 ondrop="handleDrop(event, 'physical')">
+                📁 CSV-Datei hierher ziehen oder klicken zum Auswählen
+            </div>
+            <input type="file" id="importFileInputPhys" accept=".csv" style="display:none"
+                   onchange="handleFileSelect(this.files[0], 'physical')">
+            <div class="import-result" id="importResultPhys"></div>
         </div>
-        <input type="file" id="importFileInput" accept=".csv" style="display:none"
-               onchange="handleFileSelect(this.files[0])">
-        <div class="import-result" id="importResult"></div>
+
+        <!-- ── Tab 2: Storage on Demand ── -->
+        <div class="import-tab-pane" id="import-tab-sod">
+            <p style="font-size:.85rem;color:var(--cap-muted);margin-bottom:.5rem;">
+                Importiert historische Daten für <strong>Storage on Demand (Pure1 / Evergreen One)</strong>.
+                Diese Daten betreffen ausschließlich <em>Block-Storage</em>-Systeme, die über einen
+                Pure1 Evergreen-One-Vertrag betrieben werden. Sie werden von der physischen Kapazität
+                (<em>Physische Systeme</em>-Tab) getrennt gespeichert und in der Ansicht als
+                „Effektiv Genutzt" ausgewiesen.
+            </p>
+            <p style="font-size:.85rem;color:var(--cap-muted);margin-bottom:.5rem;">
+                Unter normalen Bedingungen bezieht das Dashboard SoD-Daten <em>automatisch</em> wöchentlich
+                von der Pure1-API. Dieser Import dient dazu, bereits vorliegende historische Werte
+                (z.&nbsp;B. aus einem früheren Reporting-Tool) nachzuerfassen.
+            </p>
+            <p style="font-size:.85rem;font-weight:600;margin-bottom:.25rem;">CSV-Format – Storage on Demand:</p>
+            <div class="csv-format-box">date,subscription_name,license_name,reserved_tb,effective_used_tb,service_tier
+2024-01-08,ESS-3043,ESS-3043-C1,10.00,8.76,//GOLD
+2024-01-15,ESS-3043,ESS-3043-C1,10.00,9.12,//GOLD
+2024-01-08,ESS-3043,ESS-3043-C2,5.00,3.41,//SILVER</div>
+            <p style="font-size:.8rem;color:var(--cap-muted);margin-bottom:1rem;">
+                • <strong>date</strong>: ISO-Datum (YYYY-MM-DD)<br>
+                • <strong>subscription_name</strong>: Name des Pure1-Vertrags (z.&nbsp;B. ESS-3043)<br>
+                • <strong>license_name</strong>: Name der Lizenz innerhalb des Vertrags (z.&nbsp;B. ESS-3043-C1)<br>
+                • <strong>reserved_tb</strong>: Reservierte / gebuchte Kapazität in TB<br>
+                • <strong>effective_used_tb</strong>: Effektiv genutzter Speicher (Daten-Footprint) in TB<br>
+                • <strong>service_tier</strong>: Service-Tier (optional, z.&nbsp;B. //GOLD, //SILVER)
+            </p>
+            <div class="import-drop-area" id="importDropAreaSod"
+                 onclick="document.getElementById('importFileInputSod').click()"
+                 ondragover="handleDragOver(event, 'Sod')"
+                 ondragleave="handleDragLeave('Sod')"
+                 ondrop="handleDrop(event, 'sod')">
+                📁 CSV-Datei hierher ziehen oder klicken zum Auswählen
+            </div>
+            <input type="file" id="importFileInputSod" accept=".csv" style="display:none"
+                   onchange="handleFileSelect(this.files[0], 'sod')">
+            <div class="import-result" id="importResultSod"></div>
+        </div>
     </div>
 </div>
 
@@ -1172,11 +1275,32 @@ function exportPdf() {
 }
 
 // ── Import helpers ────────────────────────────────────────────────────────
+let _activeImportTab = 'physical';
+
+function _importSuffix(type) { return type === 'sod' ? 'Sod' : 'Phys'; }
+
+function switchImportTab(tab) {
+    _activeImportTab = tab;
+    document.querySelectorAll('.import-tab-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.importTab === tab)
+    );
+    document.querySelectorAll('.import-tab-pane').forEach(p =>
+        p.classList.toggle('active', p.id === 'import-tab-' + tab)
+    );
+}
+
 function openImportModal() {
     document.getElementById('importModal').classList.add('open');
-    document.getElementById('importResult').style.display = 'none';
-    document.getElementById('importFileInput').value = '';
-    document.getElementById('importDropArea').textContent = '📁 CSV-Datei hierher ziehen oder klicken zum Auswählen';
+    // Reset both tabs
+    ['Phys', 'Sod'].forEach(suffix => {
+        const res = document.getElementById('importResult' + suffix);
+        const drop = document.getElementById('importDropArea' + suffix);
+        const inp  = document.getElementById('importFileInput' + suffix);
+        if (res)  { res.style.display = 'none'; }
+        if (drop) { drop.textContent = '📁 CSV-Datei hierher ziehen oder klicken zum Auswählen'; }
+        if (inp)  { inp.value = ''; }
+    });
+    switchImportTab('physical');
 }
 
 function closeImportModal(e) {
@@ -1184,58 +1308,65 @@ function closeImportModal(e) {
     document.getElementById('importModal').classList.remove('open');
 }
 
-function handleDragOver(e) {
+function handleDragOver(e, suffix) {
     e.preventDefault();
-    document.getElementById('importDropArea').classList.add('dragover');
+    document.getElementById('importDropArea' + suffix).classList.add('dragover');
 }
-function handleDragLeave() {
-    document.getElementById('importDropArea').classList.remove('dragover');
+function handleDragLeave(suffix) {
+    document.getElementById('importDropArea' + suffix).classList.remove('dragover');
 }
-function handleDrop(e) {
+function handleDrop(e, type) {
     e.preventDefault();
-    document.getElementById('importDropArea').classList.remove('dragover');
+    const suffix = _importSuffix(type);
+    document.getElementById('importDropArea' + suffix).classList.remove('dragover');
     const file = e.dataTransfer.files[0];
-    if (file) handleFileSelect(file);
+    if (file) handleFileSelect(file, type);
 }
-function handleFileSelect(file) {
+function handleFileSelect(file, type) {
     if (!file) return;
+    const suffix = _importSuffix(type);
     if (!file.name.toLowerCase().endsWith('.csv')) {
-        showImportResult(false, 'Nur CSV-Dateien werden unterstützt.');
+        showImportResult(suffix, false, 'Nur CSV-Dateien werden unterstützt.');
         return;
     }
-    document.getElementById('importDropArea').textContent = `📄 ${file.name} – wird hochgeladen…`;
-    uploadImportFile(file);
+    document.getElementById('importDropArea' + suffix).textContent = `📄 ${file.name} – wird hochgeladen…`;
+    uploadImportFile(file, type);
 }
 
-async function uploadImportFile(file) {
+async function uploadImportFile(file, type) {
+    const suffix = _importSuffix(type);
+    const endpoint = type === 'sod'
+        ? '/capacity/api/import/sod-history'
+        : '/capacity/api/import/history';
     const form = new FormData();
     form.append('file', file);
     try {
-        const resp = await fetch('/capacity/api/import/history', {method: 'POST', body: form});
+        const resp = await fetch(endpoint, {method: 'POST', body: form});
         const data = await resp.json();
         if (!resp.ok || data.error) {
-            showImportResult(false, data.error || 'Unbekannter Fehler.');
+            showImportResult(suffix, false, data.error || 'Unbekannter Fehler.');
         } else {
             let msg = `✅ ${data.imported} Datensatz/Datensätze importiert.`;
             if (data.skipped > 0) msg += ` ${data.skipped} übersprungen.`;
             if (data.errors && data.errors.length > 0) {
                 msg += '\n\nHinweise:\n' + data.errors.join('\n');
             }
-            showImportResult(true, msg);
-            document.getElementById('importDropArea').textContent = '📁 CSV-Datei hierher ziehen oder klicken zum Auswählen';
-            // Reload history if currently viewing it
-            loadHistory(currentRange());
+            showImportResult(suffix, true, msg);
+            document.getElementById('importDropArea' + suffix).textContent =
+                '📁 CSV-Datei hierher ziehen oder klicken zum Auswählen';
+            if (type === 'physical') loadHistory(currentRange());
         }
     } catch (err) {
-        showImportResult(false, 'Fehler beim Hochladen: ' + err.message);
+        showImportResult(suffix, false, 'Fehler beim Hochladen: ' + err.message);
     }
 }
 
-function showImportResult(success, msg) {
-    const el = document.getElementById('importResult');
+function showImportResult(suffix, success, msg) {
+    const el = document.getElementById('importResult' + suffix);
     el.className = 'import-result ' + (success ? 'success' : 'error');
     el.style.display = 'block';
     el.textContent = msg;
+    el.style.whiteSpace = 'pre-wrap';
 }
 
 // ── Escape key closes import modal ────────────────────────────────────────

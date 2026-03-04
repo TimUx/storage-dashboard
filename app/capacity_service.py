@@ -545,12 +545,12 @@ def import_history_from_csv(csv_file, system_map):
     from app.models import CapacityHistory
 
     reader = _csv.DictReader(csv_file)
-    # Normalize header names to lowercase
     imported = 0
     skipped = 0
     errors = []
 
-    for lineno, row in enumerate(reader, start=2):
+    for row in reader:
+        lineno = reader.line_num
         norm = {k.strip().lower(): v.strip() for k, v in row.items() if k}
         try:
             date_str = norm.get('date', '')
@@ -591,6 +591,92 @@ def import_history_from_csv(csv_file, system_map):
                     used_tb=used_tb,
                     free_tb=free_tb,
                     percent_used=percent_used,
+                )
+                db.session.add(hist)
+            imported += 1
+        except Exception as exc:
+            errors.append(f'Zeile {lineno}: {exc}')
+            skipped += 1
+
+    db.session.commit()
+    return imported, skipped, errors
+
+
+def import_sod_history_from_csv(csv_file):
+    """
+    Import Storage on Demand (Pure1) historical data from a CSV file object.
+
+    Expected CSV columns (case-insensitive):
+      date, subscription_name, license_name, reserved_tb, effective_used_tb
+    Optional column:
+      service_tier
+
+    Returns (imported_count, skipped_count, errors[]).
+    """
+    import csv as _csv
+    from app import db
+    from app.models import SodHistory
+
+    reader = _csv.DictReader(csv_file)
+    imported = 0
+    skipped = 0
+    errors = []
+
+    for row in reader:
+        lineno = reader.line_num
+        norm = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+        try:
+            date_str = norm.get('date', '')
+            subscription_name = norm.get('subscription_name', '')
+            license_name = norm.get('license_name', '')
+            try:
+                reserved_tb = float(norm.get('reserved_tb') or 0)
+            except ValueError:
+                errors.append(f'Zeile {lineno}: Ungültiger Wert für reserved_tb.')
+                skipped += 1
+                continue
+            try:
+                effective_used_tb = float(norm.get('effective_used_tb') or 0)
+            except ValueError:
+                errors.append(f'Zeile {lineno}: Ungültiger Wert für effective_used_tb.')
+                skipped += 1
+                continue
+            service_tier = norm.get('service_tier') or None
+
+            if not date_str or not subscription_name or not license_name:
+                errors.append(
+                    f'Zeile {lineno}: date, subscription_name und license_name sind Pflichtfelder.'
+                )
+                skipped += 1
+                continue
+
+            try:
+                rec_date = date.fromisoformat(date_str)
+            except ValueError:
+                errors.append(
+                    f'Zeile {lineno}: Ungültiges Datumsformat "{date_str}" (erwartet: YYYY-MM-DD).'
+                )
+                skipped += 1
+                continue
+
+            existing = SodHistory.query.filter_by(
+                date=rec_date,
+                subscription_name=subscription_name,
+                license_name=license_name,
+            ).first()
+            if existing:
+                existing.reserved_tb = reserved_tb
+                existing.effective_used_tb = effective_used_tb
+                if service_tier is not None:
+                    existing.service_tier = service_tier
+            else:
+                hist = SodHistory(
+                    date=rec_date,
+                    subscription_name=subscription_name,
+                    license_name=license_name,
+                    service_tier=service_tier,
+                    reserved_tb=reserved_tb,
+                    effective_used_tb=effective_used_tb,
                 )
                 db.session.add(hist)
             imported += 1

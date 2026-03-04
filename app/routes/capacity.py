@@ -228,3 +228,36 @@ def api_import_history():
         'skipped': skipped,
         'errors': errors[:20],  # cap error list
     })
+
+
+@bp.route('/api/import/sod-history', methods=['POST'])
+def api_import_sod_history():
+    """Import historical Storage on Demand (Pure1) data from a CSV file."""
+    from app.capacity_service import import_sod_history_from_csv
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'Keine Datei übermittelt.'}), 400
+
+    f = request.files['file']
+    if not f.filename.lower().endswith('.csv'):
+        return jsonify({'error': 'Nur CSV-Dateien werden unterstützt.'}), 400
+
+    try:
+        raw = f.stream.read()
+        try:
+            text = raw.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return jsonify({
+                'error': 'CSV-Datei konnte nicht dekodiert werden. Bitte UTF-8-Kodierung verwenden.'
+            }), 400
+        stream = io.StringIO(text)
+        imported, skipped, errors = import_sod_history_from_csv(stream)
+    except Exception as exc:
+        logger.exception('SoD history import failed')
+        return jsonify({'error': str(exc)}), 500
+
+    return jsonify({
+        'imported': imported,
+        'skipped': skipped,
+        'errors': errors[:20],
+    })
