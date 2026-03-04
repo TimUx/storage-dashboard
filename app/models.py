@@ -631,6 +631,7 @@ class SodHistory(db.Model):
     service_tier = db.Column(db.String(100))   # optional, e.g. "//GOLD"
     reserved_tb = db.Column(db.Float, default=0.0)        # reservation.data / 1e12
     effective_used_tb = db.Column(db.Float, default=0.0)  # usage.data / 1e12
+    on_demand_tb = db.Column(db.Float, default=0.0)       # on_demand_space metric / 1e12
 
     __table_args__ = (
         db.UniqueConstraint('date', 'subscription_name', 'license_name',
@@ -646,6 +647,7 @@ class SodHistory(db.Model):
             'service_tier': self.service_tier,
             'reserved_tb': self.reserved_tb,
             'effective_used_tb': self.effective_used_tb,
+            'on_demand_tb': self.on_demand_tb,
         }
 
     def __repr__(self):

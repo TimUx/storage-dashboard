@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault('SECRET_KEY', 'demo-seed-secret-key')
 
 from app import create_app, db
-from app.models import StorageSystem, TagGroup, Tag, CapacitySnapshot, CapacityHistory
+from app.models import StorageSystem, TagGroup, Tag, CapacitySnapshot, CapacityHistory, SodHistory
 
 # ---------------------------------------------------------------------------
 # Demo system definitions
@@ -230,6 +230,7 @@ def seed(reset=False):
     with app.app_context():
         if reset:
             print('Resetting existing systems, snapshots and history…')
+            SodHistory.query.delete()
             CapacityHistory.query.delete()
             CapacitySnapshot.query.delete()
             StorageSystem.query.delete()
@@ -336,7 +337,70 @@ def seed(reset=False):
         print(f'  Snapshots: {CapacitySnapshot.query.count()}')
         print(f'  History rows: {CapacityHistory.query.count()}')
         print()
+
+        # ── Seed SoD (Storage on Demand) history ──────────────────────────
+        print('Seeding Storage on Demand (SoD) history…')
+        _seed_sod_history(app, today, start_date, history_days)
+        print(f'  SoD history rows: {SodHistory.query.count()}')
+        print()
         print('Open http://localhost:5000/capacity/ to view the Kapazitätsreport.')
+
+
+# ---------------------------------------------------------------------------
+# SoD history helper
+# ---------------------------------------------------------------------------
+
+# Demo SoD contracts: (subscription_name, license_name, service_tier,
+#                       reserved_end_tb, effective_used_end_tb, on_demand_end_tb)
+_SOD_DEMO_LICENSES = [
+    ('EO-ITS-2023', 'Pure-EO-Block-ITS-Gold',   '//GOLD',   500.0, 380.0, 15.0),
+    ('EO-ITS-2023', 'Pure-EO-Block-ITS-Silver',  '//SILVER', 300.0, 210.0,  8.0),
+    ('EO-ERZ-2022', 'Pure-EO-Block-ERZ-Gold',    '//GOLD',   400.0, 290.0, 12.0),
+    ('EO-EH-2024',  'Pure-EO-Block-EH-Platinum', '//PLATINUM', 200.0, 45.0,  2.0),
+]
+
+
+def _seed_sod_history(app, today, start_date, history_days):
+    """Seed weekly SoD history records for demo purposes."""
+    import math
+    with app.app_context():
+        for sub_name, lic_name, tier, res_end, eff_end, od_end in _SOD_DEMO_LICENSES:
+            # Start at 50 % of end values 2 years ago; grow with slight S-curve
+            res_start = round(res_end * 0.85, 2)   # reserved changes slowly
+            eff_start = round(eff_end * 0.35, 2)
+            od_start  = round(od_end * 0.10, 2)
+
+            # Weekly data points (every 7 days)
+            week_offsets = range(0, history_days, 7)
+            for offset in week_offsets:
+                day = start_date + timedelta(days=offset)
+                t = offset / max(history_days - 1, 1)
+                smooth_t = t * t * (3 - 2 * t)
+
+                reserved       = round(res_start + (res_end - res_start) * smooth_t, 2)
+                effective_used = round(eff_start + (eff_end - eff_start) * smooth_t, 2)
+                on_demand      = round(od_start  + (od_end  - od_start)  * smooth_t, 2)
+
+                existing = SodHistory.query.filter_by(
+                    date=day,
+                    subscription_name=sub_name,
+                    license_name=lic_name,
+                ).first()
+                if existing:
+                    existing.reserved_tb = reserved
+                    existing.effective_used_tb = effective_used
+                    existing.on_demand_tb = on_demand
+                else:
+                    db.session.add(SodHistory(
+                        date=day,
+                        subscription_name=sub_name,
+                        license_name=lic_name,
+                        service_tier=tier,
+                        reserved_tb=reserved,
+                        effective_used_tb=effective_used,
+                        on_demand_tb=on_demand,
+                    ))
+        db.session.commit()
 
 
 if __name__ == '__main__':

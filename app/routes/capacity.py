@@ -56,7 +56,7 @@ def api_data():
 @bp.route('/api/history')
 def api_history():
     """Return historical capacity data for chart rendering."""
-    from app.capacity_service import get_history_data, compute_forecast
+    from app.capacity_service import get_history_data, compute_forecast, get_sod_history_data
 
     range_param = request.args.get('range', 'all')
     days_map = {'3m': 90, '6m': 180, '1y': 365, '2y': 730}
@@ -69,6 +69,27 @@ def api_history():
         fc = compute_forecast(art_data['labels'], art_data['used'], forecast_days=90)
         art_data['forecast_labels'] = fc['labels']
         art_data['forecast_values'] = fc['values']
+
+    # Attach SoD commercial data to the Block art (if available)
+    sod = get_sod_history_data(days=days)
+    if sod:
+        block_art = 'Block'
+        if block_art not in history:
+            # Ensure Block entry exists even when no physical history is available,
+            # so that SoD-only data can still be displayed in the chart.
+            history[block_art] = {
+                'labels': [], 'used': [], 'total': [],
+                'forecast_labels': [], 'forecast_values': [],
+            }
+        fc_demand = compute_forecast(sod['labels'], sod['on_demand'], forecast_days=90)
+        history[block_art]['sod'] = {
+            'labels': sod['labels'],
+            'reserved': sod['reserved'],
+            'effective_used': sod['effective_used'],
+            'on_demand': sod['on_demand'],
+            'demand_forecast_labels': fc_demand['labels'],
+            'demand_forecast_values': fc_demand['values'],
+        }
 
     return jsonify(history)
 

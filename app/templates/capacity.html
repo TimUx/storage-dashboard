@@ -176,6 +176,22 @@
 }
 .history-controls label { font-size: .88rem; font-weight: 500; color: var(--cap-muted); }
 .range-btn-group { display: flex; gap: .3rem; }
+
+/* ── History line filter ── */
+.line-filter-group { display: flex; gap: .3rem; align-items: center; }
+.line-filter-btn {
+    background: var(--cap-bg);
+    border: 1px solid var(--cap-border);
+    padding: .3rem .7rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: .82rem;
+    transition: all .2s;
+    font-weight: 500;
+}
+.line-filter-btn:hover { background: rgba(0,152,219,.1); }
+.line-filter-btn.active { background: var(--cap-blue); color: white; border-color: var(--cap-blue); }
+.line-filter-btn.active.commercial { background: #FF5C00; border-color: #FF5C00; }
 .range-btn {
     background: var(--cap-bg);
     border: 1px solid var(--cap-border);
@@ -494,6 +510,17 @@
             <button class="range-btn"        data-range="6m"   onclick="loadHistory('6m')">6 Monate</button>
             <button class="range-btn"        data-range="3m"   onclick="loadHistory('3m')">3 Monate</button>
         </div>
+        <label style="margin-left:.5rem;">Linien:</label>
+        <div class="line-filter-group">
+            <button class="line-filter-btn active" data-filter="physical"
+                    onclick="toggleLineFilter('physical')" title="Physische Linien ein-/ausblenden">
+                🗄️ Physisch
+            </button>
+            <button class="line-filter-btn active commercial" data-filter="commercial"
+                    onclick="toggleLineFilter('commercial')" title="Kaufmännische Linien ein-/ausblenden">
+                💼 Kaufmännisch
+            </button>
+        </div>
         <div class="history-actions">
             <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV</button>
             <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
@@ -613,6 +640,16 @@ let capacityData  = null;
 let chartInstances = {};
 let sodData       = null;
 const pure1Configured = {{ 'true' if pure1_configured else 'false' }};
+
+// Preferred art order for history charts (mirrors server-side STORAGE_ART_ORDER in capacity_service.py)
+const STORAGE_ART_ORDER = ['Block', 'File', 'Object', 'Archiv', 'Backup'];
+function artSortKey(art) {
+    const idx = STORAGE_ART_ORDER.indexOf(art);
+    return idx >= 0 ? idx : STORAGE_ART_ORDER.length;
+}
+
+// Line filter state: which groups of lines are currently visible
+const lineFilterState = { physical: true, commercial: true };
 
 // ── View Switching ────────────────────────────────────────────────────────
 document.querySelectorAll('#viewToggle button').forEach(btn => {
@@ -1181,16 +1218,24 @@ async function loadHistory(range) {
         const resp = await fetch('/capacity/api/history?range=' + encodeURIComponent(range));
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const data = await resp.json();
-        const arts = Object.keys(data);
+
+        // Sort arts by STORAGE_ART_ORDER (same order as tables)
+        const arts = Object.keys(data).sort((a, b) => artSortKey(a) - artSortKey(b));
+
         if (arts.length === 0) {
             el.innerHTML = '<div class="cap-empty">Keine Verlaufsdaten vorhanden. Daten werden täglich gespeichert.</div>';
             return;
         }
-        el.innerHTML = arts.map(art => `
-            <div class="cap-section">
-                <div class="cap-section-header"><span>${escHtml(art)}</span><span class="section-subtitle">Verlauf – Genutzte Kapazität</span></div>
+        el.innerHTML = arts.map(art => {
+            const hasSod = art === 'Block' && data[art].sod;
+            const subtitle = hasSod
+                ? 'Verlauf – Physische &amp; Kaufmännische Kapazität'
+                : 'Verlauf – Genutzte Kapazität';
+            return `<div class="cap-section">
+                <div class="cap-section-header"><span>${escHtml(art)}</span><span class="section-subtitle">${subtitle}</span></div>
                 <div class="chart-container"><canvas id="chart-${escHtml(art).replace(/\s+/g,'-')}"></canvas></div>
-            </div>`).join('');
+            </div>`;
+        }).join('');
 
         // Render charts
         arts.forEach(art => {
@@ -1199,7 +1244,9 @@ async function loadHistory(range) {
             const canvas = document.getElementById(canvasId);
             if (!canvas) return;
 
-            const allLabels = [...artData.labels, ...artData.forecast_labels];
+            const many = artData.labels.length > 60;
+
+            // ── Physical datasets ────────────────────────────────────────
             const usedDataset = {
                 label: 'Genutzt [TB]',
                 data: artData.used.map((v, i) => ({x: artData.labels[i], y: v})),
@@ -1207,31 +1254,88 @@ async function loadHistory(range) {
                 backgroundColor: 'rgba(0,152,219,.1)',
                 fill: true,
                 tension: 0.3,
-                // Hide individual data points when there are many labels (>60) to avoid clutter
-                pointRadius: artData.labels.length > 60 ? 0 : 3,
+                pointRadius: many ? 0 : 3,
+                _group: 'physical',
             };
             const totalDataset = {
                 label: 'Gesamt [TB]',
                 data: artData.total.map((v, i) => ({x: artData.labels[i], y: v})),
                 borderColor: '#BED600',
-                borderDash: [],
                 backgroundColor: 'transparent',
                 tension: 0.3,
                 pointRadius: 0,
+                _group: 'physical',
             };
             const forecastDataset = {
-                label: 'Prognose [TB]',
+                label: 'Prognose Genutzt [TB]',
                 data: artData.forecast_values.map((v, i) => ({x: artData.forecast_labels[i], y: v})),
                 borderColor: '#A70240',
                 borderDash: [6, 4],
                 backgroundColor: 'transparent',
                 tension: 0.3,
                 pointRadius: 0,
+                _group: 'physical',
             };
+
+            const datasets = [usedDataset, totalDataset, forecastDataset];
+
+            // ── Commercial (SoD) datasets – Block only ───────────────────
+            if (art === 'Block' && artData.sod) {
+                const sod = artData.sod;
+                const sodMany = sod.labels.length > 60;
+                datasets.push({
+                    label: 'SoD Reserviert [TB]',
+                    data: sod.reserved.map((v, i) => ({x: sod.labels[i], y: v})),
+                    borderColor: '#FF5C00',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    pointRadius: sodMany ? 0 : 3,
+                    _group: 'commercial',
+                });
+                datasets.push({
+                    label: 'SoD Effektiv Genutzt [TB]',
+                    data: sod.effective_used.map((v, i) => ({x: sod.labels[i], y: v})),
+                    borderColor: '#C20054',
+                    backgroundColor: 'rgba(194,0,84,.08)',
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: sodMany ? 0 : 3,
+                    _group: 'commercial',
+                });
+                datasets.push({
+                    label: 'SoD On Demand [TB]',
+                    data: sod.on_demand.map((v, i) => ({x: sod.labels[i], y: v})),
+                    borderColor: '#FFB800',
+                    backgroundColor: 'transparent',
+                    tension: 0.3,
+                    pointRadius: 0,
+                    borderDash: [3, 3],
+                    _group: 'commercial',
+                });
+                if (sod.demand_forecast_values && sod.demand_forecast_values.length > 0) {
+                    datasets.push({
+                        label: 'SoD Demand Prognose [TB]',
+                        data: sod.demand_forecast_values.map((v, i) => ({x: sod.demand_forecast_labels[i], y: v})),
+                        borderColor: '#FFB800',
+                        backgroundColor: 'transparent',
+                        tension: 0.3,
+                        pointRadius: 0,
+                        borderDash: [6, 4],
+                        borderWidth: 1.5,
+                        _group: 'commercial',
+                    });
+                }
+            }
+
+            // Apply initial filter visibility
+            datasets.forEach(ds => {
+                ds.hidden = !lineFilterState[ds._group];
+            });
 
             chartInstances[art] = new Chart(canvas, {
                 type: 'line',
-                data: { datasets: [usedDataset, totalDataset, forecastDataset] },
+                data: { datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
@@ -1261,6 +1365,21 @@ async function loadHistory(range) {
     } catch (err) {
         el.innerHTML = '<div class="cap-empty">Fehler beim Laden der Verlaufsdaten: ' + escHtml(err.message) + '</div>';
     }
+}
+
+// ── Line filter toggle ────────────────────────────────────────────────────
+function toggleLineFilter(group) {
+    lineFilterState[group] = !lineFilterState[group];
+    const btn = document.querySelector(`.line-filter-btn[data-filter="${group}"]`);
+    if (btn) btn.classList.toggle('active', lineFilterState[group]);
+
+    // Update visibility on all existing charts
+    Object.values(chartInstances).forEach(chart => {
+        chart.data.datasets.forEach(ds => {
+            if (ds._group === group) ds.hidden = !lineFilterState[group];
+        });
+        chart.update();
+    });
 }
 
 // ── Storage on Demand refresh ─────────────────────────────────────────────

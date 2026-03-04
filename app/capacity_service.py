@@ -750,6 +750,7 @@ def import_sod_history_from_pure1(start_date, end_date) -> tuple:
             if existing:
                 existing.reserved_tb = item["reserved_tb"]
                 existing.effective_used_tb = item["effective_used_tb"]
+                existing.on_demand_tb = item.get("on_demand_tb", 0.0) or 0.0
                 existing.service_tier = item.get("service_tier")
             else:
                 db.session.add(SodHistory(
@@ -759,6 +760,7 @@ def import_sod_history_from_pure1(start_date, end_date) -> tuple:
                     service_tier=item.get("service_tier"),
                     reserved_tb=item["reserved_tb"],
                     effective_used_tb=item["effective_used_tb"],
+                    on_demand_tb=item.get("on_demand_tb", 0.0) or 0.0,
                 ))
             imported += 1
         except Exception as exc:
@@ -805,3 +807,55 @@ def compute_forecast(labels, values, forecast_days=90):
         future_values.append(round(max(predicted, 0.0), 2))
 
     return {'labels': future_labels, 'values': future_values}
+
+
+def get_sod_history_data(days=None):
+    """Return aggregated SoD (Storage on Demand) history for chart rendering.
+
+    Sums reserved_tb, effective_used_tb and on_demand_tb across all licenses
+    per date, so the result represents the total contractual commitment and
+    usage over time.
+
+    days: None = all, or int = last N days
+
+    Returns dict:
+      {'labels': ['2024-01-01', ...],
+       'reserved': [...],
+       'effective_used': [...],
+       'on_demand': [...]}
+    or None when no SoD history rows exist.
+    """
+    from collections import defaultdict
+    from app.models import SodHistory
+
+    query = SodHistory.query.order_by(SodHistory.date)
+    if days:
+        cutoff = date.today() - timedelta(days=days)
+        query = query.filter(SodHistory.date >= cutoff)
+    records = query.all()
+
+    if not records:
+        return None
+
+    date_reserved = defaultdict(float)
+    date_effective = defaultdict(float)
+    date_on_demand = defaultdict(float)
+
+    for rec in records:
+        d = rec.date
+        date_reserved[d] += rec.reserved_tb or 0.0
+        date_effective[d] += rec.effective_used_tb or 0.0
+        date_on_demand[d] += rec.on_demand_tb or 0.0
+
+    all_dates = sorted(date_reserved.keys())
+    labels = [d.isoformat() for d in all_dates]
+    reserved = [round(date_reserved[d], 2) for d in all_dates]
+    effective_used = [round(date_effective[d], 2) for d in all_dates]
+    on_demand = [round(date_on_demand[d], 2) for d in all_dates]
+
+    return {
+        'labels': labels,
+        'reserved': reserved,
+        'effective_used': effective_used,
+        'on_demand': on_demand,
+    }
