@@ -889,6 +889,7 @@ function buildSodSummarySection(sodDataArg) {
         totalReserved /= 1e12;
         totalEffective /= 1e12;
         const utilization = totalReserved > 0 ? (totalEffective / totalReserved * 100) : 0;
+        const onDemandTb = Math.max(0, totalEffective - totalReserved);
         const ts = sodDataArg.fetched_at ? new Date(
             sodDataArg.fetched_at.endsWith('Z') ? sodDataArg.fetched_at : sodDataArg.fetched_at + 'Z'
         ).toLocaleString('de-DE') : null;
@@ -900,13 +901,15 @@ function buildSodSummarySection(sodDataArg) {
                     <th>Reservierte Kapazität [TB]</th>
                     <th>Effektiv Genutzt [TB]</th>
                     <th>Auslastung [%]</th>
+                    <th>On Demand [TB]</th>
                 </tr></thead>
                 <tbody>
                     <tr class="total-row">
                         <td>Block ( Pure )</td>
                         <td>${totalReserved.toFixed(2)}</td>
                         <td>${totalEffective.toFixed(2)}</td>
-                        <td>${pctBarHtml(utilization)}</td>
+                        <td>${pctBarHtmlProv(utilization)}</td>
+                        <td>${onDemandTb > 0 ? onDemandTb.toFixed(2) : '–'}</td>
                     </tr>
                 </tbody>
             </table>
