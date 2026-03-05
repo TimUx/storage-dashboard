@@ -65,12 +65,14 @@ def api_history():
     history = get_history_data(days=days)
 
     # Attach forecast to each storage art.
-    # Forecast length is capped at 15% of the visible history span so that the
-    # prognosis line never dominates the chart (target: ≤ 10–20% of width).
+    # Forecast length is capped at 15% of the actual data-point count so that
+    # the prognosis line never dominates the chart (target: ≤ 10–20% of width).
+    # Using the actual point count (not the requested day-range) ensures the
+    # forecast is proportional to the historical data density regardless of
+    # how frequently measurements are recorded (daily vs. weekly, etc.).
     for art, art_data in history.items():
         n_points = len(art_data['labels'])
-        span = days if days is not None else n_points
-        forecast_days = max(7, min(90, int(span * 0.15)))
+        forecast_days = max(7, min(90, int(n_points * 0.15)))
         fc = compute_forecast(art_data['labels'], art_data['used'], forecast_days=forecast_days)
         art_data['forecast_labels'] = fc['labels']
         art_data['forecast_values'] = fc['values']
@@ -86,8 +88,8 @@ def api_history():
                 'labels': [], 'used': [], 'total': [],
                 'forecast_labels': [], 'forecast_values': [],
             }
-        sod_span = days if days is not None else len(sod['labels'])
-        sod_forecast_days = max(7, min(90, int(sod_span * 0.15)))
+        sod_n_points = len(sod['labels'])
+        sod_forecast_days = max(7, min(90, int(sod_n_points * 0.15)))
         fc_demand = compute_forecast(sod['labels'], sod['effective_used'], forecast_days=sod_forecast_days)
         history[block_art]['sod'] = {
             'labels': sod['labels'],

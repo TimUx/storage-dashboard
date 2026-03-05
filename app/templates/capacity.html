@@ -1297,12 +1297,17 @@ function renderHistoryCharts(data) {
         };
 
         const capForecast = artData.forecast_values.map((v, i) => ({x: artData.forecast_labels[i], y: v}));
+        const lastTotal = artData.total.length > 0 ? artData.total[artData.total.length - 1] : 0;
+        const pctForecast = capForecast.map(pt => ({
+            x: pt.x,
+            y: lastTotal > 0 ? parseFloat((pt.y / lastTotal * 100).toFixed(1)) : 0,
+        }));
         const forecastDataset = {
             label: 'Prognose Genutzt [TiB]',
-            data: percentMode ? [] : capForecast,
+            data: percentMode ? pctForecast : capForecast,
             _dataCapacity: capForecast,
-            _dataPercent: [],
-            _hideInPctMode: true,   // forecast hidden in % mode
+            _dataPercent: pctForecast,
+            _hideInPctMode: false,
             borderColor: '#A70240',
             borderDash: [6, 4],
             backgroundColor: 'transparent',
@@ -1374,12 +1379,17 @@ function renderHistoryCharts(data) {
 
             if (sod.effective_forecast_values && sod.effective_forecast_values.length > 0) {
                 const capSodFc = sod.effective_forecast_values.map((v, i) => ({x: sod.effective_forecast_labels[i], y: v}));
+                const lastSodReserved = sod.reserved.length > 0 ? sod.reserved[sod.reserved.length - 1] : 0;
+                const pctSodFc = capSodFc.map(pt => ({
+                    x: pt.x,
+                    y: lastSodReserved > 0 ? parseFloat((pt.y / lastSodReserved * 100).toFixed(1)) : 0,
+                }));
                 datasets.push({
                     label: 'SoD Eff. Genutzt Prognose [TiB]',
-                    data: percentMode ? [] : capSodFc,
+                    data: percentMode ? pctSodFc : capSodFc,
                     _dataCapacity: capSodFc,
-                    _dataPercent: [],
-                    _hideInPctMode: true,   // forecast hidden in % mode
+                    _dataPercent: pctSodFc,
+                    _hideInPctMode: false,
                     borderColor: '#C20054',
                     backgroundColor: 'transparent',
                     tension: 0.3,
@@ -1452,8 +1462,8 @@ function _applyPctMode(chart) {
             }
         } else {
             if (ds._dataCapacity !== undefined) ds.data = ds._dataCapacity;
-            // Restore visibility: respect lineFilterState for grouped datasets,
-            // and un-hide forecast lines that were hidden in % mode.
+            // Restore visibility: hidden datasets with _hideInPctMode stay hidden
+            // per the group-filter; all others follow lineFilterState.
             ds.hidden = ds._group ? !lineFilterState[ds._group] : false;
         }
     });
@@ -1480,8 +1490,7 @@ function toggleLineFilter(group) {
     const blockChart = chartInstances['Block'];
     if (!blockChart) return;
     blockChart.data.datasets.forEach(ds => {
-        // In % mode, forecast lines stay hidden regardless of group filter
-        if (percentMode && ds._hideInPctMode) return;
+        if (ds._hideInPctMode && percentMode) return;
         if (ds._group === group) ds.hidden = !lineFilterState[group];
     });
     blockChart.update();
