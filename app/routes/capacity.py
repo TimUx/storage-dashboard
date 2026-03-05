@@ -64,9 +64,14 @@ def api_history():
 
     history = get_history_data(days=days)
 
-    # Attach forecast to each storage art
+    # Attach forecast to each storage art.
+    # Forecast length is capped at 15% of the visible history span so that the
+    # prognosis line never dominates the chart (target: ≤ 10–20% of width).
     for art, art_data in history.items():
-        fc = compute_forecast(art_data['labels'], art_data['used'], forecast_days=90)
+        n_points = len(art_data['labels'])
+        span = days if days is not None else n_points
+        forecast_days = max(7, min(90, int(span * 0.15)))
+        fc = compute_forecast(art_data['labels'], art_data['used'], forecast_days=forecast_days)
         art_data['forecast_labels'] = fc['labels']
         art_data['forecast_values'] = fc['values']
 
@@ -81,7 +86,9 @@ def api_history():
                 'labels': [], 'used': [], 'total': [],
                 'forecast_labels': [], 'forecast_values': [],
             }
-        fc_demand = compute_forecast(sod['labels'], sod['effective_used'], forecast_days=90)
+        sod_span = days if days is not None else len(sod['labels'])
+        sod_forecast_days = max(7, min(90, int(sod_span * 0.15)))
+        fc_demand = compute_forecast(sod['labels'], sod['effective_used'], forecast_days=sod_forecast_days)
         history[block_art]['sod'] = {
             'labels': sod['labels'],
             'reserved': sod['reserved'],
