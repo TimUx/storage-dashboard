@@ -776,10 +776,20 @@ def compute_forecast(labels, values, forecast_days=90):
     Simple linear regression forecast.
 
     Returns {'labels': [...], 'values': [...]} for the forecast period.
-    Values list may contain None for days with no data.
+    Future labels are spaced at the same interval as the historical data so
+    that the forecast portion of the chart is visually proportional to the
+    history (avoids the forecast dominating the x-axis).
+    Values are clamped to 0.0 so they are always non-negative.
     """
     if len(values) < 2:
         return {'labels': [], 'values': []}
+
+    # Detect the typical step between consecutive data points so the forecast
+    # labels match the historical data frequency (e.g. daily vs weekly).
+    if len(labels) >= 2:
+        step_days = max(1, (date.fromisoformat(labels[1]) - date.fromisoformat(labels[0])).days)
+    else:
+        step_days = 1
 
     n = len(values)
     xs = list(range(n))
@@ -796,12 +806,14 @@ def compute_forecast(labels, values, forecast_days=90):
     slope = (n * sum_xy - sum_x * sum_y) / denom
     intercept = (sum_y - slope * sum_x) / n
 
-    # Generate future points
+    # Generate future points at the same step interval as the historical data.
+    # n_steps is the number of forecast steps derived from forecast_days.
     last_date = date.fromisoformat(labels[-1]) if labels else date.today()
     future_labels = []
     future_values = []
-    for i in range(1, forecast_days + 1):
-        future_date = last_date + timedelta(days=i)
+    n_steps = max(1, forecast_days // step_days)
+    for i in range(1, n_steps + 1):
+        future_date = last_date + timedelta(days=i * step_days)
         future_labels.append(future_date.isoformat())
         predicted = intercept + slope * (n - 1 + i)
         future_values.append(round(max(predicted, 0.0), 2))
