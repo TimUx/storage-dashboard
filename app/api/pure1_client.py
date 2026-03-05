@@ -346,6 +346,97 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
     return result
 
 
+def fetch_subscription_asset_physical_used(app_id: str, private_key_pem: str,
+                                            array_name: str,
+                                            passphrase: str | None = None,
+                                            proxies: dict | None = None) -> float | None:
+    """Fetch the physical used space (in bytes) for a Pure FlashArray from Pure1.
+
+    Uses the ``GET /api/1.latest/subscription-assets`` endpoint with
+    ``advanced_space=true`` to retrieve the physical used capacity for the
+    named array.  This is the correct data source for arrays enrolled in
+    **Evergreen One**, where the local FlashArray API no longer reports
+    physical used space (``space.total_physical`` returns 0 or is absent).
+
+    The call also works for arrays *not* on Evergreen One, so no prior check
+    for Evergreen One enrollment is required.
+
+    Example Pure1 response (abbreviated):
+
+    .. code-block:: json
+
+        {
+          "items": [{
+            "name": "pure07",
+            "array": {
+              "advanced_space": {
+                "physical": {
+                  "total_used": {"data": 416053195321762.94, "unit": "B"}
+                }
+              }
+            }
+          }]
+        }
+
+    Args:
+        app_id: Pure1 application ID.
+        private_key_pem: PEM-encoded RSA private key.
+        array_name: Name of the FlashArray as it appears in Pure1
+                    (e.g. ``"pure07"``).
+        passphrase: Optional passphrase for an encrypted private key.
+        proxies: Optional requests-compatible proxy dict.
+
+    Returns:
+        Physical used space in **bytes** as a ``float``, or ``None`` when the
+        array is not found or the ``advanced_space`` data is unavailable.
+
+    Raises:
+        requests.HTTPError: On non-2xx API responses.
+    """
+    token = get_pure1_access_token(app_id, private_key_pem,
+                                   passphrase=passphrase, proxies=proxies)
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    # Build query string without URL-encoding the single quotes around array_name.
+    # Pure1 uses "x-quoted: true" for string array parameters, meaning values
+    # must be wrapped in single quotes in the raw query string.
+    qs = f"advanced_space=true&names='{array_name}'"
+    resp = requests.get(
+        f"{PURE1_API_BASE}/subscription-assets?{qs}",
+        headers=headers,
+        timeout=30,
+        proxies=proxies,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+
+    items = body.get("items", [])
+    if not items:
+        logger.warning(
+            "fetch_subscription_asset_physical_used: no subscription-asset found for '%s'",
+            array_name,
+        )
+        return None
+
+    item = items[0]
+    try:
+        physical_used = (
+            item["array"]["advanced_space"]["physical"]["total_used"]["data"]
+        )
+    except (KeyError, TypeError):
+        logger.warning(
+            "fetch_subscription_asset_physical_used: "
+            "advanced_space.physical.total_used not available for '%s'",
+            array_name,
+        )
+        return None
+
+    if physical_used is None:
+        return None
+
+    return float(physical_used)
+
+
 def fetch_subscription_licenses(app_id: str, private_key_pem: str,
                                  passphrase: str | None = None,
                                  proxies: dict | None = None) -> list:

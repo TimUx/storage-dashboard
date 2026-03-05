@@ -92,6 +92,10 @@ class StorageSystem(db.Model):
     os_version = db.Column(db.String(100))  # OS/firmware version of the storage system
     api_version = db.Column(db.String(50))  # Detected API version
     
+    # Pure1 array name override (used for subscription-assets API lookup).
+    # When blank, the system's ``name`` field is used as the Pure1 array name.
+    pure1_array_name = db.Column(db.String(100))
+
     # Partner cluster reference (for MetroCluster, Active-Cluster)
     partner_cluster_id = db.Column(db.Integer, db.ForeignKey('storage_systems.id', ondelete='SET NULL'))
     partner_cluster = db.relationship('StorageSystem', remote_side=[id], backref='partners')
@@ -268,6 +272,7 @@ class StorageSystem(db.Model):
             'metrocluster_info': self.get_metrocluster_info(),
             'metrocluster_dr_groups': self.get_metrocluster_dr_groups(),
             'partner_cluster_id': self.partner_cluster_id,
+            'pure1_array_name': self.pure1_array_name,
             'os_version': self.os_version,
             'api_version': self.api_version,
             'last_discovery': self.last_discovery.isoformat() if self.last_discovery else None,

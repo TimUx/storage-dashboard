@@ -237,6 +237,13 @@
                        value="{{ system.api_token if system else '' }}">
                 <small>Für Pure Storage und NetApp StorageGRID</small>
             </div>
+
+            <div id="pure1_array_name_group" class="form-group" style="display: none;">
+                <label for="pure1_array_name">Pure1 Array Name</label>
+                <input type="text" id="pure1_array_name" name="pure1_array_name"
+                       value="{{ system.pure1_array_name if system else '' }}">
+                <small>Name des Arrays in Pure1 (leer lassen = System-Name wird verwendet). Wird benötigt, wenn der Array-Name in Pure1 vom System-Namen im Dashboard abweicht (Evergreen One Kapazitätsabfrage).</small>
+            </div>
         </div>
         
         <div class="form-group">
@@ -310,6 +317,12 @@ document.getElementById('vendor').addEventListener('change', function() {
         
         portHint.textContent = vendorHints[vendor];
     }
+
+    // Show Pure1 array name field only for Pure Storage
+    const pure1Group = document.getElementById('pure1_array_name_group');
+    if (pure1Group) {
+        pure1Group.style.display = (vendor === 'pure') ? '' : 'none';
+    }
 });
 
 // Trigger the change event on page load if creating a new system
@@ -319,6 +332,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (vendorSelect.value) {
         vendorSelect.dispatchEvent(new Event('change'));
     }
+});
+{% else %}
+// On edit, show Pure1 field immediately if vendor is already 'pure'
+document.addEventListener('DOMContentLoaded', function() {
+    const vendorSelect = document.getElementById('vendor');
+    vendorSelect.dispatchEvent(new Event('change'));
 });
 {% endif %}
 </script>

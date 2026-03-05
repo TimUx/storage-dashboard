@@ -251,7 +251,7 @@ class TestMigrateStorageSystemsTable:
                 'cluster_type', 'node_count', 'site_count', 'dns_names', 'all_ips',
                 'node_details', 'partner_cluster_id', 'last_discovery', 'discovery_error',
                 'os_version', 'api_version', 'peer_connections', 'metrocluster_info',
-                'metrocluster_dr_groups', 'ha_info',
+                'metrocluster_dr_groups', 'ha_info', 'pure1_array_name',
             ]
             assert set(applied) == set(expected)
             for col in expected:

@@ -842,3 +842,165 @@ class TestFetchSodLicenseHistoryTimeHandling:
             f"Got {len(urls)} request(s)."
         )
 
+
+# ---------------------------------------------------------------------------
+# fetch_subscription_asset_physical_used
+# ---------------------------------------------------------------------------
+
+class TestFetchSubscriptionAssetPhysicalUsed:
+    """Unit-tests for fetch_subscription_asset_physical_used (no network access)."""
+
+    def setup_method(self):
+        self.private_key_pem = _generate_test_private_key_pem()
+        self.app_id = "pure1:apikey:test"
+
+    def _token_resp(self):
+        r = MagicMock()
+        r.json.return_value = {"access_token": "fake-token"}
+        r.raise_for_status.return_value = None
+        return r
+
+    def _asset_resp(self, body):
+        r = MagicMock()
+        r.json.return_value = body
+        r.raise_for_status.return_value = None
+        return r
+
+    def _run(self, asset_body):
+        """Call the function with mocked HTTP and return the result."""
+        from app.api.pure1_client import fetch_subscription_asset_physical_used
+        with patch("app.api.pure1_client.requests.post", return_value=self._token_resp()):
+            with patch("app.api.pure1_client.requests.get",
+                       return_value=self._asset_resp(asset_body)) as mock_get:
+                result = fetch_subscription_asset_physical_used(
+                    self.app_id, self.private_key_pem, "pure07"
+                )
+        return result, mock_get
+
+    def test_returns_physical_used_bytes(self):
+        """Returns the float value from advanced_space.physical.total_used.data."""
+        body = {
+            "items": [{
+                "name": "pure07",
+                "array": {
+                    "advanced_space": {
+                        "physical": {
+                            "total_used": {
+                                "data": 416053195321762.94,
+                                "unit": "B",
+                            }
+                        }
+                    }
+                }
+            }]
+        }
+        result, _ = self._run(body)
+        assert result == pytest.approx(416053195321762.94)
+
+    def test_returns_none_when_items_empty(self):
+        """Returns None when the API returns an empty items list (array not found)."""
+        result, _ = self._run({"items": []})
+        assert result is None
+
+    def test_returns_none_when_advanced_space_missing(self):
+        """Returns None when advanced_space key is absent (non-Evergreen array variant)."""
+        body = {
+            "items": [{
+                "name": "pure07",
+                "array": {}
+            }]
+        }
+        result, _ = self._run(body)
+        assert result is None
+
+    def test_returns_none_when_total_used_data_is_null(self):
+        """Returns None when total_used.data is explicitly null in the API response."""
+        body = {
+            "items": [{
+                "name": "pure07",
+                "array": {
+                    "advanced_space": {
+                        "physical": {
+                            "total_used": {
+                                "data": None,
+                                "unit": "B",
+                            }
+                        }
+                    }
+                }
+            }]
+        }
+        result, _ = self._run(body)
+        assert result is None
+
+    def test_url_contains_advanced_space_true(self):
+        """The GET request URL must include advanced_space=true."""
+        body = {"items": []}
+        _, mock_get = self._run(body)
+        url = mock_get.call_args[0][0]
+        assert "advanced_space=true" in url, (
+            "Request URL must contain advanced_space=true"
+        )
+
+    def test_url_contains_array_name_quoted(self):
+        """The GET request URL must include the array name wrapped in single quotes."""
+        body = {"items": []}
+        _, mock_get = self._run(body)
+        url = mock_get.call_args[0][0]
+        assert "names='pure07'" in url, (
+            "Request URL must contain names='pure07' (single-quoted, unencoded)"
+        )
+
+    def test_url_targets_subscription_assets_endpoint(self):
+        """The GET request must target the /subscription-assets endpoint."""
+        from app.api.pure1_client import PURE1_API_BASE
+        body = {"items": []}
+        _, mock_get = self._run(body)
+        url = mock_get.call_args[0][0]
+        assert url.startswith(f"{PURE1_API_BASE}/subscription-assets"), (
+            f"URL must start with {PURE1_API_BASE}/subscription-assets, got {url}"
+        )
+
+    def test_authorization_header_is_bearer_token(self):
+        """The GET request must carry an Authorization: Bearer <token> header."""
+        body = {"items": []}
+        _, mock_get = self._run(body)
+        _, kwargs = mock_get.call_args
+        headers = kwargs.get("headers", {})
+        assert headers.get("Authorization") == "Bearer fake-token", (
+            "Authorization header must be 'Bearer fake-token'"
+        )
+
+    def test_zero_bytes_returned_as_zero(self):
+        """A physical_used value of 0 is valid and must be returned as 0.0."""
+        body = {
+            "items": [{
+                "name": "pure07",
+                "array": {
+                    "advanced_space": {
+                        "physical": {
+                            "total_used": {"data": 0, "unit": "B"}
+                        }
+                    }
+                }
+            }]
+        }
+        result, _ = self._run(body)
+        assert result == 0.0
+
+    def test_proxies_forwarded_to_requests(self):
+        """Proxy dict must be passed to requests.get."""
+        from app.api.pure1_client import fetch_subscription_asset_physical_used
+        body = {"items": []}
+        asset_resp = self._asset_resp(body)
+        proxies = {"https": "http://proxy.example.com:8080"}
+        with patch("app.api.pure1_client.requests.post", return_value=self._token_resp()):
+            with patch("app.api.pure1_client.requests.get",
+                       return_value=asset_resp) as mock_get:
+                fetch_subscription_asset_physical_used(
+                    self.app_id, self.private_key_pem, "pure07", proxies=proxies
+                )
+        _, kwargs = mock_get.call_args
+        assert kwargs.get("proxies") == proxies, (
+            "proxies dict must be forwarded to requests.get"
+        )

@@ -28,6 +28,8 @@ ALLOWED_COLUMNS = {
     'metrocluster_info': 'TEXT',
     'metrocluster_dr_groups': 'TEXT',
     'ha_info': 'TEXT',
+    # storage_systems – Pure1 array name override for Evergreen One physical capacity
+    'pure1_array_name': 'VARCHAR(100)',
     # app_settings – originally present columns that may be absent in older installs
     'primary_color': 'VARCHAR(7)',
     'secondary_color': 'VARCHAR(7)',
@@ -160,6 +162,7 @@ def migrate_storage_systems_table():
         ('metrocluster_info',   ALLOWED_COLUMNS['metrocluster_info']),
         ('metrocluster_dr_groups', ALLOWED_COLUMNS['metrocluster_dr_groups']),
         ('ha_info',             ALLOWED_COLUMNS['ha_info']),
+        ('pure1_array_name',    ALLOWED_COLUMNS['pure1_array_name']),
     ]
     for col_name, col_type in nullable_columns:
         if add_column_if_not_exists('storage_systems', col_name, col_type):
