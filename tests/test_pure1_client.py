@@ -645,3 +645,176 @@ class TestFetchSodLicenseHistoryResourceIds:
                 "License display name with comma must not be in the resource_ids query string"
             )
 
+
+# ---------------------------------------------------------------------------
+# fetch_sod_license_history – UTC timestamps & time-window chunking
+# ---------------------------------------------------------------------------
+
+class TestFetchSodLicenseHistoryTimeHandling:
+    """Verify that fetch_sod_license_history uses UTC timestamps and chunks large
+    time ranges to avoid 400 errors from the Pure1 API."""
+
+    def setup_method(self):
+        self.private_key_pem = _generate_test_private_key_pem()
+        self.app_id = "pure1:apikey:test"
+
+    def _make_license(self, lic_id="lic-001"):
+        return {
+            "id": lic_id,
+            "name": "Test License",
+            "subscription": {"name": "Sub-X"},
+            "service_tier": "//STaaS-Capacity",
+        }
+
+    def _run_fetch(self, start_date, end_date, licenses=None, fixed_now_ms=None):
+        """Run fetch_sod_license_history with mocked HTTP and optionally freeze time."""
+        from app.api.pure1_client import fetch_sod_license_history
+
+        if licenses is None:
+            licenses = [self._make_license()]
+
+        token_resp = MagicMock()
+        token_resp.json.return_value = {"access_token": "fake-token"}
+        token_resp.raise_for_status.return_value = None
+
+        licenses_resp = MagicMock()
+        licenses_resp.json.return_value = {"items": licenses, "continuation_token": None}
+        licenses_resp.raise_for_status.return_value = None
+
+        history_resp = MagicMock()
+        history_resp.status_code = 200
+        history_resp.json.return_value = {"items": []}
+        history_resp.raise_for_status.return_value = None
+
+        captured_urls = []
+
+        def fake_get(url, **kwargs):
+            captured_urls.append(url)
+            if "subscription-licenses" in url:
+                return licenses_resp
+            return history_resp
+
+        post_patcher = patch("app.api.pure1_client.requests.post", return_value=token_resp)
+        get_patcher  = patch("app.api.pure1_client.requests.get",  side_effect=fake_get)
+
+        if fixed_now_ms is not None:
+            # `time.time` is called through the module-level `import time` in
+            # pure1_client; patch via that module's reference.
+            time_patcher = patch("app.api.pure1_client.time.time", return_value=fixed_now_ms / 1000)
+            with post_patcher, get_patcher, time_patcher:
+                fetch_sod_license_history(
+                    self.app_id, self.private_key_pem,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+        else:
+            with post_patcher, get_patcher:
+                fetch_sod_license_history(
+                    self.app_id, self.private_key_pem,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+
+        history_urls = [u for u in captured_urls if "metrics/history" in u]
+        return history_urls
+
+    def _parse_qs_param(self, url, param):
+        """Extract the integer value of a query-string parameter from a URL."""
+        for part in url.split("&"):
+            if part.startswith(f"{param}=") or f"?{param}=" in part:
+                key, _, val = part.partition(f"{param}=")
+                return int(val.split("&")[0])
+        return None
+
+    # ── UTC timestamp correctness ─────────────────────────────────────────────
+
+    def test_start_time_uses_utc_midnight(self):
+        """start_time must be midnight UTC of start_date (not local-timezone midnight)."""
+        start_date = datetime.date(2025, 6, 1)
+        end_date = datetime.date(2025, 6, 7)
+        expected_start_ms = int(
+            datetime.datetime(2025, 6, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        )
+        urls = self._run_fetch(start_date, end_date)
+        assert urls, "Expected at least one metrics/history call"
+        start_ms_in_url = self._parse_qs_param(urls[0], "start_time")
+        assert start_ms_in_url == expected_start_ms, (
+            f"start_time should be UTC midnight {expected_start_ms}, got {start_ms_in_url}"
+        )
+
+    def test_end_time_is_not_in_the_future(self):
+        """end_time must never exceed the current UTC timestamp (prevents Pure1 400 errors)."""
+        start_date = datetime.date(2024, 1, 1)
+        end_date = datetime.date.today()  # today → naive calculation would put end in future
+        # Freeze "now" to a specific moment so the test is deterministic
+        now_ms = int(
+            datetime.datetime(2026, 3, 5, 11, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        )
+        urls = self._run_fetch(start_date, end_date, fixed_now_ms=now_ms)
+        for url in urls:
+            end_ms_in_url = self._parse_qs_param(url, "end_time")
+            if end_ms_in_url is not None:
+                assert end_ms_in_url <= now_ms, (
+                    f"end_time {end_ms_in_url} must not be in the future (now={now_ms})"
+                )
+
+    # ── Time-window chunking ──────────────────────────────────────────────────
+
+    def test_two_year_range_produces_multiple_requests(self):
+        """A 2-year date range must be split into multiple time-window chunks."""
+        start_date = datetime.date(2024, 1, 1)
+        end_date = datetime.date(2025, 12, 31)
+        # Freeze "now" well beyond end_date so capping doesn't interfere
+        now_ms = int(
+            datetime.datetime(2026, 6, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        )
+        urls = self._run_fetch(start_date, end_date, fixed_now_ms=now_ms)
+        assert len(urls) > 1, (
+            "A 2-year range should produce multiple chunked requests, not a single call"
+        )
+
+    def test_chunks_do_not_overlap(self):
+        """Adjacent time chunks must not overlap: chunk_n+1 start_time == chunk_n end_time."""
+        start_date = datetime.date(2024, 1, 1)
+        end_date = datetime.date(2025, 12, 31)
+        now_ms = int(
+            datetime.datetime(2026, 6, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        )
+        urls = self._run_fetch(start_date, end_date, fixed_now_ms=now_ms)
+        starts = [self._parse_qs_param(u, "start_time") for u in urls]
+        ends   = [self._parse_qs_param(u, "end_time")   for u in urls]
+        for j in range(1, len(starts)):
+            assert starts[j] == ends[j - 1], (
+                f"Chunk {j} start_time {starts[j]} must equal previous chunk's "
+                f"end_time {ends[j - 1]}"
+            )
+
+    def test_chunks_cover_full_range(self):
+        """The union of all chunks must exactly cover [start_ms, end_ms]."""
+        start_date = datetime.date(2024, 1, 1)
+        end_date = datetime.date(2025, 12, 31)
+        now_ms = int(
+            datetime.datetime(2026, 6, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        )
+        urls = self._run_fetch(start_date, end_date, fixed_now_ms=now_ms)
+        starts = [self._parse_qs_param(u, "start_time") for u in urls]
+        ends   = [self._parse_qs_param(u, "end_time")   for u in urls]
+        expected_start_ms = int(
+            datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        )
+        assert min(starts) == expected_start_ms, "First chunk must start at the requested start_ms"
+        # Last chunk end must be <= now_ms (capped) and covers through end_date+1 day
+        assert max(ends) <= now_ms
+
+    def test_short_range_produces_single_request(self):
+        """A short date range (< chunk size) must produce exactly one metrics/history call."""
+        start_date = datetime.date(2025, 1, 1)
+        end_date = datetime.date(2025, 1, 31)  # ~1 month
+        now_ms = int(
+            datetime.datetime(2026, 6, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        )
+        urls = self._run_fetch(start_date, end_date, fixed_now_ms=now_ms)
+        assert len(urls) == 1, (
+            f"A short (~1 month) range should produce exactly 1 request, got {len(urls)}"
+        )
+
