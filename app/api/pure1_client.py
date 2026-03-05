@@ -261,9 +261,10 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
     # also chunk the time window into ≤ MAX_WEEKS_PER_CHUNK slices so that
     # each request stays well within the limit.
     MAX_TIMESERIES_PER_REQUEST = 32
-    # ≈ 6-month chunk: 26 weeks/chunk × 30 timeseries (10 licenses × 3 metrics)
-    # = 26 data-points per timeseries → 780 total data-points per request.
-    MAX_WEEKS_PER_CHUNK       = 26
+    # ≈ 3-month chunk: 13 weeks/chunk × 30 timeseries (10 licenses × 3 metrics)
+    # = 13 data-points per timeseries → 390 total data-points per request.
+    # Using 26 weeks caused 400 errors (780 data-points exceeded the Pure1 limit).
+    MAX_WEEKS_PER_CHUNK       = 13
     metric_names = [METRIC_RESERVED, METRIC_EFFECTIVE_USED, METRIC_ON_DEMAND]
     batch_size = max(1, MAX_TIMESERIES_PER_REQUEST // len(metric_names))
     names_qs = ",".join(f"'{n}'" for n in metric_names)

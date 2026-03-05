@@ -818,3 +818,27 @@ class TestFetchSodLicenseHistoryTimeHandling:
             f"A short (~1 month) range should produce exactly 1 request, got {len(urls)}"
         )
 
+    def test_26_week_range_produces_multiple_requests(self):
+        """A 26-week range must be split into multiple chunks.
+
+        Regression test for the 400 Client Error caused by sending the full
+        26-week range as a single request (30 timeseries × 26 data-points =
+        780 total data-points, which exceeds the Pure1 API limit and returns
+        400). With MAX_WEEKS_PER_CHUNK reduced to 13, the same range is split
+        into at least 2 requests of ≤ 390 data-points each.
+        """
+        # Reproduce the exact dates from the reported 400 error:
+        # start_time=1709596800000 (2024-03-05 UTC), end_time=1725321600000
+        # (2024-09-03 UTC) → 26 weeks.
+        start_date = datetime.date(2024, 3, 5)
+        end_date = datetime.date(2024, 9, 2)  # end_ms = midnight of Sep 3
+        now_ms = int(
+            datetime.datetime(2026, 3, 5, 17, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        )
+        urls = self._run_fetch(start_date, end_date, fixed_now_ms=now_ms)
+        assert len(urls) > 1, (
+            "A 26-week range must be split into multiple chunked requests to "
+            "avoid the Pure1 400 error caused by too many data-points per call. "
+            f"Got {len(urls)} request(s)."
+        )
+
