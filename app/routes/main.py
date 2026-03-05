@@ -344,6 +344,18 @@ def system_details(system_id):
             'error': str(e)
         }
     
+    # Override capacity values with Pure1-corrected data from CapacitySnapshot
+    # when available and when the status fetch succeeded.  The hourly capacity
+    # refresh supplements local array values with Pure1 physical-used figures,
+    # which is the authoritative source for Evergreen One arrays.
+    if not status.get('error'):
+        from app.models import CapacitySnapshot
+        snap = CapacitySnapshot.query.filter_by(system_id=system.id).first()
+        if snap and snap.total_tb > 0:
+            status['capacity_total_tb'] = snap.total_tb
+            status['capacity_used_tb'] = snap.used_tb
+            status['capacity_percent'] = snap.percent_used
+
     # Get partner cluster if exists
     partner_cluster = None
     if system.partner_cluster_id:

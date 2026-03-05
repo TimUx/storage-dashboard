@@ -64,17 +64,31 @@ def get_cached_status():
     Data is populated by the background refresh service (no live API calls).
     Each entry includes a ``fetched_at`` timestamp so the dashboard can show
     how recent the data is.
+
+    Capacity values (used, total, percent) are overridden with data from
+    ``CapacitySnapshot`` when available, as those values include the
+    Pure1 physical-used supplement which provides accurate figures for
+    Evergreen One arrays.
     """
-    from app.models import StatusCache
+    from app.models import StatusCache, CapacitySnapshot
 
     systems = StorageSystem.query.filter_by(enabled=True).all()
     result = []
     for system in systems:
         cache = StatusCache.query.filter_by(system_id=system.id).first()
         if cache:
+            status = cache.get_status()
+            # Override capacity values with Pure1-corrected data from
+            # CapacitySnapshot (populated by the hourly capacity refresh which
+            # supplements local values with Pure1 physical-used figures).
+            snap = CapacitySnapshot.query.filter_by(system_id=system.id).first()
+            if snap and snap.total_tb > 0:
+                status['capacity_total_tb'] = snap.total_tb
+                status['capacity_used_tb'] = snap.used_tb
+                status['capacity_percent'] = snap.percent_used
             result.append({
                 'system': system.to_dict(),
-                'status': cache.get_status(),
+                'status': status,
                 'fetched_at': cache.fetched_at.isoformat() if cache.fetched_at else None,
             })
         else:
