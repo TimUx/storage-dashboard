@@ -1385,16 +1385,34 @@ function renderHistoryCharts(data) {
                 _group: 'commercial',
             });
 
-            const capOnDemand = sod.on_demand.map((v, i) => ({x: sod.labels[i], y: v}));
+            // On-demand is plotted at (reserved + on_demand) so the line visually
+            // sits on top of the reserved line – reserved is the "zero baseline"
+            // for on-demand consumption.  Raw on-demand values are kept separately
+            // in _rawCapacity / _rawPercent so the tooltip can still show the
+            // actual on-demand amount rather than the stacked position.
+            const rawOnDemandCap = sod.on_demand.map((v, i) => ({x: sod.labels[i], y: v}));
+            const rawOnDemandPct = sod.on_demand.map((v, i) => {
+                const r = sod.reserved[i] || 0;
+                const pct = r > 0 ? parseFloat((v / r * 100).toFixed(1)) : 0;
+                return {x: sod.labels[i], y: pct};
+            });
+            const capOnDemand = sod.on_demand.map((v, i) => {
+                const r = sod.reserved[i] || 0;
+                return {x: sod.labels[i], y: r + v};
+            });
             const pctOnDemand = sod.on_demand.map((v, i) => {
                 const r = sod.reserved[i] || 0;
-                return {x: sod.labels[i], y: r > 0 ? parseFloat((v / r * 100).toFixed(1)) : 0};
+                // Start from 100 % (reserved baseline) and add on-demand portion above.
+                const pct = r > 0 ? parseFloat((v / r * 100).toFixed(1)) : 0;
+                return {x: sod.labels[i], y: 100 + pct};
             });
             datasets.push({
                 label: 'SoD On Demand [TiB]',
                 data: percentMode ? pctOnDemand : capOnDemand,
                 _dataCapacity: capOnDemand,
                 _dataPercent: pctOnDemand,
+                _rawCapacity: rawOnDemandCap,
+                _rawPercent: rawOnDemandPct,
                 _hideInPctMode: false,
                 borderColor: '#FFB800',
                 backgroundColor: 'transparent',
@@ -1458,6 +1476,8 @@ function renderHistoryCharts(data) {
         datasets.forEach(ds => {
             ds._dataCapacity = toIndexed(ds._dataCapacity);
             ds._dataPercent  = toIndexed(ds._dataPercent);
+            if (ds._rawCapacity) ds._rawCapacity = toIndexed(ds._rawCapacity);
+            if (ds._rawPercent)  ds._rawPercent  = toIndexed(ds._rawPercent);
             ds.data          = toIndexed(ds.data);
             ds.spanGaps      = true;
         });
@@ -1494,7 +1514,20 @@ function renderHistoryCharts(data) {
                     legend: { position: 'top' },
                     tooltip: {
                         callbacks: {
-                            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(percentMode ? 1 : 2)} ${percentMode ? '%' : 'TiB'}`
+                            label: ctx => {
+                                const ds = ctx.dataset;
+                                // On-demand is plotted stacked on top of reserved;
+                                // show only the raw on-demand amount in the tooltip.
+                                if (ds._rawCapacity) {
+                                    const raw = percentMode
+                                        ? (ds._rawPercent?.[ctx.dataIndex] ?? null)
+                                        : (ds._rawCapacity?.[ctx.dataIndex] ?? null);
+                                    if (raw !== null) {
+                                        return `${ds.label}: ${raw.toFixed(percentMode ? 1 : 2)} ${percentMode ? '%' : 'TiB'}`;
+                                    }
+                                }
+                                return `${ds.label}: ${ctx.parsed.y?.toFixed(percentMode ? 1 : 2)} ${percentMode ? '%' : 'TiB'}`;
+                            }
                         }
                     }
                 }
@@ -1534,8 +1567,18 @@ function _applyPctMode(chart) {
     } else {
         delete chart.options.scales.y.suggestedMax;
     }
-    chart.options.plugins.tooltip.callbacks.label = ctx =>
-        `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(percentMode ? 1 : 2)} ${percentMode ? '%' : 'TiB'}`;
+    chart.options.plugins.tooltip.callbacks.label = ctx => {
+        const ds = ctx.dataset;
+        if (ds._rawCapacity) {
+            const raw = percentMode
+                ? (ds._rawPercent?.[ctx.dataIndex] ?? null)
+                : (ds._rawCapacity?.[ctx.dataIndex] ?? null);
+            if (raw !== null) {
+                return `${ds.label}: ${raw.toFixed(percentMode ? 1 : 2)} ${percentMode ? '%' : 'TiB'}`;
+            }
+        }
+        return `${ds.label}: ${ctx.parsed.y?.toFixed(percentMode ? 1 : 2)} ${percentMode ? '%' : 'TiB'}`;
+    };
     chart.update();
 }
 
