@@ -1428,6 +1428,40 @@ function renderHistoryCharts(data) {
             }
         }
 
+        // ── Build unified label axis ──────────────────────────────────
+        // Collect every distinct date from all datasets (physical + SoD) and
+        // sort them so that all series share the same x-axis positions.
+        // Without this, physical and SoD series use different date strings as
+        // category labels and appear side-by-side instead of overlapping.
+        const allLabelSet = new Set([
+            ...artData.labels,
+            ...artData.forecast_labels,
+        ]);
+        if (art === 'Block' && artData.sod) {
+            artData.sod.labels.forEach(l => allLabelSet.add(l));
+            (artData.sod.effective_forecast_labels || []).forEach(l => allLabelSet.add(l));
+        }
+        const allLabels = [...allLabelSet].sort();
+        const labelIdx = new Map(allLabels.map((l, i) => [l, i]));
+
+        // Convert {x, y} point arrays → value arrays indexed by allLabels.
+        // Positions without a data point are set to null; spanGaps connects the line.
+        function toIndexed(ptArray) {
+            const arr = new Array(allLabels.length).fill(null);
+            ptArray.forEach(pt => {
+                const i = labelIdx.get(pt.x);
+                if (i !== undefined) arr[i] = pt.y;
+            });
+            return arr;
+        }
+
+        datasets.forEach(ds => {
+            ds._dataCapacity = toIndexed(ds._dataCapacity);
+            ds._dataPercent  = toIndexed(ds._dataPercent);
+            ds.data          = toIndexed(ds.data);
+            ds.spanGaps      = true;
+        });
+
         // Apply initial filter visibility (line-group filter + % mode)
         datasets.forEach(ds => {
             if (percentMode && ds._hideInPctMode) {
@@ -1439,7 +1473,7 @@ function renderHistoryCharts(data) {
 
         chartInstances[art] = new Chart(canvas, {
             type: 'line',
-            data: { datasets },
+            data: { labels: allLabels, datasets },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
