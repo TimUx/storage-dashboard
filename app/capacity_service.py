@@ -33,12 +33,32 @@ _thread_lock = threading.Lock()
 def _do_refresh(app):
     """Fetch capacity for all enabled systems and persist snapshots."""
     from app import db
-    from app.models import StorageSystem, CapacitySnapshot, CapacityHistory
+    from app.models import StorageSystem, CapacitySnapshot, CapacityHistory, AppSettings
     from app.api import get_client
 
     with app.app_context():
         systems = StorageSystem.query.filter_by(enabled=True).all()
         today = date.today()
+
+        # Load Pure1 credentials once for the whole refresh cycle.
+        # They are used to supplement physical capacity for Pure FlashArrays.
+        settings = AppSettings.query.first()
+        pure1_app_id = settings.pure1_app_id if settings else None
+        pure1_private_key = settings.pure1_private_key if settings else None
+        pure1_passphrase = settings.pure1_private_key_passphrase if settings else None
+        pure1_configured = bool(pure1_app_id and pure1_private_key)
+
+        # Build proxy dict once (shared with Pure1 calls).
+        proxies = None
+        if settings:
+            proxy_http  = getattr(settings, 'proxy_http', None)
+            proxy_https = getattr(settings, 'proxy_https', None)
+            if proxy_http or proxy_https:
+                proxies = {}
+                if proxy_http:
+                    proxies['http'] = proxy_http
+                if proxy_https:
+                    proxies['https'] = proxy_https
 
         for system in systems:
             # Fetch existing snapshot once; used both to preserve values on failure
@@ -73,6 +93,41 @@ def _do_refresh(app):
                     free_tb = round(total_tb - used_tb, 2)
                     percent_used = status.get('capacity_percent', 0.0) or 0.0
                     percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
+
+                    # For Pure FlashArrays, supplement local capacity data with the
+                    # physical used space from Pure1's subscription-assets API.
+                    # Arrays enrolled in Evergreen One no longer report physical used
+                    # space locally (space.total_physical is 0), so Pure1 is the only
+                    # reliable source.  For non-Evergreen arrays the Pure1 value is
+                    # equally valid and preferred for consistency.
+                    if system.vendor == 'pure' and pure1_configured and total_tb > 0:
+                        pure1_name = system.pure1_array_name or system.name
+                        try:
+                            from app.api.pure1_client import fetch_subscription_asset_physical_used
+                            physical_bytes = fetch_subscription_asset_physical_used(
+                                pure1_app_id,
+                                pure1_private_key,
+                                pure1_name,
+                                passphrase=pure1_passphrase,
+                                proxies=proxies,
+                            )
+                            if physical_bytes is not None:
+                                pure1_used_tb = physical_bytes / (1024 ** 4)
+                                logger.info(
+                                    "Pure1 physical used for %s (%s): %.2f TB "
+                                    "(local reported: %.2f TB)",
+                                    system.name, pure1_name, pure1_used_tb, used_tb,
+                                )
+                                used_tb = round(pure1_used_tb, 2)
+                                free_tb = round(total_tb - used_tb, 2)
+                                percent_used = round(used_tb / total_tb * 100, 1) if total_tb > 0 else 0.0
+                                percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
+                        except Exception as p1_exc:
+                            logger.warning(
+                                "Pure1 physical-used fetch failed for %s (%s): %s – "
+                                "falling back to local value",
+                                system.name, pure1_name, p1_exc,
+                            )
 
             except Exception as exc:
                 logger.warning(f"Capacity refresh failed for {system.name}: {exc}")

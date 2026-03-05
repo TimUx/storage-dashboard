@@ -100,6 +100,7 @@ def new_system():
                 api_username=request.form.get('api_username', '').strip() or None,
                 api_password=request.form.get('api_password', '').strip() or None,
                 api_token=request.form.get('api_token', '').strip() or None,
+                pure1_array_name=request.form.get('pure1_array_name', '').strip() or None,
                 enabled=request.form.get('enabled') == 'on'
             )
             
@@ -183,6 +184,7 @@ def edit_system(system_id):
             system.api_username = request.form.get('api_username', '').strip() or None
             system.api_password = request.form.get('api_password', '').strip() or None
             system.api_token = request.form.get('api_token', '').strip() or None
+            system.pure1_array_name = request.form.get('pure1_array_name', '').strip() or None
             system.enabled = request.form.get('enabled') == 'on'
             
             # Handle tag assignment
