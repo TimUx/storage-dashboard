@@ -727,10 +727,11 @@ function fmtPct(val) {
 
 function pctBarHtml(pct) {
     if (pct == null) return '–';
-    const p = Math.min(Math.max(parseFloat(pct), 0), 100);
+    const p = Math.max(parseFloat(pct), 0);
+    const barWidth = Math.min(p, 100);
     const cls = p >= 85 ? 'high' : p >= 70 ? 'medium' : 'low';
     return `<div class="pct-bar-wrap">
-        <div class="pct-bar"><div class="pct-bar-fill ${cls}" style="width:${p}%"></div></div>
+        <div class="pct-bar"><div class="pct-bar-fill ${cls}" style="width:${barWidth}%"></div></div>
         <span>${p.toFixed(1)} %</span>
     </div>`;
 }
@@ -1035,7 +1036,7 @@ function buildSodDetailSection(sodDataArg) {
             </div>`;
         }
     }
-    return `<div class="cap-section" style="grid-column: 1 / -1;">
+    return `<div class="cap-section">
         <div class="cap-section-header">
             <span>📊 Storage on Demand</span>
         </div>
@@ -1169,7 +1170,7 @@ function renderDetails(data) {
         if (showEffectiveUsed) {
             headerCols += `<th style="width:10%">Effektiv Genutzt [TiB]</th>`;
         }
-        return `<div class="cap-section" style="grid-column: 1 / -1;">
+        return `<div class="cap-section">
             <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
             <div class="cap-table-wrap">
                 <table class="cap-table">
