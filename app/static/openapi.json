@@ -1,0 +1,484 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Storage Dashboard API",
+    "description": "REST API des Storage Dashboards – liefert Statusinformationen und Verwaltungsfunktionen für alle angebundenen Storage-Systeme.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "ITscare",
+      "url": "https://www.itscare.de"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Lokale Instanz"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Dashboard",
+      "description": "Haupt-Dashboard (HTML)"
+    },
+    {
+      "name": "Systems",
+      "description": "Storage-Systeme – Statusabfragen"
+    },
+    {
+      "name": "Capacity",
+      "description": "Kapazitätsreport"
+    },
+    {
+      "name": "Admin",
+      "description": "Admin-Bereich (erfordert Anmeldung)"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": ["Dashboard"],
+        "summary": "Haupt-Dashboard",
+        "description": "Gibt das Haupt-Dashboard als HTML-Seite zurück. Per Standard wird die asynchrone Variante geladen (async=true), bei der die Systemdaten über /api/cached-status nachgeladen werden.",
+        "parameters": [
+          {
+            "name": "async",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"],
+              "default": "true"
+            },
+            "description": "Wenn true, wird das Dashboard mit Platzhaltern gerendert und die Daten asynchron per JavaScript geladen."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML-Seite des Dashboards",
+            "content": {
+              "text/html": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/systems": {
+      "get": {
+        "tags": ["Systems"],
+        "summary": "Alle Storage-Systeme auflisten",
+        "description": "Gibt alle konfigurierten Storage-Systeme (aktiv und inaktiv) als JSON-Array zurück.",
+        "responses": {
+          "200": {
+            "description": "Liste der Storage-Systeme",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StorageSystem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "tags": ["Systems"],
+        "summary": "Live-Status aller aktiven Systeme",
+        "description": "Fragt den Gesundheitsstatus aller aktivierten Storage-Systeme **live** ab (direkte API-Calls zu den Systemen). Kann bei vielen Systemen einige Sekunden dauern.",
+        "responses": {
+          "200": {
+            "description": "Liste der System-Status-Objekte",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SystemStatusResult"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/systems/{system_id}/status": {
+      "get": {
+        "tags": ["Systems"],
+        "summary": "Live-Status eines einzelnen Systems",
+        "description": "Fragt den Gesundheitsstatus eines einzelnen Storage-Systems **live** ab.",
+        "parameters": [
+          {
+            "name": "system_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "ID des Storage-Systems"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status des angegebenen Systems",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatusResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "System nicht gefunden"
+          }
+        }
+      }
+    },
+    "/api/cached-status": {
+      "get": {
+        "tags": ["Systems"],
+        "summary": "Gecachter Status aller aktiven Systeme",
+        "description": "Gibt den zuletzt vom Hintergrund-Service gespeicherten Status aller aktiven Systeme zurück. Kein direkter API-Call zu den Storage-Systemen – sehr schnelle Antwort. Jeder Eintrag enthält den Zeitstempel `fetched_at`.",
+        "responses": {
+          "200": {
+            "description": "Liste der gecachten System-Status-Objekte",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CachedStatusResult"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trigger-status-refresh": {
+      "post": {
+        "tags": ["Systems"],
+        "summary": "Sofortige Statusaktualisierung auslösen",
+        "description": "Löst eine sofortige, synchrone Statusaktualisierung aller aktiven Systeme aus. Wartet auf Abschluss und gibt die frischen Daten zurück.",
+        "responses": {
+          "200": {
+            "description": "Aktualisierte Status-Daten",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CachedStatusResult"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/systems/{system_id}/details": {
+      "get": {
+        "tags": ["Systems"],
+        "summary": "Detailansicht eines Systems",
+        "description": "Gibt die HTML-Detailansicht eines einzelnen Storage-Systems zurück.",
+        "parameters": [
+          {
+            "name": "system_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "ID des Storage-Systems"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML-Detailseite des Systems",
+            "content": {
+              "text/html": {}
+            }
+          },
+          "404": {
+            "description": "System nicht gefunden"
+          }
+        }
+      }
+    },
+    "/capacity/": {
+      "get": {
+        "tags": ["Capacity"],
+        "summary": "Kapazitätsreport",
+        "description": "Gibt den Kapazitätsreport als HTML-Seite zurück.",
+        "responses": {
+          "200": {
+            "description": "HTML-Seite des Kapazitätsreports",
+            "content": {
+              "text/html": {}
+            }
+          }
+        }
+      }
+    },
+    "/admin": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin-Dashboard",
+        "description": "Gibt das Admin-Dashboard zurück. Erfordert Anmeldung.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML-Seite des Admin-Dashboards"
+          },
+          "302": {
+            "description": "Weiterleitung zur Login-Seite wenn nicht angemeldet"
+          }
+        }
+      }
+    },
+    "/admin/login": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin-Login-Seite",
+        "description": "Gibt die Login-Seite des Admin-Bereichs zurück.",
+        "responses": {
+          "200": {
+            "description": "HTML Login-Seite"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Admin-Login",
+        "description": "Verarbeitet die Anmeldung im Admin-Bereich.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password"
+                  }
+                },
+                "required": ["username", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "302": {
+            "description": "Weiterleitung nach erfolgreichem Login oder zurück bei Fehler"
+          }
+        }
+      }
+    },
+    "/admin/logout": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin-Logout",
+        "description": "Meldet den aktuellen Admin-Benutzer ab.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "responses": {
+          "302": {
+            "description": "Weiterleitung zur Login-Seite"
+          }
+        }
+      }
+    },
+    "/admin/docs": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "API-Einrichtungsdokumentation",
+        "description": "Zeigt die Dokumentation zur Einrichtung von API-Zugängen für alle unterstützten Storage-Systeme.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML-Dokumentationsseite"
+          }
+        }
+      }
+    },
+    "/admin/swagger": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Swagger UI",
+        "description": "Interaktive API-Dokumentation (Swagger UI) für das Storage Dashboard.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "Swagger UI HTML-Seite"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session",
+        "description": "Flask-Login Session-Cookie (nach erfolgreichem Login unter /admin/login)"
+      }
+    },
+    "schemas": {
+      "StorageSystem": {
+        "type": "object",
+        "description": "Konfiguriertes Storage-System",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Eindeutige ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Systemname"
+          },
+          "vendor": {
+            "type": "string",
+            "enum": ["pure", "netapp-ontap", "netapp-storagegrid", "dell-datadomain"],
+            "description": "Hersteller"
+          },
+          "ip_address": {
+            "type": "string",
+            "description": "IP-Adresse oder Hostname"
+          },
+          "port": {
+            "type": "integer",
+            "description": "API-Port"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Ob das System aktiv ist"
+          },
+          "cluster_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": ["ha", "active-cluster", "metrocluster", "local", "multi-site", "single-site", null],
+            "description": "Cluster-Typ"
+          },
+          "os_version": {
+            "type": "string",
+            "nullable": true,
+            "description": "Betriebssystem-Version"
+          },
+          "api_version": {
+            "type": "string",
+            "nullable": true,
+            "description": "API-Version"
+          },
+          "node_count": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Anzahl Nodes"
+          },
+          "site_count": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Anzahl Sites (StorageGRID)"
+          }
+        }
+      },
+      "HealthStatus": {
+        "type": "object",
+        "description": "Gesundheitsstatus eines Storage-Systems",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["online", "error", "unknown"],
+            "description": "Gesamtstatus"
+          },
+          "hardware_status": {
+            "type": "string",
+            "enum": ["ok", "warning", "error", "unknown"],
+            "description": "Hardware-Status"
+          },
+          "cluster_status": {
+            "type": "string",
+            "enum": ["ok", "warning", "error", "unknown"],
+            "description": "Cluster-Status"
+          },
+          "alerts": {
+            "type": "integer",
+            "description": "Anzahl aktiver Alerts"
+          },
+          "capacity_total_tb": {
+            "type": "number",
+            "format": "float",
+            "description": "Gesamtkapazität in TB"
+          },
+          "capacity_used_tb": {
+            "type": "number",
+            "format": "float",
+            "description": "Belegte Kapazität in TB"
+          },
+          "capacity_percent": {
+            "type": "number",
+            "format": "float",
+            "description": "Belegung in Prozent"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "Fehlermeldung (falls vorhanden)"
+          }
+        }
+      },
+      "SystemStatusResult": {
+        "type": "object",
+        "description": "Kombination aus System-Konfiguration und Live-Status",
+        "properties": {
+          "system": {
+            "$ref": "#/components/schemas/StorageSystem"
+          },
+          "status": {
+            "$ref": "#/components/schemas/HealthStatus"
+          }
+        }
+      },
+      "CachedStatusResult": {
+        "type": "object",
+        "description": "Kombination aus System-Konfiguration, gecachtem Status und Zeitstempel",
+        "properties": {
+          "system": {
+            "$ref": "#/components/schemas/StorageSystem"
+          },
+          "status": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/HealthStatus" },
+              { "type": "null" }
+            ],
+            "description": "Status aus dem Cache (null wenn noch kein Cache vorhanden)"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Zeitpunkt der letzten Cache-Aktualisierung (UTC ISO 8601)"
+          }
+        }
+      }
+    }
+  }
+}

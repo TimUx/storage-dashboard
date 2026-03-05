@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Swagger UI - Admin{% endblock %}
+
+{% block styles %}
+#swagger-ui-container {
+    margin: 1rem 0;
+}
+
+/* Override Swagger UI styles to fit our layout */
+.swagger-ui .topbar {
+    display: none;
+}
+
+.swagger-ui .info {
+    margin: 20px 0;
+}
+
+.swagger-ui .scheme-container {
+    background: #f5f7fa;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+}
+
+.swagger-ui-header {
+    background: white;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-left: 4px solid var(--accent-color);
+}
+
+.swagger-ui-header h2 {
+    font-size: 1.5rem;
+    color: var(--accent-color);
+    margin: 0;
+}
+
+.swagger-ui-header .header-links a {
+    color: var(--accent-color);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.9rem;
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--accent-color);
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.swagger-ui-header .header-links a:hover {
+    background: var(--accent-color);
+    color: white;
+}
+{% endblock %}
+
+{% block content %}
+<div class="swagger-ui-header">
+    <h2>📖 Swagger UI – Storage Dashboard API</h2>
+    <div class="header-links">
+        <a href="{{ url_for('static', filename='openapi.json') }}" target="_blank" download>⬇ OpenAPI JSON herunterladen</a>
+    </div>
+</div>
+
+<div id="swagger-ui-container"></div>
+
+<!-- Swagger UI (served locally) -->
+<link rel="stylesheet" href="{{ url_for('static', filename='swagger-ui/swagger-ui.css') }}">
+<script src="{{ url_for('static', filename='swagger-ui/swagger-ui-bundle.js') }}"></script>
+<script src="{{ url_for('static', filename='swagger-ui/swagger-ui-standalone-preset.js') }}"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    SwaggerUIBundle({
+        url: "{{ url_for('static', filename='openapi.json') }}",
+        dom_id: '#swagger-ui-container',
+        presets: [
+            SwaggerUIBundle.presets.apis,
+            SwaggerUIStandalonePreset
+        ],
+        plugins: [
+            SwaggerUIBundle.plugins.DownloadUrl
+        ],
+        layout: "StandaloneLayout",
+        deepLinking: true,
+        showExtensions: true,
+        showCommonExtensions: true,
+        defaultModelsExpandDepth: 1,
+        defaultModelExpandDepth: 2,
+        docExpansion: 'list',
+        filter: true,
+        tryItOutEnabled: true
+    });
+});
+</script>
+{% endblock %}

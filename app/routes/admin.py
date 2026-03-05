@@ -357,6 +357,13 @@ def docs():
     return render_template('admin/docs.html')
 
 
+@bp.route('/swagger')
+@login_required
+def swagger():
+    """Swagger UI for the Storage Dashboard API"""
+    return render_template('admin/swagger.html')
+
+
 # Certificate Management Routes
 
 @bp.route('/certificates')

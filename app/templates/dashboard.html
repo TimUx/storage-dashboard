@@ -88,59 +88,40 @@ body {
     align-items: center;
 }
 
-.auto-refresh-control {
+.refresh-indicator {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text-light);
+    padding: 0.4rem 0.8rem;
     background: var(--bg-light);
     border-radius: 6px;
     border: 1px solid var(--border-light);
 }
 
-.auto-refresh-control select {
-    padding: 0.3rem 0.5rem;
-    border: 1px solid var(--border-light);
-    border-radius: 4px;
-    font-size: 0.85rem;
-    background: white;
-    color: var(--text-dark);
+.refresh-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--itscare-green);
+    flex-shrink: 0;
 }
 
-.auto-refresh-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-    color: var(--text-medium);
-    font-weight: 500;
-    user-select: none;
-}
-
-.auto-refresh-label input[type="checkbox"] {
-    cursor: pointer;
-    width: 16px;
-    height: 16px;
-    accent-color: var(--itscare-green);
-}
-
-.refresh-timer {
-    font-size: 0.85rem;
-    color: var(--itscare-blue);
-    font-weight: 600;
-    min-width: 80px;
-    text-align: right;
-}
-
-.refresh-timer.refreshing {
-    color: var(--itscare-green);
+.refresh-dot.syncing {
     animation: pulse 1s ease-in-out infinite;
+    background: var(--itscare-blue);
 }
 
 @keyframes pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    50% { opacity: 0.3; }
+}
+
+.last-updated-label {
+    font-size: 0.8rem;
+    color: var(--text-light);
+    white-space: nowrap;
 }
 
 .view-toggle {
@@ -169,37 +150,6 @@ body {
 .view-toggle button.active {
     background: var(--itscare-blue);
     color: white;
-}
-
-.refresh-btn {
-    background: var(--itscare-blue);
-    color: white;
-    border: none;
-    padding: 0.5rem 1.25rem;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    font-weight: 500;
-    transition: all 0.3s;
-    box-shadow: 0 2px 4px rgba(0, 102, 204, 0.2);
-}
-
-.refresh-btn:hover {
-    background: var(--itscare-blue-dark);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 102, 204, 0.3);
-}
-
-.refresh-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-}
-
-.last-updated-label {
-    font-size: 0.8rem;
-    color: var(--text-light);
-    white-space: nowrap;
 }
 
 .vendor-section {
@@ -1004,21 +954,10 @@ body.table-view .systems-table {
             <div class="actions-section">
                 <h3>Dashboard Optionen</h3>
                 <div class="header-actions">
-                    <div class="auto-refresh-control">
-                        <label class="auto-refresh-label">
-                            <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh()">
-                            <span>Auto-Refresh</span>
-                        </label>
-                        <select id="refresh-interval" onchange="changeRefreshInterval()">
-                            <option value="30">30s</option>
-                            <option value="45">45s</option>
-                            <option value="60">60s</option>
-                            <option value="90">90s</option>
-                            <option value="120">2min</option>
-                        </select>
-                        <span class="refresh-timer" id="refresh-timer"></span>
+                    <div class="refresh-indicator" id="refresh-indicator" title="Dashboard aktualisiert sich automatisch">
+                        <span class="refresh-dot" id="refresh-dot"></span>
+                        <span id="last-updated-label"></span>
                     </div>
-                    <span class="last-updated-label" id="last-updated-label"></span>
                     <div class="view-toggle">
                         <button id="card-view-btn" class="active" onclick="switchView('card')">
                             <span>&#x25A0;&#x25A0;</span> Cards
@@ -1027,7 +966,6 @@ body.table-view .systems-table {
                             <span>☰</span> Table
                         </button>
                     </div>
-                    <button class="refresh-btn" id="refresh-btn" onclick="manualRefresh()">&#x21bb; Aktualisieren</button>
                 </div>
             </div>
         </div>
@@ -1387,11 +1325,11 @@ if (!CSS.escape) {
     };
 }
 
-// Auto-refresh configuration
-const DEFAULT_REFRESH_INTERVAL = '45';  // Default refresh interval in seconds
-let autoRefreshCountdown = null;
-let refreshTimeSeconds = 45;
-let countdownSeconds = refreshTimeSeconds;
+// Automatic background polling – polls /api/cached-status every 30 s and
+// updates the dashboard whenever the backend cache has changed.
+const POLL_INTERVAL_MS = 30000;  // 30 seconds
+let lastFetchedAt = null;        // ISO string of the most recent fetched_at seen
+let pollTimer = null;
 
 // Update the "Zuletzt aktualisiert" label using the most recent fetched_at from the data
 function updateLastUpdatedLabel(data) {
@@ -1406,10 +1344,21 @@ function updateLastUpdatedLabel(data) {
         }
     });
     if (latest) {
-        label.textContent = 'Zuletzt aktualisiert: ' + latest.toLocaleTimeString();
+        label.textContent = 'Aktualisiert: ' + latest.toLocaleTimeString();
     } else {
         label.textContent = 'Noch keine Daten im Cache';
     }
+}
+
+// Return the ISO string of the most recent fetched_at in a data array
+function getLatestFetchedAt(data) {
+    let latest = null;
+    data.forEach(item => {
+        if (item.fetched_at) {
+            if (!latest || item.fetched_at > latest) latest = item.fetched_at;
+        }
+    });
+    return latest;
 }
 
 // Show cached data in the dashboard
@@ -1424,13 +1373,48 @@ function applyDashboardData(data) {
     applyFilters();
 }
 
+// Set the syncing indicator on/off
+function setSyncing(active) {
+    const dot = document.getElementById('refresh-dot');
+    if (dot) {
+        if (active) dot.classList.add('syncing');
+        else dot.classList.remove('syncing');
+    }
+}
+
+// Poll the cached-status endpoint; only update the UI when data changed
+function pollCachedStatus() {
+    setSyncing(true);
+    fetch('/api/cached-status')
+        .then(response => response.json())
+        .then(data => {
+            setSyncing(false);
+            const newFetchedAt = getLatestFetchedAt(data);
+            if (newFetchedAt !== lastFetchedAt) {
+                lastFetchedAt = newFetchedAt;
+                applyDashboardData(data);
+            } else {
+                // Data unchanged – just update the label timestamp silently
+                updateLastUpdatedLabel(data);
+            }
+        })
+        .catch(error => {
+            setSyncing(false);
+            console.error('Error polling dashboard data:', error);
+        })
+        .finally(() => {
+            // Schedule the next poll
+            pollTimer = setTimeout(pollCachedStatus, POLL_INTERVAL_MS);
+        });
+}
+
 // Initialize auto-refresh on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Check if async loading is enabled
     const asyncLoad = {{ async_load|tojson|safe }};
     
     if (asyncLoad) {
-        // Load data asynchronously from cache
+        // Load data asynchronously from cache, then start polling
         loadDashboardData();
     } else {
         // Hide loading overlay and show content (sync mode)
@@ -1442,33 +1426,23 @@ document.addEventListener('DOMContentLoaded', function() {
         if (dashboardContent) {
             dashboardContent.classList.add('loaded');
         }
+        // Still start polling so UI stays fresh
+        pollTimer = setTimeout(pollCachedStatus, POLL_INTERVAL_MS);
     }
     
     const savedView = localStorage.getItem('dashboard-view') || 'card';
     switchView(savedView);
     applyFilters(); // Apply initial filters
-    
-    // Restore refresh interval preference
-    const savedInterval = localStorage.getItem('refresh-interval') || DEFAULT_REFRESH_INTERVAL;
-    refreshTimeSeconds = parseInt(savedInterval, 10);
-    document.getElementById('refresh-interval').value = savedInterval;
-    
-    // Restore auto-refresh preference
-    const autoRefreshEnabled = localStorage.getItem('auto-refresh-enabled') === 'true';
-    document.getElementById('auto-refresh-toggle').checked = autoRefreshEnabled;
-    
-    if (autoRefreshEnabled) {
-        startAutoRefresh();
-    } else {
-        updateTimerDisplay();
-    }
 });
 
 // Load dashboard data from the status cache (no live API calls to storage systems)
 function loadDashboardData() {
+    setSyncing(true);
     fetch('/api/cached-status')
         .then(response => response.json())
         .then(data => {
+            setSyncing(false);
+            lastFetchedAt = getLatestFetchedAt(data);
             applyDashboardData(data);
             
             // Hide loading overlay and show content
@@ -1482,6 +1456,7 @@ function loadDashboardData() {
             }
         })
         .catch(error => {
+            setSyncing(false);
             console.error('Error loading dashboard data:', error);
             // Hide loading overlay even on error
             const loadingOverlay = document.getElementById('loading-overlay');
@@ -1492,6 +1467,10 @@ function loadDashboardData() {
             if (dashboardContent) {
                 dashboardContent.classList.add('loaded');
             }
+        })
+        .finally(() => {
+            // Start automatic background polling
+            pollTimer = setTimeout(pollCachedStatus, POLL_INTERVAL_MS);
         });
 }
 
@@ -1662,133 +1641,6 @@ function updateSystemTableRow(system, status) {
     } else if (capacityCell) {
         capacityCell.textContent = '-';
     }
-}
-
-function changeRefreshInterval() {
-    const newInterval = parseInt(document.getElementById('refresh-interval').value, 10);
-    refreshTimeSeconds = newInterval;
-    localStorage.setItem('refresh-interval', newInterval);
-    
-    // If auto-refresh is active, restart with new interval
-    if (document.getElementById('auto-refresh-toggle').checked) {
-        startAutoRefresh();
-    }
-}
-
-function toggleAutoRefresh() {
-    const isEnabled = document.getElementById('auto-refresh-toggle').checked;
-    localStorage.setItem('auto-refresh-enabled', isEnabled);
-    
-    if (isEnabled) {
-        startAutoRefresh();
-    } else {
-        stopAutoRefresh();
-    }
-}
-
-function startAutoRefresh() {
-    // Clear any existing intervals
-    stopAutoRefresh();
-    
-    // Reset countdown
-    countdownSeconds = refreshTimeSeconds;
-    updateTimerDisplay();
-    
-    // Start countdown timer (updates every second)
-    autoRefreshCountdown = setInterval(function() {
-        countdownSeconds--;
-        updateTimerDisplay();
-        
-        // Trigger refresh when countdown reaches zero
-        if (countdownSeconds <= 0) {
-            refreshDashboard();
-            return; // Exit early as refreshDashboard will reload the page
-        }
-    }, 1000);
-}
-
-function stopAutoRefresh() {
-    if (autoRefreshCountdown) {
-        clearInterval(autoRefreshCountdown);
-        autoRefreshCountdown = null;
-    }
-    updateTimerDisplay();
-}
-
-function updateTimerDisplay() {
-    const timerElement = document.getElementById('refresh-timer');
-    const isEnabled = document.getElementById('auto-refresh-toggle').checked;
-    
-    if (isEnabled) {
-        timerElement.textContent = `${countdownSeconds}s`;
-        timerElement.classList.remove('refreshing');
-    } else {
-        timerElement.textContent = '';
-        timerElement.classList.remove('refreshing');
-    }
-}
-
-function refreshDashboard() {
-    const timerElement = document.getElementById('refresh-timer');
-    timerElement.textContent = 'Lädt...';
-    timerElement.classList.add('refreshing');
-
-    // Auto-refresh: read from the status cache (instant, no API calls to storage systems)
-    fetch('/api/cached-status')
-        .then(response => response.json())
-        .then(data => {
-            applyDashboardData(data);
-            
-            // Restart auto-refresh countdown if enabled
-            const isEnabled = document.getElementById('auto-refresh-toggle').checked;
-            if (isEnabled) {
-                startAutoRefresh();
-            } else {
-                timerElement.textContent = '';
-                timerElement.classList.remove('refreshing');
-            }
-        })
-        .catch(error => {
-            console.error('Error refreshing dashboard:', error);
-            timerElement.textContent = 'Fehler';
-            timerElement.classList.remove('refreshing');
-            
-            // Retry with auto-refresh if enabled
-            const isEnabled = document.getElementById('auto-refresh-toggle').checked;
-            if (isEnabled) {
-                setTimeout(() => startAutoRefresh(), 5000);
-            }
-        });
-}
-
-function manualRefresh() {
-    // Manual refresh: trigger the background service to fetch fresh data from storage systems,
-    // then update the dashboard with the fresh cached results.
-    const btn = document.getElementById('refresh-btn');
-    const timerElement = document.getElementById('refresh-timer');
-    if (btn) btn.disabled = true;
-    timerElement.textContent = 'Lädt...';
-    timerElement.classList.add('refreshing');
-
-    fetch('/api/trigger-status-refresh', { method: 'POST' })
-        .then(response => response.json())
-        .then(data => {
-            applyDashboardData(data);
-            timerElement.textContent = '';
-            timerElement.classList.remove('refreshing');
-            const isEnabled = document.getElementById('auto-refresh-toggle').checked;
-            if (isEnabled) {
-                startAutoRefresh();
-            }
-        })
-        .catch(error => {
-            console.error('Error during manual refresh:', error);
-            timerElement.textContent = 'Fehler';
-            timerElement.classList.remove('refreshing');
-        })
-        .finally(() => {
-            if (btn) btn.disabled = false;
-        });
 }
 
 // View switching with localStorage persistence

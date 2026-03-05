@@ -4,40 +4,93 @@
 
 {% block styles %}
 .docs-container {
-    max-width: 900px;
+    max-width: 960px;
     margin: 2rem auto;
     background: white;
     padding: 2rem;
-    border-radius: 4px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
-.docs-container h2 {
+.docs-container h1 {
     color: #2c3e50;
-    margin-top: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.docs-container > p {
+    color: #666;
+    margin-bottom: 1.5rem;
+}
+
+/* Tabs */
+.vendor-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid #e1e8ed;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.tab-btn {
+    background: none;
+    border: none;
+    padding: 0.65rem 1.2rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #666;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.tab-btn:hover {
+    color: var(--accent-color);
+    background: rgba(0, 152, 219, 0.05);
+}
+
+.tab-btn.active {
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
+    background: rgba(0, 152, 219, 0.07);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Content styles */
+.tab-content h2 {
+    color: #2c3e50;
+    margin-top: 0;
     margin-bottom: 1rem;
-    border-bottom: 2px solid #3498db;
+    border-bottom: 2px solid var(--accent-color);
     padding-bottom: 0.5rem;
 }
 
-.docs-container h3 {
+.tab-content h3 {
     color: #34495e;
     margin-top: 1.5rem;
     margin-bottom: 0.75rem;
 }
 
-.docs-container p {
+.tab-content p {
     line-height: 1.6;
     margin-bottom: 1rem;
 }
 
-.docs-container ul, .docs-container ol {
+.tab-content ul, .tab-content ol {
     margin-left: 2rem;
     margin-bottom: 1rem;
     line-height: 1.8;
 }
 
-.docs-container code {
+.tab-content code {
     background: #f8f9fa;
     padding: 0.2rem 0.4rem;
     border-radius: 3px;
@@ -45,7 +98,7 @@
     color: #e74c3c;
 }
 
-.docs-container pre {
+.tab-content pre {
     background: #2c3e50;
     color: #ecf0f1;
     padding: 1rem;
@@ -54,7 +107,7 @@
     margin-bottom: 1rem;
 }
 
-.docs-container pre code {
+.tab-content pre code {
     background: none;
     color: #ecf0f1;
     padding: 0;
@@ -62,7 +115,7 @@
 
 .vendor-card {
     background: #f8f9fa;
-    border-left: 4px solid #3498db;
+    border-left: 4px solid var(--accent-color);
     padding: 1.5rem;
     margin: 1rem 0;
     border-radius: 4px;
@@ -71,6 +124,7 @@
 .vendor-card h4 {
     color: #2c3e50;
     margin-bottom: 0.75rem;
+    margin-top: 0;
 }
 
 .note {
@@ -84,94 +138,127 @@
 .note strong {
     color: #856404;
 }
+
+.note p, .note ul {
+    margin-bottom: 0;
+}
+
+.info-card {
+    background: #f8f9fa;
+    border-left: 4px solid var(--secondary-color, #BED600);
+    padding: 1.5rem;
+    margin: 1rem 0;
+    border-radius: 4px;
+}
+
+.info-card h3 {
+    margin-top: 0;
+    color: #2c3e50;
+}
 {% endblock %}
 
 {% block content %}
 <div class="docs-container">
-    <h1>API Einrichtungs-Dokumentation</h1>
-    
+    <h1>📖 API Einrichtungs-Dokumentation</h1>
     <p>Diese Anleitung beschreibt, wie Sie API-Zugriff für jedes unterstützte Storage-System einrichten.</p>
-    
+
     <div class="note">
         <strong>💡 API-Integration:</strong>
-        <p style="margin-top: 0.5rem; margin-bottom: 0;">
+        <p style="margin-top: 0.5rem;">
             Alle Storage-Systeme werden über <strong>direkte REST API Calls</strong> mit der Python <code>requests</code> Bibliothek angebunden.
             Es werden keine herstellerspezifischen SDKs verwendet, sondern standardmäßige HTTP/HTTPS Verbindungen zu den jeweiligen REST APIs.
         </p>
     </div>
-    
-    <h2>1. Pure Storage</h2>
-    
-    <div class="vendor-card">
-        <h4>API-Token erstellen</h4>
-        <ol>
-            <li>Melden Sie sich bei Ihrem Pure Storage FlashArray an</li>
-            <li>Navigieren Sie zu <strong>System → Users</strong></li>
-            <li>Wählen Sie einen Benutzer aus oder erstellen Sie einen neuen</li>
-            <li>Klicken Sie auf <strong>Create API Token</strong></li>
-            <li>Kopieren Sie den generierten Token</li>
-        </ol>
-        
-        <p><strong>In der Dashboard-Konfiguration:</strong></p>
-        <ul>
-            <li>Tragen Sie den Token im Feld <code>API Token</code> ein</li>
-            <li>Lassen Sie Benutzername und Passwort leer</li>
-        </ul>
+
+    <!-- Tab Navigation -->
+    <div class="vendor-tabs" role="tablist">
+        <button class="tab-btn active" role="tab" onclick="showTab('pure')" id="tab-btn-pure">Pure Storage</button>
+        <button class="tab-btn" role="tab" onclick="showTab('ontap')" id="tab-btn-ontap">NetApp ONTAP</button>
+        <button class="tab-btn" role="tab" onclick="showTab('storagegrid')" id="tab-btn-storagegrid">NetApp StorageGRID</button>
+        <button class="tab-btn" role="tab" onclick="showTab('datadomain')" id="tab-btn-datadomain">Dell DataDomain</button>
+        <button class="tab-btn" role="tab" onclick="showTab('security')" id="tab-btn-security">Sicherheit &amp; Fehlerbehebung</button>
     </div>
-    
-    <div class="note">
-        <strong>Hinweis:</strong> Das Dashboard verwendet direkte REST API Calls zur Pure Storage FlashArray REST API v2.
-    </div>
-    
-    <h2>2. NetApp ONTAP 9</h2>
-    
-    <div class="vendor-card">
-        <h4>API-Zugriff einrichten</h4>
-        <ol>
-            <li>Stellen Sie sicher, dass die ONTAP REST API aktiviert ist</li>
-            <li>Erstellen Sie einen Benutzer mit entsprechenden Berechtigungen:
-                <pre><code>security login create -user-or-group-name api_user -application http -authentication-method password -role readonly</code></pre>
-            </li>
-            <li>Setzen Sie ein Passwort für den Benutzer</li>
-        </ol>
-        
-        <p><strong>In der Dashboard-Konfiguration:</strong></p>
-        <ul>
-            <li>Tragen Sie Benutzername im Feld <code>Benutzername</code> ein</li>
-            <li>Tragen Sie Passwort im Feld <code>Passwort</code> ein</li>
-            <li>Lassen Sie API Token leer</li>
-        </ul>
-    </div>
-    
-    <div class="note">
-        <strong>Hinweis:</strong> Das Dashboard verwendet direkte REST API Calls zur NetApp ONTAP REST API. Für produktive Umgebungen sollte eine dedizierte Read-Only-Rolle verwendet werden.
-    </div>
-    
-    <h2>3. NetApp StorageGRID 11</h2>
-    
-    <div class="vendor-card">
-        <h4>API-Token erstellen</h4>
-        
-        <p><strong>Schritt 1: Grid Manager öffnen</strong></p>
-        <ul>
-            <li>Öffnen Sie Ihren Browser und navigieren Sie zu:<br>
-                <code>https://&lt;storagegrid-ip-or-hostname&gt;</code></li>
-            <li>Beispiel: <code>https://storagegrid.example.com</code> oder <code>https://192.168.1.100</code></li>
-            <li>Melden Sie sich mit Ihren Zugangsdaten an</li>
-        </ul>
-        
-        <p><strong>Schritt 2: API-Token generieren</strong></p>
-        <ol>
-            <li>Nach dem Login navigieren Sie zu <strong>Users</strong></li>
-            <li>Wählen Sie Ihren Benutzer oder erstellen Sie einen Service-Account</li>
-            <li>Klicken Sie auf <strong>Generate Token</strong></li>
-            <li>Kopieren Sie den generierten Bearer Token</li>
-            <li>Der Token wird nur einmal angezeigt - speichern Sie ihn sicher!</li>
-        </ol>
-        
+
+    <!-- Pure Storage Tab -->
+    <div class="tab-content active" id="tab-pure" role="tabpanel">
+        <h2>Pure Storage FlashArray</h2>
+
+        <div class="vendor-card">
+            <h4>API-Token erstellen</h4>
+            <ol>
+                <li>Melden Sie sich bei Ihrem Pure Storage FlashArray an</li>
+                <li>Navigieren Sie zu <strong>System → Users</strong></li>
+                <li>Wählen Sie einen Benutzer aus oder erstellen Sie einen neuen</li>
+                <li>Klicken Sie auf <strong>Create API Token</strong></li>
+                <li>Kopieren Sie den generierten Token</li>
+            </ol>
+
+            <p><strong>In der Dashboard-Konfiguration:</strong></p>
+            <ul>
+                <li>Tragen Sie den Token im Feld <code>API Token</code> ein</li>
+                <li>Lassen Sie Benutzername und Passwort leer</li>
+            </ul>
+        </div>
+
         <div class="note">
-            <strong>Alternative (für API-Automatisierung):</strong> Sie können den Token auch direkt über die REST API erstellen:
-            <pre style="margin-top: 0.5rem;"><code>curl -X POST "https://&lt;storagegrid-ip&gt;/api/v3/authorize" \
+            <strong>Hinweis:</strong> Das Dashboard verwendet direkte REST API Calls zur Pure Storage FlashArray REST API v2.
+        </div>
+    </div>
+
+    <!-- NetApp ONTAP Tab -->
+    <div class="tab-content" id="tab-ontap" role="tabpanel">
+        <h2>NetApp ONTAP 9</h2>
+
+        <div class="vendor-card">
+            <h4>API-Zugriff einrichten</h4>
+            <ol>
+                <li>Stellen Sie sicher, dass die ONTAP REST API aktiviert ist</li>
+                <li>Erstellen Sie einen Benutzer mit entsprechenden Berechtigungen:
+                    <pre><code>security login create -user-or-group-name api_user -application http -authentication-method password -role readonly</code></pre>
+                </li>
+                <li>Setzen Sie ein Passwort für den Benutzer</li>
+            </ol>
+
+            <p><strong>In der Dashboard-Konfiguration:</strong></p>
+            <ul>
+                <li>Tragen Sie Benutzername im Feld <code>Benutzername</code> ein</li>
+                <li>Tragen Sie Passwort im Feld <code>Passwort</code> ein</li>
+                <li>Lassen Sie API Token leer</li>
+            </ul>
+        </div>
+
+        <div class="note">
+            <strong>Hinweis:</strong> Das Dashboard verwendet direkte REST API Calls zur NetApp ONTAP REST API. Für produktive Umgebungen sollte eine dedizierte Read-Only-Rolle verwendet werden.
+        </div>
+    </div>
+
+    <!-- NetApp StorageGRID Tab -->
+    <div class="tab-content" id="tab-storagegrid" role="tabpanel">
+        <h2>NetApp StorageGRID 11</h2>
+
+        <div class="vendor-card">
+            <h4>API-Token erstellen</h4>
+
+            <p><strong>Schritt 1: Grid Manager öffnen</strong></p>
+            <ul>
+                <li>Öffnen Sie Ihren Browser und navigieren Sie zu:<br>
+                    <code>https://&lt;storagegrid-ip-or-hostname&gt;</code></li>
+                <li>Beispiel: <code>https://storagegrid.example.com</code> oder <code>https://192.168.1.100</code></li>
+                <li>Melden Sie sich mit Ihren Zugangsdaten an</li>
+            </ul>
+
+            <p><strong>Schritt 2: API-Token generieren</strong></p>
+            <ol>
+                <li>Nach dem Login navigieren Sie zu <strong>Users</strong></li>
+                <li>Wählen Sie Ihren Benutzer oder erstellen Sie einen Service-Account</li>
+                <li>Klicken Sie auf <strong>Generate Token</strong></li>
+                <li>Kopieren Sie den generierten Bearer Token</li>
+                <li>Der Token wird nur einmal angezeigt - speichern Sie ihn sicher!</li>
+            </ol>
+
+            <div class="note">
+                <strong>Alternative (für API-Automatisierung):</strong> Sie können den Token auch direkt über die REST API erstellen:
+                <pre style="margin-top: 0.5rem;"><code>curl -X POST "https://&lt;storagegrid-ip&gt;/api/v3/authorize" \
   -H "Content-Type: application/json" \
   -d '{
     "username": "root",
@@ -179,89 +266,126 @@
     "cookie": true,
     "csrfToken": false
   }' -k</code></pre>
-            <em>Hinweis: csrfToken=false ist korrekt für API-Zugriff ohne Browser-Session.</em>
+                <em>Hinweis: csrfToken=false ist korrekt für API-Zugriff ohne Browser-Session.</em>
+            </div>
+
+            <p><strong>Schritt 3: Token im Dashboard konfigurieren</strong></p>
+
+            <p><strong>Option 1: Mit Bearer Token</strong></p>
+            <ul>
+                <li>Tragen Sie den Bearer Token im Feld <code>API Token</code> ein</li>
+                <li>Lassen Sie Benutzername und Passwort leer</li>
+            </ul>
+
+            <p><strong>Option 2: Mit Benutzername/Passwort (empfohlen)</strong></p>
+            <ul>
+                <li>Tragen Sie Benutzername und Passwort ein</li>
+                <li>Lassen Sie API Token leer</li>
+                <li>Das Dashboard generiert automatisch Tokens bei Bedarf</li>
+            </ul>
         </div>
-        
-        <p><strong>Schritt 3: Token im Dashboard konfigurieren</strong></p>
-        
-        <p><strong>Option 1: Mit Bearer Token</strong></p>
-        <ul>
-            <li>Tragen Sie den Bearer Token im Feld <code>API Token</code> ein</li>
-            <li>Lassen Sie Benutzername und Passwort leer</li>
-        </ul>
-        
-        <p><strong>Option 2: Mit Benutzername/Passwort (empfohlen)</strong></p>
-        <ul>
-            <li>Tragen Sie Benutzername und Passwort ein</li>
-            <li>Lassen Sie API Token leer</li>
-            <li>Das Dashboard generiert automatisch Tokens bei Bedarf</li>
-        </ul>
-        
+
         <div class="note">
             <strong>Wichtige Hinweise:</strong>
-            <ul style="margin-top: 0.5rem; margin-bottom: 0;">
+            <ul style="margin-top: 0.5rem;">
                 <li>Der Bearer Token hat eine begrenzte Gültigkeitsdauer (typischerweise 16 Stunden, kann je nach StorageGRID-Konfiguration variieren)</li>
                 <li>Bei Authentifizierungsfehlern muss ein neuer Token generiert werden</li>
-                <li><strong>Empfehlung:</strong> Verwenden Sie Benutzername/Passwort statt Token - das Dashboard generiert dann automatisch neue Tokens bei Bedarf</li>
+                <li><strong>Empfehlung:</strong> Verwenden Sie Benutzername/Passwort statt Token – das Dashboard generiert dann automatisch neue Tokens bei Bedarf</li>
             </ul>
         </div>
     </div>
-    
-    <h2>4. Dell DataDomain</h2>
-    
-    <div class="vendor-card">
-        <h4>REST API-Zugriff einrichten</h4>
-        <ol>
-            <li>Stellen Sie sicher, dass die REST API auf Ihrem DataDomain-System aktiviert ist</li>
-            <li>Verwenden Sie einen vorhandenen Benutzer oder erstellen Sie einen neuen:
-                <pre><code>user add &lt;username&gt; role admin</code></pre>
-            </li>
-            <li>Setzen Sie ein Passwort für den Benutzer</li>
-        </ol>
-        
-        <p><strong>In der Dashboard-Konfiguration:</strong></p>
-        <ul>
-            <li>Tragen Sie Benutzername im Feld <code>Benutzername</code> ein</li>
-            <li>Tragen Sie Passwort im Feld <code>Passwort</code> ein</li>
-            <li>Lassen Sie API Token leer</li>
-        </ul>
+
+    <!-- Dell DataDomain Tab -->
+    <div class="tab-content" id="tab-datadomain" role="tabpanel">
+        <h2>Dell DataDomain</h2>
+
+        <div class="vendor-card">
+            <h4>REST API-Zugriff einrichten</h4>
+            <ol>
+                <li>Stellen Sie sicher, dass die REST API auf Ihrem DataDomain-System aktiviert ist</li>
+                <li>Verwenden Sie einen vorhandenen Benutzer oder erstellen Sie einen neuen:
+                    <pre><code>user add &lt;username&gt; role admin</code></pre>
+                </li>
+                <li>Setzen Sie ein Passwort für den Benutzer</li>
+            </ol>
+
+            <p><strong>In der Dashboard-Konfiguration:</strong></p>
+            <ul>
+                <li>Tragen Sie Benutzername im Feld <code>Benutzername</code> ein</li>
+                <li>Tragen Sie Passwort im Feld <code>Passwort</code> ein</li>
+                <li>Lassen Sie API Token leer</li>
+            </ul>
+        </div>
+
+        <div class="note">
+            <strong>Hinweis:</strong> Die REST API ist standardmäßig auf Port 443 verfügbar.
+        </div>
     </div>
-    
-    <div class="note">
-        <strong>Hinweis:</strong> Die REST API ist standardmäßig auf Port 443 verfügbar.
+
+    <!-- Security & Troubleshooting Tab -->
+    <div class="tab-content" id="tab-security" role="tabpanel">
+        <h2>Sicherheitshinweise &amp; Fehlerbehebung</h2>
+
+        <div class="info-card">
+            <h3>🔒 Sicherheitshinweise</h3>
+            <ul>
+                <li>Verwenden Sie immer dedizierte Read-Only-Accounts für das Dashboard</li>
+                <li>Speichern Sie Credentials niemals in öffentlich zugänglichen Repositories</li>
+                <li>Rotieren Sie API-Tokens und Passwörter regelmäßig</li>
+                <li>Verwenden Sie sichere Verbindungen (HTTPS)</li>
+                <li>Beschränken Sie den Netzwerkzugriff auf die Management-Schnittstellen</li>
+            </ul>
+        </div>
+
+        <div class="info-card">
+            <h3>🔧 Verbindungsfehler</h3>
+            <ul>
+                <li>Überprüfen Sie die IP-Adresse und den Port</li>
+                <li>Stellen Sie sicher, dass das Storage-System vom Dashboard-Server erreichbar ist</li>
+                <li>Überprüfen Sie Firewall-Regeln</li>
+            </ul>
+        </div>
+
+        <div class="info-card">
+            <h3>🔑 Authentifizierungsfehler</h3>
+            <ul>
+                <li>Verifizieren Sie Benutzername und Passwort</li>
+                <li>Überprüfen Sie die Gültigkeit des API-Tokens</li>
+                <li>Stellen Sie sicher, dass der Benutzer die notwendigen Berechtigungen hat</li>
+            </ul>
+        </div>
+
+        <div class="info-card">
+            <h3>⚠️ API-Fehler</h3>
+            <ul>
+                <li>Überprüfen Sie, ob die REST API auf dem Storage-System aktiviert ist</li>
+                <li>Stellen Sie sicher, dass die API-Version kompatibel ist</li>
+                <li>Prüfen Sie die Logs für detaillierte Fehlermeldungen</li>
+            </ul>
+        </div>
     </div>
-    
-    <h2>Sicherheitshinweise</h2>
-    
-    <ul>
-        <li>Verwenden Sie immer dedizierte Read-Only-Accounts für das Dashboard</li>
-        <li>Speichern Sie Credentials niemals in öffentlich zugänglichen Repositories</li>
-        <li>Rotieren Sie API-Tokens und Passwörter regelmäßig</li>
-        <li>Verwenden Sie sichere Verbindungen (HTTPS)</li>
-        <li>Beschränken Sie den Netzwerkzugriff auf die Management-Schnittstellen</li>
-    </ul>
-    
-    <h2>Fehlerbehebung</h2>
-    
-    <h3>Verbindungsfehler</h3>
-    <ul>
-        <li>Überprüfen Sie die IP-Adresse und den Port</li>
-        <li>Stellen Sie sicher, dass das Storage-System vom Dashboard-Server erreichbar ist</li>
-        <li>Überprüfen Sie Firewall-Regeln</li>
-    </ul>
-    
-    <h3>Authentifizierungsfehler</h3>
-    <ul>
-        <li>Verifizieren Sie Benutzername und Passwort</li>
-        <li>Überprüfen Sie die Gültigkeit des API-Tokens</li>
-        <li>Stellen Sie sicher, dass der Benutzer die notwendigen Berechtigungen hat</li>
-    </ul>
-    
-    <h3>API-Fehler</h3>
-    <ul>
-        <li>Überprüfen Sie, ob die REST API auf dem Storage-System aktiviert ist</li>
-        <li>Stellen Sie sicher, dass die API-Version kompatibel ist</li>
-        <li>Prüfen Sie die Logs für detaillierte Fehlermeldungen</li>
-    </ul>
 </div>
+
+<script>
+function showTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(function(el) {
+        el.classList.remove('active');
+    });
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    var content = document.getElementById('tab-' + tabId);
+    var btn = document.getElementById('tab-btn-' + tabId);
+    if (content) content.classList.add('active');
+    if (btn) btn.classList.add('active');
+    try { localStorage.setItem('docs-active-tab', tabId); } catch(e) {}
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        var saved = localStorage.getItem('docs-active-tab');
+        if (saved) showTab(saved);
+    } catch(e) {}
+});
+</script>
 {% endblock %}
