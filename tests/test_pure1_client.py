@@ -818,3 +818,22 @@ class TestFetchSodLicenseHistoryTimeHandling:
             f"A short (~1 month) range should produce exactly 1 request, got {len(urls)}"
         )
 
+    def test_aggregation_uses_single_quoted_max(self):
+        """aggregation parameter must be sent as 'max' (with single quotes) as required
+        by the Pure1 API spec ('Single quotes are required around all strings')."""
+        start_date = datetime.date(2025, 1, 1)
+        end_date = datetime.date(2025, 1, 31)
+        now_ms = int(
+            datetime.datetime(2026, 6, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp() * 1000
+        )
+        urls = self._run_fetch(start_date, end_date, fixed_now_ms=now_ms)
+        assert urls, "Expected at least one metrics/history call"
+        for url in urls:
+            assert "aggregation='max'" in url, (
+                f"aggregation must be sent as 'max' (with single quotes) per the Pure1 API spec. "
+                f"Got: {url}"
+            )
+            assert "aggregation=max" not in url.replace("aggregation='max'", ""), (
+                f"aggregation=max (unquoted) must not appear in the URL. Got: {url}"
+            )
+
