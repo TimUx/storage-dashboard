@@ -349,14 +349,15 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
 def fetch_subscription_asset_physical_used(app_id: str, private_key_pem: str,
                                             array_name: str,
                                             passphrase: str | None = None,
-                                            proxies: dict | None = None) -> float | None:
-    """Fetch the physical used space (in bytes) for a Pure FlashArray from Pure1.
+                                            proxies: dict | None = None) -> dict | None:
+    """Fetch physical space data for a Pure FlashArray from Pure1.
 
     Uses the ``GET /api/1.latest/subscription-assets`` endpoint with
-    ``advanced_space=true`` to retrieve the physical used capacity for the
-    named array.  This is the correct data source for arrays enrolled in
-    **Evergreen One**, where the local FlashArray API no longer reports
-    physical used space (``space.total_physical`` returns 0 or is absent).
+    ``advanced_space=true`` to retrieve the physical used capacity and total
+    capacity for the named array.  This is the correct data source for arrays
+    enrolled in **Evergreen One**, where the local FlashArray API no longer
+    reports physical used space (``space.total_physical`` returns 0 or is
+    absent) and reports incorrect total capacity.
 
     The call also works for arrays *not* on Evergreen One, so no prior check
     for Evergreen One enrollment is required.
@@ -371,7 +372,12 @@ def fetch_subscription_asset_physical_used(app_id: str, private_key_pem: str,
             "array": {
               "advanced_space": {
                 "physical": {
-                  "total_used": {"data": 416053195321762.94, "unit": "B"}
+                  "total_used": {"data": 416053195321762.94, "unit": "B"},
+                  "capacity": {
+                    "data": 391341822866461,
+                    "metric": {"name": "array_total_capacity"},
+                    "unit": "B"
+                  }
                 }
               }
             }
@@ -387,8 +393,11 @@ def fetch_subscription_asset_physical_used(app_id: str, private_key_pem: str,
         proxies: Optional requests-compatible proxy dict.
 
     Returns:
-        Physical used space in **bytes** as a ``float``, or ``None`` when the
-        array is not found or the ``advanced_space`` data is unavailable.
+        A dict ``{"used_bytes": float, "capacity_bytes": float | None}`` with
+        the physical used space and total capacity in bytes, or ``None`` when
+        the array is not found or the ``advanced_space`` data is unavailable.
+        ``capacity_bytes`` may be ``None`` if the capacity field is absent or
+        null in the API response.
 
     Raises:
         requests.HTTPError: On non-2xx API responses.
@@ -420,9 +429,8 @@ def fetch_subscription_asset_physical_used(app_id: str, private_key_pem: str,
 
     item = items[0]
     try:
-        physical_used = (
-            item["array"]["advanced_space"]["physical"]["total_used"]["data"]
-        )
+        physical = item["array"]["advanced_space"]["physical"]
+        physical_used = physical["total_used"]["data"]
     except (KeyError, TypeError):
         logger.warning(
             "fetch_subscription_asset_physical_used: "
@@ -434,7 +442,18 @@ def fetch_subscription_asset_physical_used(app_id: str, private_key_pem: str,
     if physical_used is None:
         return None
 
-    return float(physical_used)
+    # Also extract the total capacity reported by Pure1 (array_total_capacity
+    # metric).  This value is authoritative for Evergreen One arrays whose
+    # local API returns an incorrect capacity figure.
+    capacity_bytes: float | None = None
+    try:
+        raw_capacity = physical["capacity"]["data"]
+        if raw_capacity is not None:
+            capacity_bytes = float(raw_capacity)
+    except (KeyError, TypeError):
+        pass  # capacity field absent – caller will use local value
+
+    return {"used_bytes": float(physical_used), "capacity_bytes": capacity_bytes}
 
 
 def fetch_subscription_licenses(app_id: str, private_key_pem: str,
