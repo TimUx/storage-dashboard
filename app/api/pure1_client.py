@@ -155,14 +155,14 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
       IDs (retrieved first from ``/subscription-licenses``).  IDs are used
       instead of ``resource_names`` to avoid 400 errors caused by special
       characters (e.g. commas) inside license display names.
-    * ``aggregation=max``, ``resolution=604800000`` (weekly)
+    * ``aggregation='max'``, ``resolution=604800000`` (weekly)
 
     This matches the Pure1 API query confirmed by Pure Storage:
 
     .. code-block:: bash
 
         curl -G 'https://api.pure1.purestorage.com/api/1.latest/metrics/history' \\
-          --data-urlencode "aggregation=max" \\
+          --data-urlencode "aggregation='max'" \\
           --data-urlencode "names='subscription_license_reserved_space','subscription_license_on_demand_space','subscription_license_effective_used_space'" \\
           --data-urlencode "resource_ids='<id1>','<id2>'" \\
           --data-urlencode "resolution=604800000" \\
@@ -293,7 +293,7 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
                 f"&start_time={chunk_start}"
                 f"&end_time={chunk_end}"
                 f"&resolution={WEEKLY_MS}"
-                f"&aggregation=max"
+                f"&aggregation='max'"
             )
             resp = requests.get(
                 f"{PURE1_API_BASE}/metrics/history?{qs}",
