@@ -2,6 +2,7 @@
 import csv
 import io
 import logging
+from datetime import date as _date
 from flask import Blueprint, render_template, jsonify, request, current_app, Response
 
 bp = Blueprint('capacity', __name__, url_prefix='/capacity')
@@ -65,15 +66,20 @@ def api_history():
     history = get_history_data(days=days)
 
     # Attach forecast to each storage art.
-    # Forecast length is capped at 15% of the actual data-point count so that
-    # the prognosis line never dominates the chart (target: ≤ 10–20% of width).
-    # Using the actual point count (not the requested day-range) ensures the
-    # forecast is proportional to the historical data density regardless of
+    # Forecast window = 20 % of the selected time range so that the prognosis
+    # line is always clearly visible (~1/5 of the chart width) regardless of
     # how frequently measurements are recorded (daily vs. weekly, etc.).
+    # For the 'all' range the window is derived from the actual data span.
     for art, art_data in history.items():
-        n_points = len(art_data['labels'])
-        forecast_days = max(7, min(90, int(n_points * 0.15)))
-        fc = compute_forecast(art_data['labels'], art_data['used'], forecast_days=forecast_days)
+        labels = art_data['labels']
+        if days is not None:
+            fc_range_days = days
+        elif len(labels) >= 2:
+            fc_range_days = max(90, (_date.fromisoformat(labels[-1]) - _date.fromisoformat(labels[0])).days)
+        else:
+            fc_range_days = 365
+        forecast_days = max(7, int(fc_range_days * 0.20))
+        fc = compute_forecast(labels, art_data['used'], forecast_days=forecast_days)
         art_data['forecast_labels'] = fc['labels']
         art_data['forecast_values'] = fc['values']
 
@@ -88,11 +94,17 @@ def api_history():
                 'labels': [], 'used': [], 'total': [],
                 'forecast_labels': [], 'forecast_values': [],
             }
-        sod_n_points = len(sod['labels'])
-        sod_forecast_days = max(7, min(90, int(sod_n_points * 0.15)))
-        fc_demand = compute_forecast(sod['labels'], sod['effective_used'], forecast_days=sod_forecast_days)
+        sod_labels = sod['labels']
+        if days is not None:
+            sod_fc_range_days = days
+        elif len(sod_labels) >= 2:
+            sod_fc_range_days = max(90, (_date.fromisoformat(sod_labels[-1]) - _date.fromisoformat(sod_labels[0])).days)
+        else:
+            sod_fc_range_days = 365
+        sod_forecast_days = max(7, int(sod_fc_range_days * 0.20))
+        fc_demand = compute_forecast(sod_labels, sod['effective_used'], forecast_days=sod_forecast_days)
         history[block_art]['sod'] = {
-            'labels': sod['labels'],
+            'labels': sod_labels,
             'reserved': sod['reserved'],
             'effective_used': sod['effective_used'],
             'on_demand': sod['on_demand'],

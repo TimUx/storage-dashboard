@@ -120,9 +120,25 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.25rem;
+    align-items: start;
 }
 @media (max-width: 900px) {
     .cap-grid { grid-template-columns: 1fr; }
+}
+/* ── Details view: SoD left column + stacked per-art sections right ── */
+.cap-details-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    align-items: start;
+}
+@media (max-width: 900px) {
+    .cap-details-layout { grid-template-columns: 1fr; }
+}
+.cap-details-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
 }
 .cap-table th {
     background: #f8fafc;
@@ -1181,7 +1197,18 @@ function renderDetails(data) {
         </div>`;
     }).join('');
     const sodDetailHtml = pure1Configured ? buildSodDetailSection(sodData) : '';
-    el.innerHTML = `<div class="cap-grid">${sodDetailHtml}${html}</div>`;
+    // When a SoD section is present, put it in the left column and stack all
+    // per-art sections in the right column so that a large SoD table and
+    // multiple smaller per-art tables sit side by side at their natural heights.
+    if (sodDetailHtml) {
+        el.innerHTML = `
+            <div class="cap-details-layout">
+                <div>${sodDetailHtml}</div>
+                <div class="cap-details-stack">${html}</div>
+            </div>`;
+    } else {
+        el.innerHTML = `<div class="cap-grid">${html}</div>`;
+    }
 }
 
 function escHtml(str) {
