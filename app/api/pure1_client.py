@@ -230,18 +230,40 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
                 "license_name": lic.get("name", ""),
             }
 
-    # ── 3. Convert dates to Unix millisecond timestamps ──────────────────────
-    start_ms = int(_dt.datetime.combine(start_date, _dt.time.min).timestamp() * 1000)
-    end_ms = int(_dt.datetime.combine(
-        end_date + _dt.timedelta(days=1), _dt.time.min
-    ).timestamp() * 1000)
+    # ── 3. Convert dates to UTC millisecond timestamps ───────────────────────
+    # Always use UTC-aware datetimes so that the timestamps are consistent
+    # regardless of the server's local timezone.  Naive datetimes would be
+    # interpreted using the server's local offset, shifting start/end into
+    # the past or future by up to several hours and potentially causing the
+    # Pure1 API to return 400 (e.g. when end_time ends up in the future).
+    start_ms = int(
+        _dt.datetime.combine(start_date, _dt.time.min, tzinfo=_dt.timezone.utc)
+        .timestamp() * 1000
+    )
+    # Cap end_ms at "now" so we never send a future end_time.  Pure1 returns
+    # 400 when end_time is ahead of the current server clock.
+    desired_end_ms = int(
+        _dt.datetime.combine(
+            end_date + _dt.timedelta(days=1), _dt.time.min, tzinfo=_dt.timezone.utc
+        ).timestamp() * 1000
+    )
+    end_ms = min(desired_end_ms, int(time.time() * 1000))
 
     # ── 4. Fetch metrics/history in batches ───────────────────────────────────
     # Pure1 API supports up to 32 timeseries (metric × resource combinations)
     # per request.  With 3 metrics we can fit floor(32 / 3) = 10 licenses per
     # batch.
     # Ref: Pure1 API spec – GET /api/1.latest/metrics/history description.
+    #
+    # Additionally, the API imposes a limit on how many data-points can be
+    # returned per request.  A single query spanning multiple years with 30
+    # timeseries can exceed that limit and trigger a 400 error.  We therefore
+    # also chunk the time window into ≤ MAX_WEEKS_PER_CHUNK slices so that
+    # each request stays well within the limit.
     MAX_TIMESERIES_PER_REQUEST = 32
+    # ≈ 6-month chunk: 26 weeks/chunk × 30 timeseries (10 licenses × 3 metrics)
+    # = 26 data-points per timeseries → 780 total data-points per request.
+    MAX_WEEKS_PER_CHUNK       = 26
     metric_names = [METRIC_RESERVED, METRIC_EFFECTIVE_USED, METRIC_ON_DEMAND]
     batch_size = max(1, MAX_TIMESERIES_PER_REQUEST // len(metric_names))
     names_qs = ",".join(f"'{n}'" for n in metric_names)
@@ -251,6 +273,8 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
     # key: (date, license_id) → {metric_name: value_bytes}
     data_map: dict = {}
 
+    chunk_ms = MAX_WEEKS_PER_CHUNK * 7 * 86_400_000   # milliseconds per time chunk
+
     for i in range(0, len(lic_ids), batch_size):
         batch = lic_ids[i: i + batch_size]
         # Build query string without URL-encoding the single quotes.
@@ -259,39 +283,49 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
         # string (e.g. names='metric1','metric2'). URL-encoding the quotes would
         # prevent correct server-side parsing.
         resource_ids_qs = ",".join(f"'{id_}'" for id_ in batch)
-        qs = (
-            f"names={names_qs}"
-            f"&resource_ids={resource_ids_qs}"
-            f"&start_time={start_ms}"
-            f"&end_time={end_ms}"
-            f"&resolution={WEEKLY_MS}"
-            f"&aggregation=max"
-        )
-        resp = requests.get(
-            f"{PURE1_API_BASE}/metrics/history?{qs}",
-            headers=headers, timeout=60, proxies=proxies,
-        )
-        if resp.status_code == 404:
-            logger.debug("metrics/history 404 for batch starting at index %d", i)
-            continue
-        resp.raise_for_status()
 
-        for item in resp.json().get("items", []):
-            m_name = item.get("name", "")
-            resources = item.get("resources", [])
-            if not resources:
+        chunk_start = start_ms
+        while chunk_start < end_ms:
+            chunk_end = min(chunk_start + chunk_ms, end_ms)
+            qs = (
+                f"names={names_qs}"
+                f"&resource_ids={resource_ids_qs}"
+                f"&start_time={chunk_start}"
+                f"&end_time={chunk_end}"
+                f"&resolution={WEEKLY_MS}"
+                f"&aggregation=max"
+            )
+            resp = requests.get(
+                f"{PURE1_API_BASE}/metrics/history?{qs}",
+                headers=headers, timeout=60, proxies=proxies,
+            )
+            if resp.status_code == 404:
+                logger.debug(
+                    "metrics/history 404 for batch index %d chunk %d-%d",
+                    i, chunk_start, chunk_end,
+                )
+                chunk_start = chunk_end
                 continue
-            # resources[0].id is the subscription-license ID
-            lic_id = resources[0].get("id", "")
-            for point in item.get("data", []):
-                if len(point) < 2 or point[1] is None:
+            resp.raise_for_status()
+
+            for item in resp.json().get("items", []):
+                m_name = item.get("name", "")
+                resources = item.get("resources", [])
+                if not resources:
                     continue
-                ts_ms, value = point[0], point[1]
-                rec_date = _dt.date.fromtimestamp(ts_ms / 1000)
-                key = (rec_date, lic_id)
-                if key not in data_map:
-                    data_map[key] = {}
-                data_map[key][m_name] = value
+                # resources[0].id is the subscription-license ID
+                lic_id = resources[0].get("id", "")
+                for point in item.get("data", []):
+                    if len(point) < 2 or point[1] is None:
+                        continue
+                    ts_ms, value = point[0], point[1]
+                    rec_date = _dt.date.fromtimestamp(ts_ms / 1000)
+                    key = (rec_date, lic_id)
+                    if key not in data_map:
+                        data_map[key] = {}
+                    data_map[key][m_name] = value
+
+            chunk_start = chunk_end
 
     # ── 5. Build result ───────────────────────────────────────────────────────
     result = []
