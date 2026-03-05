@@ -99,20 +99,33 @@ def _do_refresh(app):
                     # Arrays enrolled in Evergreen One no longer report physical used
                     # space locally (space.total_physical is 0), so Pure1 is the only
                     # reliable source.  For non-Evergreen arrays the Pure1 value is
-                    # equally valid and preferred for consistency.
-                    if system.vendor == 'pure' and pure1_configured and total_tb > 0:
+                    # equally valid and preferred for consistency.  Pure1 also provides
+                    # the authoritative total capacity (array_total_capacity metric),
+                    # which is needed because Evergreen One arrays report a wrong
+                    # (too large) capacity via the local array API; Pure1 holds the
+                    # true licensed capacity.
+                    if system.vendor == 'pure' and pure1_configured:
                         pure1_name = system.pure1_array_name or system.name
                         try:
                             from app.api.pure1_client import fetch_subscription_asset_physical_used
-                            physical_bytes = fetch_subscription_asset_physical_used(
+                            pure1_space = fetch_subscription_asset_physical_used(
                                 pure1_app_id,
                                 pure1_private_key,
                                 pure1_name,
                                 passphrase=pure1_passphrase,
                                 proxies=proxies,
                             )
-                            if physical_bytes is not None:
-                                pure1_used_tb = physical_bytes / (1024 ** 4)
+                            if pure1_space is not None:
+                                pure1_used_tb = pure1_space["used_bytes"] / (1024 ** 4)
+                                pure1_capacity_bytes = pure1_space["capacity_bytes"]
+                                if pure1_capacity_bytes is not None:
+                                    pure1_total_tb = pure1_capacity_bytes / (1024 ** 4)
+                                    logger.info(
+                                        "Pure1 capacity for %s (%s): %.2f TB "
+                                        "(local reported: %.2f TB)",
+                                        system.name, pure1_name, pure1_total_tb, total_tb,
+                                    )
+                                    total_tb = round(pure1_total_tb, 2)
                                 logger.info(
                                     "Pure1 physical used for %s (%s): %.2f TB "
                                     "(local reported: %.2f TB)",

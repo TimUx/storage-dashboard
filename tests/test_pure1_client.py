@@ -878,7 +878,7 @@ class TestFetchSubscriptionAssetPhysicalUsed:
         return result, mock_get
 
     def test_returns_physical_used_bytes(self):
-        """Returns the float value from advanced_space.physical.total_used.data."""
+        """Returns used_bytes from advanced_space.physical.total_used.data."""
         body = {
             "items": [{
                 "name": "pure07",
@@ -895,7 +895,75 @@ class TestFetchSubscriptionAssetPhysicalUsed:
             }]
         }
         result, _ = self._run(body)
-        assert result == pytest.approx(416053195321762.94)
+        assert isinstance(result, dict)
+        assert result["used_bytes"] == pytest.approx(416053195321762.94)
+        assert result["capacity_bytes"] is None
+
+    def test_returns_capacity_bytes_when_present(self):
+        """Returns capacity_bytes from advanced_space.physical.capacity.data."""
+        body = {
+            "items": [{
+                "name": "pure07",
+                "array": {
+                    "advanced_space": {
+                        "physical": {
+                            "total_used": {
+                                "data": 339400378103326.94,
+                                "unit": "B",
+                            },
+                            "capacity": {
+                                "data": 391341822866461,
+                                "metric": {
+                                    "id": "0f1a2565-6799-3813-915a-df5a09b71ad7",
+                                    "name": "array_total_capacity",
+                                    "resource_type": "metrics",
+                                },
+                                "unit": "B",
+                            },
+                        }
+                    }
+                }
+            }]
+        }
+        result, _ = self._run(body)
+        assert isinstance(result, dict)
+        assert result["used_bytes"] == pytest.approx(339400378103326.94)
+        assert result["capacity_bytes"] == pytest.approx(391341822866461)
+
+    def test_capacity_bytes_none_when_capacity_key_absent(self):
+        """capacity_bytes is None when the capacity key is missing from the response."""
+        body = {
+            "items": [{
+                "name": "pure07",
+                "array": {
+                    "advanced_space": {
+                        "physical": {
+                            "total_used": {"data": 100.0, "unit": "B"},
+                        }
+                    }
+                }
+            }]
+        }
+        result, _ = self._run(body)
+        assert result["capacity_bytes"] is None
+
+    def test_capacity_bytes_none_when_capacity_data_is_null(self):
+        """capacity_bytes is None when capacity.data is explicitly null."""
+        body = {
+            "items": [{
+                "name": "pure07",
+                "array": {
+                    "advanced_space": {
+                        "physical": {
+                            "total_used": {"data": 100.0, "unit": "B"},
+                            "capacity": {"data": None, "unit": "B"},
+                        }
+                    }
+                }
+            }]
+        }
+        result, _ = self._run(body)
+        assert result["capacity_bytes"] is None
 
     def test_returns_none_when_items_empty(self):
         """Returns None when the API returns an empty items list (array not found)."""
@@ -986,7 +1054,7 @@ class TestFetchSubscriptionAssetPhysicalUsed:
             }]
         }
         result, _ = self._run(body)
-        assert result == 0.0
+        assert result["used_bytes"] == 0.0
 
     def test_proxies_forwarded_to_requests(self):
         """Proxy dict must be passed to requests.get."""
