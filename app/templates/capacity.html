@@ -500,7 +500,16 @@
             <button class="range-btn"        data-range="6m"   onclick="loadHistory('6m')">6 Monate</button>
             <button class="range-btn"        data-range="3m"   onclick="loadHistory('3m')">3 Monate</button>
         </div>
+        <button class="range-btn" id="pctModeBtn" onclick="togglePctMode()"
+                title="Zwischen Kapazität [TiB] und prozentualer Auslastung [%] wechseln"
+                aria-label="Prozentmodus umschalten">
+            📊 %
+        </button>
         <div class="history-actions">
+            <button class="refresh-btn" id="historyRefreshBtn" onclick="triggerHistoryRefresh()"
+                    title="Heutige Kapazitätswerte aller Systeme erfassen und (falls Pure1 konfiguriert) SoD-Verlauf der letzten 2 Jahre von Pure1 abrufen">
+                🔄 Verlauf abrufen
+            </button>
             <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV</button>
             <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
             <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF</button>
@@ -549,7 +558,7 @@
             <p style="font-size:.8rem;color:var(--cap-muted);margin-bottom:1rem;">
                 • <strong>date</strong>: ISO-Datum (YYYY-MM-DD)<br>
                 • <strong>system_name</strong>: exakter Name des Speichersystems (wie im Dashboard konfiguriert)<br>
-                • <strong>total_tb / used_tb / free_tb</strong>: Kapazitäten in TB<br>
+                • <strong>total_tb / used_tb / free_tb</strong>: Kapazitäten in TiB (1024-Basis)<br>
                 • <strong>percent_used</strong>: Auslastung in Prozent (0–100)
             </p>
             <div class="import-drop-area" id="importDropAreaPhys"
@@ -629,6 +638,11 @@ function artSortKey(art) {
 
 // Line filter state: which groups of lines are currently visible
 const lineFilterState = { physical: true, commercial: true };
+
+// History display mode: false = TiB capacity, true = % utilisation
+let percentMode = false;
+// Cache the last fetched history API response for pct-mode toggle (no re-fetch needed)
+let _lastHistoryData = null;
 
 // ── View Switching ────────────────────────────────────────────────────────
 document.querySelectorAll('#viewToggle button').forEach(btn => {
@@ -744,7 +758,7 @@ function hasProvisioned(rows, totalRow) {
 
 function tableHeader(label, showProvisioned, showEffectiveUsed) {
     // Determine widths based on number of columns
-    // Base: label + 3 TB cols + 1 pct col = 5 cols
+    // Base: label + 3 TiB cols + 1 pct col = 5 cols
     // With provisioned: + 2 cols = 7 cols
     // With effectiveUsed: + 1 col = up to 8 cols
     let totalCols = 5 + (showProvisioned ? 2 : 0) + (showEffectiveUsed ? 1 : 0);
@@ -752,15 +766,15 @@ function tableHeader(label, showProvisioned, showEffectiveUsed) {
     const tbColWidth  = totalCols <= 5 ? '18%' : '13%';
 
     let cols = `<th>${label}</th>
-        <th style="width:${tbColWidth}">Gesamt [TB]</th>
-        <th style="width:${tbColWidth}">Genutzt [TB]</th>
-        <th style="width:${tbColWidth}">Frei [TB]</th>
+        <th style="width:${tbColWidth}">Gesamt [TiB]</th>
+        <th style="width:${tbColWidth}">Genutzt [TiB]</th>
+        <th style="width:${tbColWidth}">Frei [TiB]</th>
         <th style="width:${pctColWidth}">Genutzt [%]</th>`;
     if (showProvisioned) {
-        cols += `<th style="width:${tbColWidth}">Provisioniert [TB]</th><th style="width:${pctColWidth}">Provisioniert [%]</th>`;
+        cols += `<th style="width:${tbColWidth}">Provisioniert [TiB]</th><th style="width:${pctColWidth}">Provisioniert [%]</th>`;
     }
     if (showEffectiveUsed) {
-        cols += `<th style="width:${tbColWidth}">Effektiv Genutzt [TB]</th>`;
+        cols += `<th style="width:${tbColWidth}">Effektiv Genutzt [TiB]</th>`;
     }
     return `<thead><tr>${cols}</tr></thead>`;
 }
@@ -1145,12 +1159,12 @@ function renderDetails(data) {
         let headerCols = `<th>System</th>
                         <th>Umgebung</th>
                         <th>Tätigkeitsfeld</th>
-                        <th style="width:10%">Gesamt [TB]</th>
-                        <th style="width:10%">Genutzt [TB]</th>
-                        <th style="width:10%">Frei [TB]</th>
+                        <th style="width:10%">Gesamt [TiB]</th>
+                        <th style="width:10%">Genutzt [TiB]</th>
+                        <th style="width:10%">Frei [TiB]</th>
                         <th style="width:18%">Genutzt [%]</th>`;
         if (showProvisioned) {
-            headerCols += `<th style="width:10%">Provisioniert [TB]</th><th style="width:18%">Provisioniert [%]</th>`;
+            headerCols += `<th style="width:10%">Provisioniert [TiB]</th><th style="width:18%">Provisioniert [%]</th>`;
         }
         if (showEffectiveUsed) {
             headerCols += `<th style="width:10%">Effektiv Genutzt [TiB]</th>`;
@@ -1194,168 +1208,263 @@ async function loadHistory(range) {
         const resp = await fetch('/capacity/api/history?range=' + encodeURIComponent(range));
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const data = await resp.json();
-
-        // Sort arts by STORAGE_ART_ORDER (same order as tables)
-        const arts = Object.keys(data).sort((a, b) => artSortKey(a) - artSortKey(b));
-
-        if (arts.length === 0) {
-            el.innerHTML = '<div class="cap-empty">Keine Verlaufsdaten vorhanden. Daten werden täglich gespeichert.</div>';
-            return;
-        }
-        el.innerHTML = '<div class="cap-grid">' + arts.map(art => {
-            const hasSod = art === 'Block' && data[art].sod;
-            const subtitle = hasSod
-                ? 'Verlauf – Physische &amp; SoD Kapazität'
-                : 'Verlauf – Genutzte Kapazität';
-            const filterHtml = hasSod ? `
-                <span class="line-filter-group" style="margin-left:auto;">
-                    <button class="line-filter-btn active" data-filter="physical"
-                            onclick="toggleLineFilter('physical')" title="Physische Linien ein-/ausblenden">
-                        🗄️ Physisch
-                    </button>
-                    <button class="line-filter-btn active commercial" data-filter="commercial"
-                            onclick="toggleLineFilter('commercial')" title="SoD Linien ein-/ausblenden">
-                        ☁️ SoD
-                    </button>
-                </span>` : '';
-            return `<div class="cap-section">
-                <div class="cap-section-header" style="display:flex;align-items:center;gap:.5rem;">
-                    <span>${escHtml(art)}</span>
-                    <span class="section-subtitle">${subtitle}</span>
-                    ${filterHtml}
-                </div>
-                <div class="chart-container"><canvas id="chart-${escHtml(art).replace(/\s+/g,'-')}"></canvas></div>
-            </div>`;
-        }).join('') + '</div>';
-
-        // Render charts
-        arts.forEach(art => {
-            const artData = data[art];
-            const canvasId = 'chart-' + art.replace(/\s+/g, '-');
-            const canvas = document.getElementById(canvasId);
-            if (!canvas) return;
-
-            const many = artData.labels.length > 60;
-
-            // ── Physical datasets ────────────────────────────────────────
-            const usedDataset = {
-                label: 'Genutzt [TB]',
-                data: artData.used.map((v, i) => ({x: artData.labels[i], y: v})),
-                borderColor: '#0098DB',
-                backgroundColor: 'rgba(0,152,219,.1)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: many ? 0 : 3,
-                _group: 'physical',
-            };
-            const totalDataset = {
-                label: 'Gesamt [TB]',
-                data: artData.total.map((v, i) => ({x: artData.labels[i], y: v})),
-                borderColor: '#BED600',
-                backgroundColor: 'transparent',
-                tension: 0.3,
-                pointRadius: 0,
-                _group: 'physical',
-            };
-            const forecastDataset = {
-                label: 'Prognose Genutzt [TB]',
-                data: artData.forecast_values.map((v, i) => ({x: artData.forecast_labels[i], y: v})),
-                borderColor: '#A70240',
-                borderDash: [6, 4],
-                backgroundColor: 'transparent',
-                tension: 0.3,
-                pointRadius: 0,
-                _group: 'physical',
-            };
-
-            const datasets = [usedDataset, totalDataset, forecastDataset];
-
-            // ── Commercial (SoD) datasets – Block only ───────────────────
-            if (art === 'Block' && artData.sod) {
-                const sod = artData.sod;
-                const sodMany = sod.labels.length > 60;
-                datasets.push({
-                    label: 'SoD Reserviert [TiB]',
-                    data: sod.reserved.map((v, i) => ({x: sod.labels[i], y: v})),
-                    borderColor: '#FF5C00',
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    tension: 0.3,
-                    pointRadius: sodMany ? 0 : 3,
-                    _group: 'commercial',
-                });
-                datasets.push({
-                    label: 'SoD Effektiv Genutzt [TiB]',
-                    data: sod.effective_used.map((v, i) => ({x: sod.labels[i], y: v})),
-                    borderColor: '#C20054',
-                    backgroundColor: 'rgba(194,0,84,.08)',
-                    fill: false,
-                    tension: 0.3,
-                    pointRadius: sodMany ? 0 : 3,
-                    _group: 'commercial',
-                });
-                datasets.push({
-                    label: 'SoD On Demand [TiB]',
-                    data: sod.on_demand.map((v, i) => ({x: sod.labels[i], y: v})),
-                    borderColor: '#FFB800',
-                    backgroundColor: 'transparent',
-                    tension: 0.3,
-                    pointRadius: 0,
-                    borderDash: [3, 3],
-                    _group: 'commercial',
-                });
-                if (sod.effective_forecast_values && sod.effective_forecast_values.length > 0) {
-                    datasets.push({
-                        label: 'SoD Eff. Genutzt Prognose [TiB]',
-                        data: sod.effective_forecast_values.map((v, i) => ({x: sod.effective_forecast_labels[i], y: v})),
-                        borderColor: '#C20054',
-                        backgroundColor: 'transparent',
-                        tension: 0.3,
-                        pointRadius: 0,
-                        borderDash: [6, 4],
-                        borderWidth: 1.5,
-                        _group: 'commercial',
-                    });
-                }
-            }
-
-            // Apply initial filter visibility
-            datasets.forEach(ds => {
-                ds.hidden = !lineFilterState[ds._group];
-            });
-
-            chartInstances[art] = new Chart(canvas, {
-                type: 'line',
-                data: { datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { intersect: false, mode: 'index' },
-                    scales: {
-                        x: {
-                            type: 'category',
-                            ticks: { maxTicksLimit: 12, maxRotation: 45 },
-                            grid: { display: false },
-                        },
-                        y: {
-                            title: { display: true, text: 'TB' },
-                            beginAtZero: true,
-                        }
-                    },
-                    plugins: {
-                        legend: { position: 'top' },
-                        tooltip: {
-                            callbacks: {
-                                label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)} TB`
-                            }
-                        }
-                    }
-                }
-            });
-        });
+        _lastHistoryData = data;   // cache for % mode toggle (no re-fetch needed)
+        renderHistoryCharts(data);
     } catch (err) {
         el.innerHTML = '<div class="cap-empty">Fehler beim Laden der Verlaufsdaten: ' + escHtml(err.message) + '</div>';
     }
+}
+
+function renderHistoryCharts(data) {
+    const el = document.getElementById('historyContent');
+
+    // Sort arts by STORAGE_ART_ORDER (same order as tables)
+    const arts = Object.keys(data).sort((a, b) => artSortKey(a) - artSortKey(b));
+
+    if (arts.length === 0) {
+        el.innerHTML = '<div class="cap-empty">Keine Verlaufsdaten vorhanden. Daten werden täglich gespeichert.</div>';
+        return;
+    }
+    el.innerHTML = '<div class="cap-grid">' + arts.map(art => {
+        const hasSod = art === 'Block' && data[art].sod;
+        const subtitle = hasSod
+            ? 'Verlauf – Physische &amp; SoD Kapazität'
+            : 'Verlauf – Genutzte Kapazität';
+        const filterHtml = hasSod ? `
+            <span class="line-filter-group" style="margin-left:auto;">
+                <button class="line-filter-btn active" data-filter="physical"
+                        onclick="toggleLineFilter('physical')" title="Physische Linien ein-/ausblenden">
+                    🗄️ Physisch
+                </button>
+                <button class="line-filter-btn active commercial" data-filter="commercial"
+                        onclick="toggleLineFilter('commercial')" title="SoD Linien ein-/ausblenden">
+                    ☁️ SoD
+                </button>
+            </span>` : '';
+        return `<div class="cap-section">
+            <div class="cap-section-header" style="display:flex;align-items:center;gap:.5rem;">
+                <span>${escHtml(art)}</span>
+                <span class="section-subtitle">${subtitle}</span>
+                ${filterHtml}
+            </div>
+            <div class="chart-container"><canvas id="chart-${escHtml(art).replace(/\s+/g,'-')}"></canvas></div>
+        </div>`;
+    }).join('') + '</div>';
+
+    // Render charts
+    arts.forEach(art => {
+        const artData = data[art];
+        const canvasId = 'chart-' + art.replace(/\s+/g, '-');
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const many = artData.labels.length > 60;
+
+        // ── Physical datasets ────────────────────────────────────────
+        const capUsed = artData.used.map((v, i) => ({x: artData.labels[i], y: v}));
+        const pctUsed = artData.used.map((v, i) => {
+            const t = artData.total[i] || 0;
+            return {x: artData.labels[i], y: t > 0 ? parseFloat((v / t * 100).toFixed(1)) : 0};
+        });
+        const usedDataset = {
+            label: 'Genutzt [TiB]',
+            data: percentMode ? pctUsed : capUsed,
+            _dataCapacity: capUsed,
+            _dataPercent: pctUsed,
+            _hideInPctMode: false,
+            borderColor: '#0098DB',
+            backgroundColor: 'rgba(0,152,219,.1)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: many ? 0 : 3,
+            _group: 'physical',
+        };
+
+        const capTotal = artData.total.map((v, i) => ({x: artData.labels[i], y: v}));
+        const pctTotal = artData.total.map((v, i) => ({x: artData.labels[i], y: 100}));
+        const totalDataset = {
+            label: 'Gesamt [TiB]',
+            data: percentMode ? pctTotal : capTotal,
+            _dataCapacity: capTotal,
+            _dataPercent: pctTotal,
+            _hideInPctMode: false,
+            borderColor: '#BED600',
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            pointRadius: 0,
+            _group: 'physical',
+        };
+
+        const capForecast = artData.forecast_values.map((v, i) => ({x: artData.forecast_labels[i], y: v}));
+        const forecastDataset = {
+            label: 'Prognose Genutzt [TiB]',
+            data: percentMode ? [] : capForecast,
+            _dataCapacity: capForecast,
+            _dataPercent: [],
+            _hideInPctMode: true,   // forecast hidden in % mode
+            borderColor: '#A70240',
+            borderDash: [6, 4],
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            pointRadius: 0,
+            _group: 'physical',
+        };
+
+        const datasets = [usedDataset, totalDataset, forecastDataset];
+
+        // ── Commercial (SoD) datasets – Block only ───────────────────
+        if (art === 'Block' && artData.sod) {
+            const sod = artData.sod;
+            const sodMany = sod.labels.length > 60;
+
+            const capReserved = sod.reserved.map((v, i) => ({x: sod.labels[i], y: v}));
+            const pctReserved = sod.reserved.map((v, i) => ({x: sod.labels[i], y: 100}));
+            datasets.push({
+                label: 'SoD Reserviert [TiB]',
+                data: percentMode ? pctReserved : capReserved,
+                _dataCapacity: capReserved,
+                _dataPercent: pctReserved,
+                _hideInPctMode: false,
+                borderColor: '#FF5C00',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                tension: 0.3,
+                pointRadius: sodMany ? 0 : 3,
+                _group: 'commercial',
+            });
+
+            const capEffUsed = sod.effective_used.map((v, i) => ({x: sod.labels[i], y: v}));
+            const pctEffUsed = sod.effective_used.map((v, i) => {
+                const r = sod.reserved[i] || 0;
+                return {x: sod.labels[i], y: r > 0 ? parseFloat((v / r * 100).toFixed(1)) : 0};
+            });
+            datasets.push({
+                label: 'SoD Effektiv Genutzt [TiB]',
+                data: percentMode ? pctEffUsed : capEffUsed,
+                _dataCapacity: capEffUsed,
+                _dataPercent: pctEffUsed,
+                _hideInPctMode: false,
+                borderColor: '#C20054',
+                backgroundColor: 'rgba(194,0,84,.08)',
+                fill: false,
+                tension: 0.3,
+                pointRadius: sodMany ? 0 : 3,
+                _group: 'commercial',
+            });
+
+            const capOnDemand = sod.on_demand.map((v, i) => ({x: sod.labels[i], y: v}));
+            const pctOnDemand = sod.on_demand.map((v, i) => {
+                const r = sod.reserved[i] || 0;
+                return {x: sod.labels[i], y: r > 0 ? parseFloat((v / r * 100).toFixed(1)) : 0};
+            });
+            datasets.push({
+                label: 'SoD On Demand [TiB]',
+                data: percentMode ? pctOnDemand : capOnDemand,
+                _dataCapacity: capOnDemand,
+                _dataPercent: pctOnDemand,
+                _hideInPctMode: false,
+                borderColor: '#FFB800',
+                backgroundColor: 'transparent',
+                tension: 0.3,
+                pointRadius: 0,
+                borderDash: [3, 3],
+                _group: 'commercial',
+            });
+
+            if (sod.effective_forecast_values && sod.effective_forecast_values.length > 0) {
+                const capSodFc = sod.effective_forecast_values.map((v, i) => ({x: sod.effective_forecast_labels[i], y: v}));
+                datasets.push({
+                    label: 'SoD Eff. Genutzt Prognose [TiB]',
+                    data: percentMode ? [] : capSodFc,
+                    _dataCapacity: capSodFc,
+                    _dataPercent: [],
+                    _hideInPctMode: true,   // forecast hidden in % mode
+                    borderColor: '#C20054',
+                    backgroundColor: 'transparent',
+                    tension: 0.3,
+                    pointRadius: 0,
+                    borderDash: [6, 4],
+                    borderWidth: 1.5,
+                    _group: 'commercial',
+                });
+            }
+        }
+
+        // Apply initial filter visibility (line-group filter + % mode)
+        datasets.forEach(ds => {
+            if (percentMode && ds._hideInPctMode) {
+                ds.hidden = true;
+            } else if (ds._group) {
+                ds.hidden = !lineFilterState[ds._group];
+            }
+        });
+
+        chartInstances[art] = new Chart(canvas, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                scales: {
+                    x: {
+                        type: 'category',
+                        ticks: { maxTicksLimit: 12, maxRotation: 45 },
+                        grid: { display: false },
+                    },
+                    y: {
+                        title: { display: true, text: percentMode ? '% Auslastung' : 'TiB' },
+                        beginAtZero: true,
+                        ...(percentMode && { suggestedMax: 110 }),
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(percentMode ? 1 : 2)} ${percentMode ? '%' : 'TiB'}`
+                        }
+                    }
+                }
+            }
+        });
+    });
+}
+
+// ── % / capacity mode toggle ──────────────────────────────────────────────
+function togglePctMode() {
+    percentMode = !percentMode;
+    const btn = document.getElementById('pctModeBtn');
+    if (btn) btn.classList.toggle('active', percentMode);
+    Object.values(chartInstances).forEach(chart => _applyPctMode(chart));
+}
+
+/** Switch an existing chart instance between TiB capacity and % utilisation mode. */
+function _applyPctMode(chart) {
+    chart.data.datasets.forEach(ds => {
+        if (percentMode) {
+            if (ds._hideInPctMode) {
+                ds.hidden = true;
+            } else if (ds._dataPercent !== undefined) {
+                ds.data = ds._dataPercent;
+                if (ds._group) ds.hidden = !lineFilterState[ds._group];
+            }
+        } else {
+            if (ds._dataCapacity !== undefined) ds.data = ds._dataCapacity;
+            // Restore visibility: respect lineFilterState for grouped datasets,
+            // and un-hide forecast lines that were hidden in % mode.
+            ds.hidden = ds._group ? !lineFilterState[ds._group] : false;
+        }
+    });
+    chart.options.scales.y.title.text = percentMode ? '% Auslastung' : 'TiB';
+    if (percentMode) {
+        chart.options.scales.y.suggestedMax = 110;
+    } else {
+        delete chart.options.scales.y.suggestedMax;
+    }
+    chart.options.plugins.tooltip.callbacks.label = ctx =>
+        `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(percentMode ? 1 : 2)} ${percentMode ? '%' : 'TiB'}`;
+    chart.update();
 }
 
 // ── Line filter toggle (Block chart only) ────────────────────────────────
@@ -1370,6 +1479,8 @@ function toggleLineFilter(group) {
     const blockChart = chartInstances['Block'];
     if (!blockChart) return;
     blockChart.data.datasets.forEach(ds => {
+        // In % mode, forecast lines stay hidden regardless of group filter
+        if (percentMode && ds._hideInPctMode) return;
         if (ds._group === group) ds.hidden = !lineFilterState[group];
     });
     blockChart.update();
@@ -1391,6 +1502,60 @@ async function triggerSodRefresh() {
     } catch (err) {
         btn.disabled = false;
         btn.textContent = '🔄 Jetzt abrufen';
+    }
+}
+
+// ── History full refresh (physical + SoD history from Pure1) ──────────────
+async function triggerHistoryRefresh() {
+    const btn = document.getElementById('historyRefreshBtn');
+    const statusEl = document.getElementById('capStatus');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Abruf läuft…'; }
+
+    const fmtDate = d => d.toISOString().slice(0, 10);
+    const today = new Date();
+    const twoYearsAgo = new Date(today);
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+
+    try {
+        // 1. Refresh physical capacity (records today's values into CapacityHistory).
+        //    The endpoint starts a background thread and returns immediately, so we wait
+        //    a few seconds (same pattern as the global "Aktualisieren" button) before
+        //    moving on to step 2 – the thread typically finishes within 1–2 s for small
+        //    deployments but may take longer for many systems.
+        if (btn) btn.textContent = '⏳ Systeme werden abgefragt…';
+        const refreshResp = await fetch('/capacity/api/refresh', {method: 'POST'});
+        if (!refreshResp.ok) {
+            throw new Error(`Kapazitätsabfrage fehlgeschlagen (HTTP ${refreshResp.status})`);
+        }
+        await new Promise(r => setTimeout(r, 3000));
+
+        // 2. Fetch SoD history from Pure1 (last 2 years → today), if configured
+        if (pure1Configured) {
+            if (btn) btn.textContent = '⏳ SoD-Verlauf wird abgerufen…';
+            const sodResp = await fetch('/capacity/api/import/sod-history-pure1', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({start_date: fmtDate(twoYearsAgo), end_date: fmtDate(today)}),
+            });
+            const sodData = await sodResp.json();
+            if (!sodResp.ok || sodData.error) {
+                if (statusEl) statusEl.innerHTML =
+                    `⚠ SoD-Verlauf: ${escHtml(sodData.error || 'Unbekannter Fehler')}`;
+            } else {
+                const skippedInfo = sodData.skipped > 0 ? `, ${sodData.skipped} übersprungen` : '';
+                if (statusEl) statusEl.innerHTML =
+                    `✅ Verlauf aktualisiert – ${sodData.imported} SoD-Datensätze importiert${skippedInfo}.`;
+            }
+        } else {
+            if (statusEl) statusEl.innerHTML = '✅ Kapazitätsdaten aktualisiert.';
+        }
+
+        // 3. Reload charts to show freshly imported data
+        await loadHistory(currentRange());
+    } catch (err) {
+        if (statusEl) statusEl.innerHTML = `⚠ Fehler beim Abrufen der Verlaufsdaten: ${escHtml(err.message)}`;
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 Verlauf abrufen'; }
     }
 }
 

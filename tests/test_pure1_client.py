@@ -5,9 +5,10 @@ patched so we can assert the exact OAuth parameters sent to the token
 endpoint without requiring real Pure1 credentials.
 """
 
+import datetime
 import json
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -414,4 +415,233 @@ class TestApiPure1TestStepLogging:
         assert '…' not in auth_line, "Access token must not be truncated in curl command"
         assert 'fake-access-token-xyz' in auth_line
 
+
+# ---------------------------------------------------------------------------
+# fetch_sod_license_history – resource_ids usage
+# ---------------------------------------------------------------------------
+
+class TestFetchSodLicenseHistoryResourceIds:
+    """Verify that fetch_sod_license_history uses resource_ids (not resource_names)."""
+
+    def setup_method(self):
+        self.private_key_pem = _generate_test_private_key_pem()
+        self.app_id = "pure1:apikey:test"
+
+    def _make_licenses(self):
+        """Return two fake subscription-license dicts with names containing special chars."""
+        return [
+            {
+                "id": "lic-001",
+                "name": "Equinix ExtHou Test, ERZ",
+                "subscription": {"name": "Sub-A"},
+                "service_tier": "//STaaS-Capacity",
+            },
+            {
+                "id": "lic-002",
+                "name": "eShelter Produktion",
+                "subscription": {"name": "Sub-B"},
+                "service_tier": "//STaaS-Performance",
+            },
+        ]
+
+    def _make_history_items(self, lic_id, metric_name, ts_ms, value):
+        return {
+            "name": metric_name,
+            "resources": [{"id": lic_id, "name": "ignored"}],
+            "data": [[ts_ms, value]],
+        }
+
+    def _run_fetch(self, licenses, history_items):
+        """Run fetch_sod_license_history with mocked HTTP calls."""
+        from app.api.pure1_client import fetch_sod_license_history, PURE1_API_BASE
+
+        token_resp = MagicMock()
+        token_resp.json.return_value = {"access_token": "fake-token"}
+        token_resp.raise_for_status.return_value = None
+
+        licenses_resp = MagicMock()
+        licenses_resp.json.return_value = {"items": licenses, "continuation_token": None}
+        licenses_resp.raise_for_status.return_value = None
+
+        history_resp = MagicMock()
+        history_resp.status_code = 200
+        history_resp.json.return_value = {"items": history_items}
+        history_resp.raise_for_status.return_value = None
+
+        captured_urls = []
+
+        def fake_get(url, **kwargs):
+            captured_urls.append(url)
+            if "subscription-licenses" in url:
+                return licenses_resp
+            return history_resp
+
+        with patch("app.api.pure1_client.requests.post", return_value=token_resp), \
+             patch("app.api.pure1_client.requests.get", side_effect=fake_get):
+            result = fetch_sod_license_history(
+                self.app_id, self.private_key_pem,
+                start_date=datetime.date(2025, 1, 1),
+                end_date=datetime.date(2025, 1, 7),
+            )
+        return result, captured_urls
+
+    def test_uses_resource_ids_not_resource_names(self):
+        """The metrics/history request must contain resource_ids, not resource_names."""
+        from app.api.pure1_client import fetch_sod_license_history, PURE1_API_BASE
+
+        token_resp = MagicMock()
+        token_resp.json.return_value = {"access_token": "fake-token"}
+        token_resp.raise_for_status.return_value = None
+
+        licenses_resp = MagicMock()
+        licenses_resp.json.return_value = {
+            "items": self._make_licenses(),
+            "continuation_token": None,
+        }
+        licenses_resp.raise_for_status.return_value = None
+
+        history_resp = MagicMock()
+        history_resp.status_code = 200
+        history_resp.json.return_value = {"items": []}
+        history_resp.raise_for_status.return_value = None
+
+        get_calls = []
+
+        def fake_get(url, **kwargs):
+            get_calls.append(url)
+            if "subscription-licenses" in url:
+                return licenses_resp
+            return history_resp
+
+        with patch("app.api.pure1_client.requests.post", return_value=token_resp), \
+             patch("app.api.pure1_client.requests.get", side_effect=fake_get):
+            fetch_sod_license_history(
+                self.app_id, self.private_key_pem,
+                start_date=datetime.date(2025, 1, 1),
+                end_date=datetime.date(2025, 1, 7),
+            )
+
+        history_urls = [u for u in get_calls if "metrics/history" in u]
+        assert history_urls, "metrics/history endpoint must be called"
+        for url in history_urls:
+            assert "resource_ids=" in url, (
+                f"URL must use resource_ids, not resource_names. Got: {url}"
+            )
+            assert "resource_names=" not in url, (
+                f"URL must not use resource_names. Got: {url}"
+            )
+
+    def test_license_ids_present_in_query(self):
+        """License IDs must be present in the metrics/history query string."""
+        from app.api.pure1_client import fetch_sod_license_history
+
+        token_resp = MagicMock()
+        token_resp.json.return_value = {"access_token": "fake-token"}
+        token_resp.raise_for_status.return_value = None
+
+        licenses_resp = MagicMock()
+        licenses_resp.json.return_value = {
+            "items": self._make_licenses(),
+            "continuation_token": None,
+        }
+        licenses_resp.raise_for_status.return_value = None
+
+        history_resp = MagicMock()
+        history_resp.status_code = 200
+        history_resp.json.return_value = {"items": []}
+        history_resp.raise_for_status.return_value = None
+
+        get_calls = []
+
+        def fake_get(url, **kwargs):
+            get_calls.append(url)
+            if "subscription-licenses" in url:
+                return licenses_resp
+            return history_resp
+
+        with patch("app.api.pure1_client.requests.post", return_value=token_resp), \
+             patch("app.api.pure1_client.requests.get", side_effect=fake_get):
+            fetch_sod_license_history(
+                self.app_id, self.private_key_pem,
+                start_date=datetime.date(2025, 1, 1),
+                end_date=datetime.date(2025, 1, 7),
+            )
+
+        history_urls = [u for u in get_calls if "metrics/history" in u]
+        assert history_urls
+        combined = " ".join(history_urls)
+        assert "lic-001" in combined
+        assert "lic-002" in combined
+
+    def test_result_contains_license_name_from_info_dict(self):
+        """Result records must use the license display name (not the ID)."""
+        ts_ms = int(datetime.datetime(2025, 1, 6).timestamp() * 1000)
+        from app.api.pure1_client import METRIC_RESERVED
+        history_items = [
+            self._make_history_items("lic-001", METRIC_RESERVED, ts_ms, 10 * 1024**4),
+        ]
+        result, _ = self._run_fetch(self._make_licenses(), history_items)
+        assert len(result) == 1
+        assert result[0]["license_name"] == "Equinix ExtHou Test, ERZ"
+        assert result[0]["subscription_name"] == "Sub-A"
+
+    def test_result_reserved_tb_converted_correctly(self):
+        """reserved_tb must be bytes / 1024^4 (tebibytes)."""
+        ts_ms = int(datetime.datetime(2025, 1, 6).timestamp() * 1000)
+        from app.api.pure1_client import METRIC_RESERVED
+        history_items = [
+            self._make_history_items("lic-002", METRIC_RESERVED, ts_ms, 2 * 1024**4),
+        ]
+        result, _ = self._run_fetch(self._make_licenses(), history_items)
+        assert len(result) == 1
+        assert result[0]["reserved_tb"] == pytest.approx(2.0)
+
+    def test_empty_licenses_returns_empty_list(self):
+        """No licenses → empty result without calling metrics/history."""
+        result, urls = self._run_fetch([], [])
+        assert result == []
+        assert not any("metrics/history" in u for u in urls)
+
+    def test_special_chars_in_names_do_not_appear_in_resource_ids_qs(self):
+        """Commas and spaces inside license display names must not end up in the query string."""
+        from app.api.pure1_client import fetch_sod_license_history
+
+        token_resp = MagicMock()
+        token_resp.json.return_value = {"access_token": "fake-token"}
+        token_resp.raise_for_status.return_value = None
+
+        licenses_resp = MagicMock()
+        licenses_resp.json.return_value = {
+            "items": self._make_licenses(),
+            "continuation_token": None,
+        }
+        licenses_resp.raise_for_status.return_value = None
+
+        history_resp = MagicMock()
+        history_resp.status_code = 200
+        history_resp.json.return_value = {"items": []}
+        history_resp.raise_for_status.return_value = None
+
+        get_calls = []
+
+        def fake_get(url, **kwargs):
+            get_calls.append(url)
+            if "subscription-licenses" in url:
+                return licenses_resp
+            return history_resp
+
+        with patch("app.api.pure1_client.requests.post", return_value=token_resp), \
+             patch("app.api.pure1_client.requests.get", side_effect=fake_get):
+            fetch_sod_license_history(
+                self.app_id, self.private_key_pem,
+                start_date=datetime.date(2025, 1, 1),
+                end_date=datetime.date(2025, 1, 7),
+            )
+
+        history_urls = [u for u in get_calls if "metrics/history" in u]
+        # The display name with comma must not appear – only clean IDs should be present
+        for url in history_urls:
+            assert "Equinix ExtHou Test" not in url, (
+                "License display name with comma must not be in the resource_ids query string"
+            )
 

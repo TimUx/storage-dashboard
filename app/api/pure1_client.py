@@ -151,8 +151,10 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
       (``subscription_license_reserved_space``,
       ``subscription_license_on_demand_space``,
       ``subscription_license_effective_used_space``)
-    * ``resource_names``: comma-separated list of **all** subscription-license
-      names (retrieved first from ``/subscription-licenses``)
+    * ``resource_ids``: comma-separated list of **all** subscription-license
+      IDs (retrieved first from ``/subscription-licenses``).  IDs are used
+      instead of ``resource_names`` to avoid 400 errors caused by special
+      characters (e.g. commas) inside license display names.
     * ``aggregation=max``, ``resolution=604800000`` (weekly)
 
     This matches the Pure1 API query confirmed by Pure Storage:
@@ -162,7 +164,7 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
         curl -G 'https://api.pure1.purestorage.com/api/1.latest/metrics/history' \\
           --data-urlencode "aggregation=max" \\
           --data-urlencode "names='subscription_license_reserved_space','subscription_license_on_demand_space','subscription_license_effective_used_space'" \\
-          --data-urlencode "resource_names='<license1>','<license2>'" \\
+          --data-urlencode "resource_ids='<id1>','<id2>'" \\
           --data-urlencode "resolution=604800000" \\
           --data-urlencode "start_time=<ms>" \\
           --data-urlencode "end_time=<ms>"
@@ -190,7 +192,7 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
     # ── 1. Fetch all subscription licenses (paginated) ───────────────────────
-    # We need the license names for resource_names and the subscription /
+    # We need the license IDs for resource_ids and the subscription /
     # service-tier metadata for the result records.
     licenses = []
     continuation = None
@@ -212,15 +214,20 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
     if not licenses:
         return []
 
-    # ── 2. Build license lookup map keyed by license name ────────────────────
-    # Key: license name (str) → {"subscription_name": ..., "service_tier": ...}
+    # ── 2. Build license lookup map keyed by license ID ──────────────────────
+    # Key: license id (str) → {"subscription_name": ..., "service_tier": ...,
+    #                           "license_name": ...}
+    # IDs are plain alphanumeric identifiers without special characters,
+    # making them safe to use in query strings (avoids 400 errors caused by
+    # commas or other special characters in display names).
     license_info: dict = {}
     for lic in licenses:
-        lic_name = lic.get("name", "")
-        if lic_name:
-            license_info[lic_name] = {
+        lic_id = lic.get("id", "")
+        if lic_id:
+            license_info[lic_id] = {
                 "subscription_name": (lic.get("subscription") or {}).get("name", ""),
                 "service_tier": lic.get("service_tier") or None,
+                "license_name": lic.get("name", ""),
             }
 
     # ── 3. Convert dates to Unix millisecond timestamps ──────────────────────
@@ -239,22 +246,22 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
     batch_size = max(1, MAX_TIMESERIES_PER_REQUEST // len(metric_names))
     names_qs = ",".join(f"'{n}'" for n in metric_names)
 
-    lic_names = list(license_info.keys())
+    lic_ids = list(license_info.keys())
 
-    # key: (date, license_name) → {metric_name: value_bytes}
+    # key: (date, license_id) → {metric_name: value_bytes}
     data_map: dict = {}
 
-    for i in range(0, len(lic_names), batch_size):
-        batch = lic_names[i: i + batch_size]
+    for i in range(0, len(lic_ids), batch_size):
+        batch = lic_ids[i: i + batch_size]
         # Build query string without URL-encoding the single quotes.
         # The Pure1 API spec marks string-array parameters as "x-quoted: true",
         # meaning string values must be wrapped in single quotes in the raw query
         # string (e.g. names='metric1','metric2'). URL-encoding the quotes would
         # prevent correct server-side parsing.
-        resource_names_qs = ",".join(f"'{n}'" for n in batch)
+        resource_ids_qs = ",".join(f"'{id_}'" for id_ in batch)
         qs = (
             f"names={names_qs}"
-            f"&resource_names={resource_names_qs}"
+            f"&resource_ids={resource_ids_qs}"
             f"&start_time={start_ms}"
             f"&end_time={end_ms}"
             f"&resolution={WEEKLY_MS}"
@@ -274,28 +281,28 @@ def fetch_sod_license_history(app_id: str, private_key_pem: str,
             resources = item.get("resources", [])
             if not resources:
                 continue
-            # resources[0].name is the subscription-license name
-            lic_name = resources[0].get("name", "")
+            # resources[0].id is the subscription-license ID
+            lic_id = resources[0].get("id", "")
             for point in item.get("data", []):
                 if len(point) < 2 or point[1] is None:
                     continue
                 ts_ms, value = point[0], point[1]
                 rec_date = _dt.date.fromtimestamp(ts_ms / 1000)
-                key = (rec_date, lic_name)
+                key = (rec_date, lic_id)
                 if key not in data_map:
                     data_map[key] = {}
                 data_map[key][m_name] = value
 
     # ── 5. Build result ───────────────────────────────────────────────────────
     result = []
-    for (rec_date, lic_name), values in sorted(data_map.items()):
-        info = license_info.get(lic_name)
+    for (rec_date, lic_id), values in sorted(data_map.items()):
+        info = license_info.get(lic_id)
         if not info:
             continue
         result.append({
             "date": rec_date,
             "subscription_name": info["subscription_name"],
-            "license_name": lic_name,
+            "license_name": info["license_name"],
             "service_tier": info["service_tier"],
             "reserved_tb": (values.get(METRIC_RESERVED) or 0) / 1024**4,
             "effective_used_tb": (values.get(METRIC_EFFECTIVE_USED) or 0) / 1024**4,
