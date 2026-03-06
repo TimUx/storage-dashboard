@@ -1032,11 +1032,85 @@ class NetAppONTAPClient(StorageClient):
             except Exception as hw_error:
                 logger.warning(f"Could not get hardware status for ONTAP {self.ip_address}: {hw_error}")
             
+            # Get EMS (Event Management System) alerts
+            # API schema reference: ontap_swagger.yaml – ems_event definition
+            # Severity hierarchy: emergency > alert > error > notice > informational > debug
+            # We only retrieve events that represent actionable problems (emergency/alert/error).
+            # Fields per ems_event schema:
+            #   index           – event ID (integer)
+            #   message.name    – event name (e.g. "callhome.spares.low")
+            #   message.severity – enum: emergency, alert, error, notice, informational, debug
+            #   log_message     – formatted human-readable description
+            #   time            – ISO-8601 timestamp
+            #   node.name       – node where the event originated
+            alerts_count = 0
+            alert_details = []
+            try:
+                ems_response = _local_session.get(
+                    f"{self.base_url}/api/support/ems/events",
+                    auth=auth,
+                    headers=headers,
+                    params={
+                        'message.severity': 'emergency,alert,error',
+                        'fields': 'index,message.name,message.severity,log_message,time,node.name',
+                        'max_records': 100,
+                        'order_by': 'time desc',
+                    },
+                    verify=ssl_verify,
+                    timeout=15
+                )
+
+                if ems_response.status_code == 200:
+                    ems_data = ems_response.json()
+                    records = ems_data.get('records', [])
+                    alerts_count = len(records)
+
+                    for event in records:
+                        msg = event.get('message', {})
+                        severity_raw = msg.get('severity', 'error')
+                        node_info = event.get('node', {})
+                        alert_details.append({
+                            'id': str(event.get('index', '-')),
+                            'title': msg.get('name', '-'),
+                            'details': event.get('log_message', '-'),
+                            'severity': severity_raw,
+                            'error_code': msg.get('name', '-'),
+                            'timestamp': event.get('time', '-'),
+                            'component': node_info.get('name', '-') if isinstance(node_info, dict) else '-',
+                        })
+
+                    # Escalate hardware_status when critical EMS events are present
+                    emergency_count = sum(
+                        1 for e in alert_details if e['severity'] == 'emergency'
+                    )
+                    if emergency_count > 0 and hardware_status != 'error':
+                        hardware_status = 'error'
+                    elif alerts_count > 0 and hardware_status == 'ok':
+                        hardware_status = 'warning'
+
+                    if alerts_count > 0:
+                        logger.warning(
+                            f"Found {alerts_count} EMS events (emergency/alert/error) "
+                            f"for ONTAP {self.ip_address}"
+                        )
+                elif ems_response.status_code == 401:
+                    logger.warning(
+                        f"Not authorised to read EMS events for ONTAP {self.ip_address} "
+                        f"(user may lack permissions)"
+                    )
+                else:
+                    logger.debug(
+                        f"EMS events endpoint returned HTTP {ems_response.status_code} "
+                        f"for ONTAP {self.ip_address}"
+                    )
+            except Exception as ems_error:
+                logger.warning(f"Could not get EMS events for ONTAP {self.ip_address}: {ems_error}")
+
             return self._format_response(
                 status='online',
                 hardware=hardware_status,
                 cluster='ok',
-                alerts=0,
+                alerts=alerts_count,
                 total_tb=total_bytes / (1024**4),
                 used_tb=used_bytes / (1024**4),
                 os_version=os_version,
@@ -1046,7 +1120,8 @@ class NetAppONTAPClient(StorageClient):
                 metrocluster_dr_groups=metrocluster_dr_groups if metrocluster_dr_groups else None,
                 metrocluster_peers=metrocluster_peers if metrocluster_peers else None,
                 controllers=metrocluster_nodes if metrocluster_nodes else cluster_nodes,
-                hardware_details=hardware_details if hardware_details else None
+                hardware_details=hardware_details if hardware_details else None,
+                alert_details=alert_details if alert_details else None
             )
         except Exception as e:
             logger.error(f"Error getting NetApp ONTAP health status for {self.ip_address}: {e}")

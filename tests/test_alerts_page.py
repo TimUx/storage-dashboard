@@ -216,6 +216,28 @@ class TestAlertsPageVendorNormalisation:
         html = client.get('/alerts/').data.decode()
         assert '1 offener Alert' in html
 
+    def test_ontap_ems_alert_details_rendered(self, client, db_session):
+        """ONTAP EMS alert_details (from EMS events) are normalised and shown in the table."""
+        system = _make_system(db_session, 'ontap-cl01', vendor='netapp-ontap')
+        _make_cache(db_session, system, {
+            'alerts': 1,
+            'alert_details': [{
+                'id': '42',
+                'title': 'callhome.spares.low',
+                'details': 'Spare capacity is critically low on node1',
+                'severity': 'error',
+                'error_code': 'callhome.spares.low',
+                'timestamp': '2026-03-06T08:00:00+00:00',
+                'component': 'node1',
+            }],
+        })
+        db_session.session.commit()
+        html = client.get('/alerts/').data.decode()
+        assert 'callhome.spares.low' in html
+        assert 'Spare capacity is critically low on node1' in html
+        assert 'ontap-cl01' in html
+        assert 'NetApp ONTAP' in html
+
 
 class TestOpenAlertsCountContextVar:
     def test_navbar_shows_alert_count_badge(self, client, db_session):
