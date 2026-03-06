@@ -1,10 +1,12 @@
 """Main dashboard routes"""
-from flask import Blueprint, render_template, abort, current_app
-from app.models import StorageSystem, TagGroup, db
-from app.api import get_client
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import json as _json
 import logging
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from flask import Blueprint, render_template, abort, current_app
+from app.models import StorageSystem, TagGroup, CapacitySnapshot, StatusCache, db
+from app.api import get_client
 
 bp = Blueprint('main', __name__)
 logger = logging.getLogger(__name__)
@@ -318,8 +320,9 @@ def index():
 def system_details(system_id):
     """Detailed view for a single storage system"""
     system = StorageSystem.query.get_or_404(system_id)
-    
-    # Fetch current status
+    status_from_cache = False
+
+    # Fetch current status via live API call
     try:
         client = get_client(
             vendor=system.vendor,
@@ -333,36 +336,45 @@ def system_details(system_id):
     except Exception as e:
         logger.error(f"Error getting health status for {system.name} ({system.ip_address}): {e}")
         logger.error(traceback.format_exc())
-        status = {
-            'status': 'error',
-            'hardware_status': 'unknown',
-            'cluster_status': 'unknown',
-            'alerts': 0,
-            'capacity_total_tb': 0,
-            'capacity_used_tb': 0,
-            'capacity_percent': 0,
-            'error': str(e)
-        }
-    
+        status = {'status': 'error', 'hardware_status': 'unknown', 'cluster_status': 'unknown',
+                  'alerts': 0, 'capacity_total_tb': 0, 'capacity_used_tb': 0,
+                  'capacity_percent': 0, 'error': str(e)}
+
+    # When the live call fails or returns an error, fall back to the cached status
+    # so the page still shows meaningful information (capacity, last-known health, alerts).
+    if status.get('status') == 'error' or status.get('error'):
+        cache = StatusCache.query.filter_by(system_id=system.id).first()
+        if cache and cache.status_json:
+            try:
+                cached = _json.loads(cache.status_json)
+                if cached.get('status') == 'online':
+                    # Preserve the original error so the warning banner is shown
+                    live_error = status.get('error')
+                    status = cached
+                    status['_live_error'] = live_error
+                    status_from_cache = True
+                    logger.info(f"Using cached status for {system.name} ({system.ip_address})")
+            except Exception as cache_err:
+                logger.warning(f"Failed to parse cached status for {system.name}: {cache_err}")
+
     # Override capacity values with Pure1-corrected data from CapacitySnapshot
     # when available and when the status fetch succeeded.  The hourly capacity
     # refresh supplements local array values with Pure1 physical-used figures,
     # which is the authoritative source for Evergreen One arrays.
-    if not status.get('error'):
-        from app.models import CapacitySnapshot
-        snap = CapacitySnapshot.query.filter_by(system_id=system.id).first()
-        if snap and snap.total_tb > 0:
-            status['capacity_total_tb'] = snap.total_tb
-            status['capacity_used_tb'] = snap.used_tb
-            status['capacity_percent'] = snap.percent_used
+    snap = CapacitySnapshot.query.filter_by(system_id=system.id).first()
+    if snap and snap.total_tb > 0:
+        status['capacity_total_tb'] = snap.total_tb
+        status['capacity_used_tb'] = snap.used_tb
+        status['capacity_percent'] = snap.percent_used
 
     # Get partner cluster if exists
     partner_cluster = None
     if system.partner_cluster_id:
         partner_cluster = StorageSystem.query.get(system.partner_cluster_id)
-    
-    return render_template('details.html', 
-                         system=system,
-                         status=status,
-                         partner_cluster=partner_cluster)
+
+    return render_template('details.html',
+                           system=system,
+                           status=status,
+                           status_from_cache=status_from_cache,
+                           partner_cluster=partner_cluster)
 

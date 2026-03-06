@@ -505,6 +505,11 @@
         <strong>⚠️ Fehler beim Abrufen der Daten:</strong> {{ status.error }}
     </div>
     {% endif %}
+    {% if status_from_cache %}
+    <div class="error-message" style="background:#fff3cd;border-color:#ffc107;color:#856404;">
+        <strong>ℹ️ Gecachte Daten:</strong> Live-Abfrage fehlgeschlagen – es werden die zuletzt gecachten Status-Daten angezeigt.
+    </div>
+    {% endif %}
 
     <div class="detail-grid">
         <!-- Status Overview -->
