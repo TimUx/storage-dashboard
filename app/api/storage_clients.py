@@ -16,6 +16,18 @@ logger = logging.getLogger(__name__)
 _EPOCH_TS_FORMAT = '%Y-%m-%d %H:%M:%S UTC'
 
 
+def _strip_version_date(version_str):
+    """Return only the release identifier from a NetApp version string.
+
+    ONTAP returns version strings like
+    "NetApp Release 9.16.1P11: Thu Jan 15 11:21:38 UTC 2026".
+    Only the part before the first colon is relevant for display.
+    """
+    if version_str and isinstance(version_str, str):
+        return version_str.split(':')[0].strip()
+    return version_str
+
+
 def _epoch_ms_to_str(epoch_ms):
     """Convert a Unix timestamp in milliseconds to a human-readable UTC string."""
     try:
@@ -1247,7 +1259,7 @@ class NetAppONTAPClient(StorageClient):
                 version_data = cluster_data.get('version')
                 os_version = None
                 if version_data and isinstance(version_data, dict):
-                    os_version = version_data.get('full') or version_data.get('generation')
+                    os_version = _strip_version_date(version_data.get('full')) or version_data.get('generation')
                 
             except Exception as cluster_error:
                 return self._format_response(
@@ -1455,7 +1467,7 @@ class NetAppONTAPClient(StorageClient):
                     for node in records:
                         # Extract version info
                         version_info = node.get('version', {})
-                        version_full = version_info.get('full', 'unknown') if isinstance(version_info, dict) else 'unknown'
+                        version_full = _strip_version_date(version_info.get('full', 'unknown')) if isinstance(version_info, dict) else 'unknown'
                         
                         # Extract management IP addresses
                         mgmt_ips = []
