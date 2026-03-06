@@ -1,6 +1,6 @@
 """Alerts page route – shows all open alerts across all storage systems"""
 from flask import Blueprint, render_template
-from app.models import StorageSystem, StatusCache
+from app.models import StorageSystem, StatusCache, AlertState
 
 bp = Blueprint('alerts', __name__)
 
@@ -50,13 +50,46 @@ def _normalize_alert_detail(alert, system):
     }
 
 
+def _merge_alert_states(all_alerts):
+    """Attach persisted state (acknowledged, assignee, comment, alert_key) to each alert dict.
+
+    Performs a single batch DB query so that merging is O(1) per alert rather
+    than O(n) queries.
+    """
+    if not all_alerts:
+        return
+
+    # Build composite keys for all alerts
+    for a in all_alerts:
+        a['alert_key'] = AlertState.make_key(
+            a.get('system_name', ''),
+            a.get('alert_id', ''),
+            a.get('title', ''),
+        )
+
+    keys = [a['alert_key'] for a in all_alerts]
+    states_by_key = {
+        s.alert_key: s
+        for s in AlertState.query.filter(AlertState.alert_key.in_(keys)).all()
+    }
+
+    for a in all_alerts:
+        state = states_by_key.get(a['alert_key'])
+        a['acknowledged'] = state.acknowledged if state else False
+        a['assignee'] = state.assignee if state else None
+        a['comment'] = state.comment if state else None
+
+
 def collect_alerts():
     """Build the normalised list of open alerts from the current StatusCache.
 
     Returns a list of alert dicts in the common schema.  Each dict also carries
     a ``fetched_at`` key (ISO-8601 string or ``None``) indicating how fresh the
-    underlying cache entry is.  This function is used by both the HTML route and
-    the JSON API endpoint so that both views always reflect the same data.
+    underlying cache entry is, as well as ``alert_key``, ``acknowledged``,
+    ``assignee``, and ``comment`` fields from :class:`AlertState`.
+
+    This function is used by both the HTML route and the JSON API endpoint so
+    that both views always reflect the same data.
     """
     systems = StorageSystem.query.filter_by(enabled=True).order_by(StorageSystem.name).all()
 
@@ -103,6 +136,7 @@ def collect_alerts():
                 'fetched_at': fetched_at,
             })
 
+    _merge_alert_states(all_alerts)
     return all_alerts
 
 

@@ -367,3 +367,171 @@ class TestApiAlertsEndpoint:
         data = client.get('/api/alerts').get_json()
         assert 'fetched_at' in data['alerts'][0]
 
+
+# ---------------------------------------------------------------------------
+# Alert state & assignee history tests
+# ---------------------------------------------------------------------------
+
+class TestAlertStateEndpoints:
+    """Tests for the POST /api/alerts/state, GET /api/alerts/assignees,
+    and DELETE /api/alerts/assignees/<name> endpoints."""
+
+    def _alert_key(self, system_name, alert_id, title):
+        from app.models import AlertState
+        return AlertState.make_key(system_name, alert_id, title)
+
+    def test_acknowledge_alert(self, client, db_session):
+        """POST /api/alerts/state can acknowledge an alert by key."""
+        key = self._alert_key('sys1', '1', 'TestTitle')
+        resp = client.post('/api/alerts/state', json={
+            'alert_keys': [key],
+            'acknowledged': True,
+        })
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['updated'] == 1
+
+        from app.models import AlertState
+        state = AlertState.query.filter_by(alert_key=key).first()
+        assert state is not None
+        assert state.acknowledged is True
+
+    def test_unacknowledge_alert(self, client, db_session):
+        """POST /api/alerts/state can un-acknowledge an already-acknowledged alert."""
+        key = self._alert_key('sys1', '2', 'AnotherAlert')
+        # First acknowledge
+        client.post('/api/alerts/state', json={'alert_keys': [key], 'acknowledged': True})
+        # Then un-acknowledge
+        resp = client.post('/api/alerts/state', json={'alert_keys': [key], 'acknowledged': False})
+        assert resp.status_code == 200
+
+        from app.models import AlertState
+        state = AlertState.query.filter_by(alert_key=key).first()
+        assert state.acknowledged is False
+
+    def test_set_assignee(self, client, db_session):
+        """POST /api/alerts/state sets the assignee and records it in history."""
+        key = self._alert_key('sys1', '3', 'AssignAlert')
+        resp = client.post('/api/alerts/state', json={
+            'alert_keys': [key],
+            'assignee': 'Max Müller',
+        })
+        assert resp.status_code == 200
+
+        from app.models import AlertState, AssigneeHistory
+        state = AlertState.query.filter_by(alert_key=key).first()
+        assert state.assignee == 'Max Müller'
+        hist = AssigneeHistory.query.filter_by(name='Max Müller').first()
+        assert hist is not None
+
+    def test_set_comment(self, client, db_session):
+        """POST /api/alerts/state sets the comment field."""
+        key = self._alert_key('sys1', '4', 'CommentAlert')
+        resp = client.post('/api/alerts/state', json={
+            'alert_keys': [key],
+            'comment': 'Wird untersucht',
+        })
+        assert resp.status_code == 200
+
+        from app.models import AlertState
+        state = AlertState.query.filter_by(alert_key=key).first()
+        assert state.comment == 'Wird untersucht'
+
+    def test_bulk_acknowledge(self, client, db_session):
+        """POST /api/alerts/state can acknowledge multiple alerts at once."""
+        keys = [
+            self._alert_key('sys1', '10', 'A'),
+            self._alert_key('sys1', '11', 'B'),
+            self._alert_key('sys1', '12', 'C'),
+        ]
+        resp = client.post('/api/alerts/state', json={
+            'alert_keys': keys,
+            'acknowledged': True,
+        })
+        assert resp.status_code == 200
+        assert resp.get_json()['updated'] == 3
+
+        from app.models import AlertState
+        for k in keys:
+            state = AlertState.query.filter_by(alert_key=k).first()
+            assert state is not None and state.acknowledged is True
+
+    def test_missing_alert_keys_returns_400(self, client, db_session):
+        """POST /api/alerts/state without alert_keys returns 400."""
+        resp = client.post('/api/alerts/state', json={'acknowledged': True})
+        assert resp.status_code == 400
+
+    def test_get_assignees_empty(self, client, db_session):
+        """GET /api/alerts/assignees returns empty list when no history."""
+        db_session.session.commit()
+        resp = client.get('/api/alerts/assignees')
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+    def test_get_assignees_returns_names(self, client, db_session):
+        """GET /api/alerts/assignees returns previously stored names."""
+        key = self._alert_key('sys2', '1', 'X')
+        client.post('/api/alerts/state', json={'alert_keys': [key], 'assignee': 'Anna Schmidt'})
+        resp = client.get('/api/alerts/assignees')
+        assert 'Anna Schmidt' in resp.get_json()
+
+    def test_delete_assignee(self, client, db_session):
+        """DELETE /api/alerts/assignees/<name> removes from history."""
+        key = self._alert_key('sys2', '2', 'Y')
+        client.post('/api/alerts/state', json={'alert_keys': [key], 'assignee': 'Tom Berger'})
+        del_resp = client.delete('/api/alerts/assignees/Tom Berger')
+        assert del_resp.status_code == 200
+        names = client.get('/api/alerts/assignees').get_json()
+        assert 'Tom Berger' not in names
+
+    def test_delete_nonexistent_assignee_is_ok(self, client, db_session):
+        """DELETE on a non-existent name returns 200 (idempotent)."""
+        resp = client.delete('/api/alerts/assignees/Nonexistent')
+        assert resp.status_code == 200
+
+
+class TestAlertStateInApiResponse:
+    """Tests that collect_alerts() merges AlertState into each alert dict."""
+
+    def test_acknowledged_field_in_api_response(self, client, db_session):
+        """Each alert in /api/alerts carries acknowledged/assignee/comment fields."""
+        system = _make_system(db_session, 'state-sys')
+        _make_cache(db_session, system, {
+            'alerts': 1,
+            'alert_details': [{'id': '99', 'title': 'StateTest',
+                                'details': 'D', 'severity': 'warning',
+                                'error_code': '-', 'timestamp': '-', 'component': '-'}],
+        })
+        db_session.session.commit()
+
+        data = client.get('/api/alerts').get_json()
+        alert = data['alerts'][0]
+        assert 'acknowledged' in alert
+        assert 'assignee' in alert
+        assert 'comment' in alert
+        assert 'alert_key' in alert
+        assert alert['acknowledged'] is False
+
+    def test_acknowledged_alert_excluded_from_active_count(self, client, db_session):
+        """The navbar count excludes acknowledged alerts."""
+        system = _make_system(db_session, 'ack-count-sys')
+        _make_cache(db_session, system, {
+            'alerts': 2,
+            'alert_details': [
+                {'id': '1', 'title': 'Alert1', 'details': 'D1',
+                 'severity': 'critical', 'error_code': '-', 'timestamp': '-', 'component': '-'},
+                {'id': '2', 'title': 'Alert2', 'details': 'D2',
+                 'severity': 'warning',  'error_code': '-', 'timestamp': '-', 'component': '-'},
+            ],
+        })
+        db_session.session.commit()
+
+        # Acknowledge the first alert
+        from app.models import AlertState
+        key1 = AlertState.make_key('ack-count-sys', '1', 'Alert1')
+        client.post('/api/alerts/state', json={'alert_keys': [key1], 'acknowledged': True})
+
+        # The navbar page should show count=1 (only the unacknowledged alert)
+        html = client.get('/').data.decode()
+        assert '<span class="alert-badge">1</span>' in html
+
