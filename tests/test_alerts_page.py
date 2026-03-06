@@ -267,3 +267,103 @@ class TestOpenAlertsCountContextVar:
         db_session.session.commit()
         html = client.get('/').data.decode()
         assert 'alerts-active' in html
+
+
+# ---------------------------------------------------------------------------
+# /api/alerts JSON endpoint tests
+# ---------------------------------------------------------------------------
+
+class TestApiAlertsEndpoint:
+    """Tests for the /api/alerts JSON endpoint used by the auto-refresh loop."""
+
+    def test_returns_200_and_json(self, client, db_session):
+        """The /api/alerts endpoint must return HTTP 200 with a JSON body."""
+        db_session.session.commit()
+        resp = client.get('/api/alerts')
+        assert resp.status_code == 200
+        assert resp.content_type.startswith('application/json')
+
+    def test_empty_when_no_alerts(self, client, db_session):
+        """No open alerts → response has an empty 'alerts' list."""
+        system = _make_system(db_session, 'api-clean')
+        _make_cache(db_session, system, {'alerts': 0, 'status': 'online'})
+        db_session.session.commit()
+        data = client.get('/api/alerts').get_json()
+        assert data['alerts'] == []
+
+    def test_alerts_list_contains_normalised_fields(self, client, db_session):
+        """Alert entries in the JSON response carry the expected normalised fields."""
+        system = _make_system(db_session, 'api-pure', vendor='pure')
+        _make_cache(db_session, system, {
+            'alerts': 1,
+            'alert_details': [{
+                'id': '77',
+                'title': 'hw_error',
+                'details': 'Controller failure',
+                'severity': 'critical',
+                'error_code': '13',
+                'timestamp': '2026-03-06T10:00:00+00:00',
+                'component': 'CT0',
+            }],
+        })
+        db_session.session.commit()
+        data = client.get('/api/alerts').get_json()
+        assert len(data['alerts']) == 1
+        a = data['alerts'][0]
+        assert a['system_name']  == 'api-pure'
+        assert a['system_vendor'] == 'Pure Storage'
+        assert a['alert_id']     == '77'
+        assert a['title']        == 'hw_error'
+        assert a['severity']     == 'critical'
+        assert a['component']    == 'CT0'
+
+    def test_response_includes_fetched_at(self, client, db_session):
+        """The top-level 'fetched_at' key must be present (may be None when no cache)."""
+        system = _make_system(db_session, 'api-ts')
+        _make_cache(db_session, system, {
+            'alerts': 1,
+            'alert_details': [{
+                'id': '1', 'title': 'T', 'details': 'D',
+                'severity': 'error', 'error_code': '-',
+                'timestamp': '-', 'component': '-',
+            }],
+        })
+        db_session.session.commit()
+        data = client.get('/api/alerts').get_json()
+        assert 'fetched_at' in data
+
+    def test_datadomain_alerts_returned_by_api(self, client, db_session):
+        """DataDomain active_alerts are normalised and returned by /api/alerts."""
+        system = _make_system(db_session, 'api-dd', vendor='dell-datadomain')
+        _make_cache(db_session, system, {
+            'alerts': 1,
+            'active_alerts': [{
+                'id': 'dd-42',
+                'name': 'FanFailure',
+                'severity': 'CRITICAL',
+                'category': 'HardwareFailure',
+                'message': 'Fan 3 has failed',
+                'timestamp': '2026-03-06T09:00:00+00:00',
+                'error_code': 'FAN-001',
+            }],
+        })
+        db_session.session.commit()
+        data = client.get('/api/alerts').get_json()
+        assert len(data['alerts']) == 1
+        assert data['alerts'][0]['title'] == 'FanFailure'
+
+    def test_per_alert_fetched_at_present(self, client, db_session):
+        """Each individual alert dict must carry a 'fetched_at' field."""
+        system = _make_system(db_session, 'api-fa')
+        _make_cache(db_session, system, {
+            'alerts': 1,
+            'alert_details': [{
+                'id': '5', 'title': 'T', 'details': 'D',
+                'severity': 'warning', 'error_code': '-',
+                'timestamp': '-', 'component': '-',
+            }],
+        })
+        db_session.session.commit()
+        data = client.get('/api/alerts').get_json()
+        assert 'fetched_at' in data['alerts'][0]
+

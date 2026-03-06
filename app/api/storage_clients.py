@@ -9,7 +9,7 @@ import warnings
 import logging
 import re
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,115 @@ _EMS_TRACKED_EVENT_NAMES  = _EMS_PROBLEM_EVENT_NAMES | _EMS_RECOVERY_EVENT_NAMES
 
 # ONTAP REST API filter string for all recovery events (used in the second query)
 _EMS_RECOVERY_FILTER = ','.join(sorted(_EMS_RECOVERY_EVENT_NAMES))
+
+# ---------------------------------------------------------------------------
+# EMS age and category filtering
+# ---------------------------------------------------------------------------
+# Two additional filters are applied on top of the state-reconstruction filter:
+#
+# 1. Age filter – events older than _EMS_LOOKBACK_HOURS are discarded.
+#    ONTAP EMS keeps every event forever; old entries that were never paired
+#    with a recovery event (untracked families) would otherwise accumulate and
+#    flood the dashboard with stale noise.
+#
+# 2. Category filter – not all "error"-severity events are equally actionable.
+#    Hardware-related events (drive failures, cluster HA, environmental …) are
+#    shown from severity "error" upwards (unchanged from the API query).
+#    Non-hardware events (capacity thresholds, filesystem notices, …) require
+#    at least severity "alert" so that low-priority "error"-class capacity
+#    warnings are suppressed unless they escalate to truly critical.
+#
+# Hours of EMS history to show.  Events raised before this window are skipped
+# regardless of whether they have been recovered.
+_EMS_LOOKBACK_HOURS = 48
+
+# ONTAP EMS event-name prefixes that identify hardware-related events.
+# These events are retained at all fetched severity levels (emergency/alert/error).
+# Events whose names do NOT start with any of these prefixes require at least
+# severity "alert" (i.e. "error"-only capacity/software events are suppressed).
+_EMS_HARDWARE_EVENT_PREFIXES = (
+    'hm.',        # Health Monitor – hardware fault alerts
+    'disk.',      # Disk / drive hardware
+    'raid.',      # RAID / plex failures
+    'nvme.',      # NVMe hardware
+    'nvmf.',      # NVMe-oF hardware
+    'env.',       # Environmental: fans, PSUs, temperature
+    'cf.',        # Cluster failover / HA
+    'node.',      # Node-level hardware events
+    'sas.',       # SAS interconnect hardware
+    'fc.',        # Fibre Channel hardware
+    'callhome.',  # System call-home (triggered by hardware failures)
+    'cpeer.',     # Cluster peer connectivity
+)
+
+# Minimum severities required for non-hardware EMS events to be shown.
+# "error"-class non-hardware events (e.g. capacity thresholds) are excluded.
+_EMS_NON_HW_MIN_SEVERITIES = frozenset({'emergency', 'alert'})
+
+
+def _parse_ems_timestamp(time_str):
+    """Parse an ONTAP EMS ISO-8601 timestamp string to a timezone-aware datetime.
+
+    Handles both ``+00:00`` offset notation and the ``Z`` suffix.
+    Returns ``None`` when the string cannot be parsed so callers can apply a
+    conservative fallback (include the event rather than silently drop it).
+    """
+    if not time_str:
+        return None
+    try:
+        s = str(time_str)
+        if s.endswith('Z'):
+            s = s[:-1] + '+00:00'
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _filter_ems_by_age_and_category(events):
+    """Apply age and category-based severity filters to EMS problem events.
+
+    Removes:
+    * Events older than ``_EMS_LOOKBACK_HOURS`` hours – stale log entries
+      that should have been cleared but were not (e.g. untracked event
+      families without a recovery counterpart).
+    * Non-hardware events whose severity is only ``error`` – capacity
+      threshold breaches, filesystem notices, etc. require at least
+      severity ``alert`` to appear in the dashboard.
+
+    Hardware events (names starting with ``_EMS_HARDWARE_EVENT_PREFIXES``)
+    are kept at every fetched severity level (emergency / alert / error).
+
+    Events with an unparseable timestamp or missing message name are included
+    conservatively so that unknown events are never silently dropped.
+
+    Args:
+        events: list of EMS event dicts (from the severity-based API query).
+
+    Returns:
+        Filtered list containing only relevant, recent EMS events.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=_EMS_LOOKBACK_HOURS)
+    result = []
+    for event in events:
+        # --- Age filter ---------------------------------------------------
+        event_time = _parse_ems_timestamp(event.get('time', ''))
+        if event_time is not None and event_time < cutoff:
+            continue  # Too old – skip
+
+        # --- Category-based severity filter --------------------------------
+        msg      = event.get('message', {})
+        msg_name = msg.get('name', '')
+        severity = msg.get('severity', '')
+
+        is_hardware = any(msg_name.startswith(pfx) for pfx in _EMS_HARDWARE_EVENT_PREFIXES)
+        if not is_hardware and severity not in _EMS_NON_HW_MIN_SEVERITIES:
+            continue  # Low-priority non-hardware event – skip
+
+        result.append(event)
+    return result
 
 
 def _get_ems_resource_key(event):
@@ -1529,6 +1638,11 @@ class NetAppONTAPClient(StorageClient):
                 if ems_response.status_code == 200:
                     ems_data = ems_response.json()
                     problem_records = ems_data.get('records', [])
+
+                    # Pre-filter: drop events outside the 48-hour lookback window and
+                    # suppress low-priority non-hardware "error"-class events before
+                    # the more expensive state-reconstruction step.
+                    problem_records = _filter_ems_by_age_and_category(problem_records)
 
                     # Second query: fetch recovery events for known event families so we
                     # can determine which problem events have already been resolved.
