@@ -1,116 +1,300 @@
 # Storage Dashboard
 
-Ein Python-basiertes Dashboard zur Überwachung von Storage-Systemen verschiedener Hersteller über Browser und CLI.
+Ein Python/Flask-basiertes Dashboard zur Überwachung von Storage-Systemen verschiedener Hersteller über Browser und CLI.
 
-## Screenshots
+---
 
-### Dashboard – Card View (mit Aktualisierungs-Button und Auto-Refresh)
-![Dashboard Card View](screenshots/dashboard-card-view.png)
+## Inhaltsverzeichnis
 
-### Dashboard – System Details
-![System Details](screenshots/system-details.png)
+1. [Übersicht & Features](#1-übersicht--features)
+2. [Unterstützte Storage-Systeme](#2-unterstützte-storage-systeme)
+3. [Dashboard-Ansicht](#3-dashboard-ansicht)
+4. [Alerts-Seite](#4-alerts-seite)
+5. [System-Detailansicht](#5-system-detailansicht)
+6. [Kapazitätsreport](#6-kapazitätsreport)
+7. [Admin-Bereich](#7-admin-bereich)
+8. [Einstellungen](#8-einstellungen)
+9. [API & Swagger UI](#9-api--swagger-ui)
+10. [Systemanforderungen](#10-systemanforderungen)
+11. [Installation](#11-installation)
+12. [Admin-Benutzer erstellen](#12-admin-benutzer-erstellen)
+13. [CLI-Interface](#13-cli-interface)
+14. [Datenbankmigrationen](#14-datenbankmigrationen)
+15. [Deployment](#15-deployment)
 
-### Admin-Bereich
-![Admin Area](screenshots/admin-area.png)
+---
 
-### Einstellungen – Pure1 API-Zugang (Tab „API-Zugänge")
-![Einstellungen – Pure1 API-Zugänge](screenshots/settings-api-access-pure1.png)
+## 1. Übersicht & Features
 
-### Einstellungen – Proxy-Konfiguration
-![Einstellungen – Proxy](screenshots/settings-proxy.png)
+Storage Dashboard überwacht Pure Storage, NetApp ONTAP, NetApp StorageGRID und Dell DataDomain zentral über deren REST APIs – ohne herstellerspezifische SDKs.
 
-### Kapazitätsreport – Nach Storage Art
+**Kernfunktionen:**
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| **Multi-Vendor Support** | Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11, Dell DataDomain |
+| **Echtzeit-Dashboard** | Card- und Table-Ansicht aller Systeme mit farbkodierten Status-Badges |
+| **Alerts-Seite** | Konsolidierte Übersicht aller offenen Alerts aller Systeme inkl. ONTAP EMS Events |
+| **Kapazitätsreport** | Tabellarische und grafische Kapazitätsübersicht (5 Ansichten) mit 2-Jahres-Verlauf |
+| **System-Detailansicht** | Einzelsystem-Daten mit Capacity, Hardware-Status, Node-Infos und Alerts |
+| **Hintergrund-Polling** | Konfigurierbarer Hintergrunddienst (1–60 min) mit UI-seitigem Caching |
+| **Auto-Refresh** | Automatische Dashboard-Aktualisierung ohne Seiten-Reload |
+| **Pure1 Integration** | Storage on Demand (SoD) Daten mit Verlauf und Effektivwerten |
+| **Proxy-Unterstützung** | HTTP/HTTPS-Proxy für ausgehende Verbindungen (z.B. Pure1) |
+| **CLI Interface** | Lokal und Remote (HTTP API) |
+| **REST API + Swagger UI** | Vollständig dokumentierte API mit interaktiver Swagger-Oberfläche |
+| **SSL-Zertifikatsverwaltung** | Upload eigener CA/Root-Zertifikate für interne Storage-Systeme |
+| **Tag-System** | Flexibles Tagging (Storage Art, Landschaft, Tätigkeitsfeld) |
+| **Admin-Bereich** | Systemverwaltung, Einstellungen, Logs, Zertifikate |
+
+---
+
+## 2. Unterstützte Storage-Systeme
+
+Alle Systeme werden über standardmäßige REST API Calls angebunden:
+
+| System | API | Authentifizierung |
+|--------|-----|-------------------|
+| **Pure Storage FlashArray** | REST API v2 | API Token |
+| **NetApp ONTAP 9** | ONTAP REST API | Benutzername / Passwort |
+| **NetApp StorageGRID 11** | Grid Management API v4 | Benutzername / Passwort |
+| **Dell DataDomain** | DataDomain REST API v1.0 | Benutzername / Passwort |
+
+> **Hinweis:** Das Dashboard liest für NetApp ONTAP automatisch EMS-Events (Emergency/Alert/Error) aus dem Event Management System aus – vollständig via REST API, ohne SNMP oder proprietäre Agenten.
+
+---
+
+## 3. Dashboard-Ansicht
+
+Das Haupt-Dashboard zeigt alle Storage-Systeme gruppiert nach Hersteller in zwei wählbaren Ansichten.
+
+### Card-Ansicht
+
+Jede Systemkarte zeigt: Name, IP, Status-Badge (Online/Offline/Fehler), Hardware-Status, Cluster-Status, Alerts-Zähler, Kapazitätsbalken und zugewiesene Tags.
+
+![Dashboard – Card-Ansicht](screenshots/dashboard-card-view.png)
+
+### Table-Ansicht
+
+Kompakte Tabellenansicht aller Systeme mit denselben Statusinformationen – ideal bei vielen Systemen.
+
+![Dashboard – Table-Ansicht](screenshots/dashboard-table-view.png)
+
+**Dashboard-Features:**
+- **Filter**: Hersteller, Status, Cluster-Typ, Tags, Freitext
+- **🔔 Alerts-Badge**: Navbar-Button zeigt Anzahl offener Alerts aller Systeme
+- **↻ Aktualisieren**: Sofortige manuelle Datenaktualisierung per Button
+- **Auto-Refresh**: 30–120 Sekunden (konfigurierbar), ohne Seiten-Reload
+- **Spaltenbreite**: 1–4 Spalten umschaltbar (Card-Ansicht)
+- **Hintergrund-Caching**: Status-Daten werden im Hintergrund gecacht – die UI erscheint sofort
+
+---
+
+## 4. Alerts-Seite
+
+Die Alerts-Seite aggregiert alle offenen Alerts aus dem Status-Cache aller Systeme in einer zentralen Tabelle. Sie ist über den orangen 🔔-Button in der Navbar erreichbar (zeigt Anzahl offener Alerts).
+
+![Alerts-Seite](screenshots/alerts-page.png)
+
+**Unterstützte Alert-Quellen:**
+
+| Hersteller | Alert-Quelle | Felder |
+|-----------|-------------|--------|
+| **NetApp ONTAP** | EMS Events (`/api/support/ems/events`) | Severity (Emergency/Alert/Error), EMS-Name, Log-Message, Node, Zeitstempel |
+| **Pure Storage** | Array Alerts | Severity, Titel, Details, Error-Code, Komponente |
+| **NetApp StorageGRID** | Grid Alerts | Severity, Alert-Name, Details, Node |
+| **Dell DataDomain** | Active Alerts | Severity, Alert-Name, Kategorie, Meldung |
+
+**ONTAP EMS Alert-Abfrage:**  
+Das Dashboard ruft via `GET /api/support/ems/events?message.severity=emergency,alert,error` die letzten 100 EMS Events ab. Die Severity wird auf den Hardware-Status gemappt:
+- `emergency` → `hardware_status = error`
+- `alert` / `error` → `hardware_status = warning`
+
+---
+
+## 5. System-Detailansicht
+
+Erreichbar über den **Details**-Button einer Systemkarte oder direkt via `/systems/<id>/details`.
+
+![System-Detailansicht](screenshots/system-details.png)
+
+**Angezeigte Informationen:**
+- Hersteller, Live-Status (oder letzter Caching-Zustand mit Hinweis-Banner)
+- Hardware-Status, Cluster-Status, Alerts-Zähler
+- Kapazität (Gesamt/Genutzt/Frei/Auslastung) – mit Pure1-Korrekturwerten wenn verfügbar
+- Netzwerk-Information (IP, Ports)
+- Cluster-Informationen (Typ, Partner)
+- Node-Details, Hardware-Komponenten (wenn verfügbar)
+
+> **Caching-Fallback**: Wenn die Live-Abfrage fehlschlägt (z.B. kein Netz), werden automatisch die zuletzt gecachten Status-Daten angezeigt – mit gelbem Hinweis-Banner.
+
+---
+
+## 6. Kapazitätsreport
+
+Der Kapazitätsreport ist unter `/capacity/` erreichbar und bietet fünf Tabs.
+
+### Tab: Nach Storage Art
+
+Kapazitäten gruppiert nach Storage-Typ (Block → File → Object → Archiv → Backup), jeweils mit Untergruppierung nach Umgebung.
+
 ![Kapazitätsreport – Nach Storage Art](screenshots/capacity-by-storage-art.png)
 
-### Kapazitätsreport – Nach Umgebung
+### Tab: Nach Umgebung
+
+Kapazitäten gruppiert nach Betriebsumgebung (Produktion / Test/Dev), jeweils mit Untergruppierung nach Storage Art.
+
 ![Kapazitätsreport – Nach Umgebung](screenshots/capacity-by-environment.png)
 
-### Kapazitätsreport – Nach Tätigkeitsfeld
+### Tab: Nach Tätigkeitsfeld
+
+Kapazitäten gruppiert nach Themenzugehörigkeit (ITS, ERZ, EH, …), jeweils mit Aufschlüsselung nach Umgebung und Storage Art.
+
 ![Kapazitätsreport – Nach Tätigkeitsfeld](screenshots/capacity-by-department.png)
 
-### Kapazitätsreport – Details (alle Systeme)
+### Tab: Details
+
+Alle Einzelsysteme mit Umgebung, Tätigkeitsfeld, Gesamt/Genutzt/Frei und Auslastungs-Balken.
+
 ![Kapazitätsreport – Details](screenshots/capacity-details.png)
 
-### Kapazitätsreport – Verlauf mit physischen & SoD-Linien, Filter und Prognose
+### Tab: Verlauf
+
+Historische Kapazitätsgraphen (2 Jahre tägliche Datenpunkte) für alle Storage-Typen:
+- **Block**: Physische Kapazität + SoD-Vertragswerte parallel (mit Linienfilter)
+- **File / Object / Archiv / Backup**: Genutzte Kapazität je System
+
 ![Kapazitätsreport – Verlauf](screenshots/capacity-history.png)
 
-### Kapazitätsreport – Verlauf Steuerleiste (Zeitraum, Linienfilter, Export/Import)
+**Verlauf-Steuerleiste** (Zeitraum, Export, Import):
+
 ![Kapazitätsreport – Verlauf Steuerleiste](screenshots/capacity-history-controls.png)
 
-### Kapazitätsreport – Import-Dialog: Physische Systeme (CSV)
-![Import-Dialog – Physische Systeme](screenshots/capacity-import-modal-physical.png)
+**Weitere Kapazitäts-Features:**
+- Zeitraum-Filter: Alle / 2 Jahre / 1 Jahr / 6 Monate / 3 Monate
+- Export: CSV, Excel, PDF
+- Import: CSV-Upload für physische Systeme und SoD-Daten
+- Prognose: Wachstumsprognose im Verlaufsgraphen
+- Pure1 SoD-Tab: Nur sichtbar wenn Pure1 in Einstellungen konfiguriert
 
-### Kapazitätsreport – Import-Dialog: Storage on Demand / Pure1 API
-![Import-Dialog – Storage on Demand](screenshots/capacity-import-modal-sod.png)
+---
 
-> **Hinweis**: Das Dashboard verfügt über ein modernisiertes ITScare Design mit Auto-Refresh-Funktionalität.
+## 7. Admin-Bereich
 
-## Features
+Der Admin-Bereich (`/admin`) ist durch Login geschützt und enthält Systemverwaltung, Einstellungen, Logs, Zertifikate und Tags.
 
-- **Multi-Vendor Support**: Überwachung von Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11 und Dell DataDomain
-- **Web Dashboard**: Übersichtliche Card/Grid-Ansicht aller Storage-Systeme
-- **Kapazitätsreport**: Tabellarische Kapazitätsübersicht aller Systeme unter `/capacity/` – gruppiert nach Storage Art (**Block → File → Object → Archiv → Backup**), Umgebung oder Tätigkeitsfeld, mit Verlaufsgraphen und Wachstumsprognose
-- **Verlaufsdiagramme**: Historische Kapazitätsgraphen in der gleichen Reihenfolge wie die Tabellen (Block → File → Object → Archiv → Backup). Der **Block-Graph** zeigt physische und SoD-Vertragswerte parallel in zwei Liniengruppen. Über einen **Linienfilter** direkt im Block-Graph-Header können physische oder SoD-Linien ein- und ausgeblendet werden.
-- **Storage on Demand (Pure1)**: Bei konfigurierter Pure1 API wird in allen Kapazitätsansichten (Nach Storage Art, Nach Umgebung, Nach Tätigkeitsfeld) eine kompakte SoD-Zusammenfassung angezeigt (Reservierte Kapazität, Effektiv Genutzt, Auslastung [%]). Die Kapazitätstabellen zeigen zusätzlich eine Spalte **„Effektiv Genutzt [TB]"**, die die Pure1-Effektivwerte (nach Deduplikation/Komprimierung) pro Zeile summiert. Vollständige Detailinformationen (Verträge, Lizenzen, Arrays) sind im Tab **Details** verfügbar:
-  - Wöchentlich automatisch abgerufen, manuell per Knopfdruck aktualisierbar
-  - Wird nur angezeigt, wenn Pure1 in den Einstellungen konfiguriert ist
-- **Pure1 API-Integration**: Konfiguration im Admin-Bereich unter **Einstellungen → API-Zugänge**; dynamische JWT-Authentifizierung (RS256) gegen die Pure1 REST API; Private Key Passphrase wird verschlüsselt gespeichert
-- **Proxy-Unterstützung**: Konfigurierbarer HTTP/HTTPS-Proxy (verschlüsselt gespeichert) für ausgehende Internet-Verbindungen (z. B. Pure1); lokale Storage-Systeme umgehen den Proxy grundsätzlich
-- **Hintergrund-API-Abfragen**: Dashboard-Daten werden im Hintergrund durch einen konfigurierbaren Dienst aktualisiert – die UI erscheint sofort, ohne auf alle Systeme warten zu müssen
-- **Aktualisierungs-Button**: Manuelles Auslösen einer sofortigen Datenaktualisierung per „↻ Aktualisieren"-Button im Dashboard
-- **Auto-Refresh**: Automatische Aktualisierung des Dashboards (konfigurierbar: 30 s bis 2 min) ohne Seiten-Reload; Countdown-Timer zeigt verbleibende Zeit
-- **Hochleistungs-Multithreading**: Parallele Abfrage von bis zu 32 Systemen gleichzeitig für schnelle Performance
-- **Modernes Design**: ITScare Corporate Design mit farbigen Accents und modernen UI-Elementen
-- **CLI Interface**: Zugriff auf Dashboard-Daten über die Kommandozeile (lokal und remote)
-- **Admin-Bereich**: Verwaltung von Storage-Systemen mit Namen, IPs und API-Credentials
-- **API-Abfrage**: Automatische Abfrage von Health-Status über Hersteller-APIs
-- **Status-Übersicht**: Hardware-Status, Cluster-Status, Alerts und Kapazität
-- **Gruppierung**: Systeme nach Hersteller gruppiert
-- **Single-Page-View**: Alle Systeme auf einen Blick ohne Scrollen
-- **Filter-Funktionen**: Filterung nach Hersteller, Status, Cluster-Typ und Freitext-Suche
+![Admin-Bereich](screenshots/admin-area.png)
 
-## Unterstützte Storage-Systeme
+**Hauptfunktionen:**
+- Storage-Systeme hinzufügen, bearbeiten, löschen
+- Systeme aktivieren/deaktivieren
+- Auto-Discovery (Erkennung von Cluster-Topologien, IPs, Node-Details)
+- Import/Export von Systemkonfigurationen
+- Logs-Viewer mit Filter- und Such-Funktionen
+- Zertifikatsverwaltung
+- Tag-Verwaltung
 
-Alle Storage-Systeme werden über ihre REST APIs angebunden:
+### Logs-Viewer
 
-- **Pure Storage FlashArray** - REST API v2 Integration
-- **NetApp ONTAP 9** - REST API Integration
-- **NetApp StorageGRID 11** - REST API v4 Integration
-- **Dell DataDomain** - REST API v1.0 Integration
+![Admin Logs](screenshots/admin-logs.png)
 
-> **Hinweis:** Das Dashboard verwendet standardmäßige REST API Calls mit dem `requests` Modul für alle Hersteller.
+### Zertifikatsverwaltung
 
-## Systemanforderungen
+Upload eigener CA- und Root-Zertifikate für Storage-Systeme mit selbst-signierten Zertifikaten.
 
-- SUSE Linux 15 (oder andere Linux-Distribution)
-- Python 3.8 oder höher
-- Netzwerkzugriff zu den Storage-Systemen
+![Zertifikate](screenshots/certificates-page.png)
 
-## Installation
+### Tag-Verwaltung
+
+Tags können in Gruppen organisiert werden (z.B. „Storage Art", „Landschaft", „Themenzugehörigkeit") und werden für Filterung und Kapazitätsgrupierung verwendet.
+
+![Tags](screenshots/tags-page.png)
+
+---
+
+## 8. Einstellungen
+
+Erreichbar unter **Admin → Einstellungen** (`/admin/settings`). Die Einstellungen sind in sechs Tabs unterteilt.
+
+### Tab: Design
+
+Firmenname, Logo und Farbschema (Primär-, Sekundär- und Akzentfarbe).
+
+![Einstellungen – Design](screenshots/settings-design.png)
+
+### Tab: API-Zugänge (Pure1)
+
+Konfiguration der Pure1 REST API für Storage on Demand Daten. App-ID, Private Key (PEM), Passphrase und Public Key werden **verschlüsselt** gespeichert.
+
+![Einstellungen – API-Zugänge (Pure1)](screenshots/settings-api-access-pure1.png)
+
+### Tab: Proxy
+
+HTTP/HTTPS-Proxy für ausgehende Internet-Verbindungen (z.B. für Pure1). Proxy-URLs werden **verschlüsselt** gespeichert.
+
+![Einstellungen – Proxy](screenshots/settings-proxy.png)
+
+### Tab: System
+
+Zeitzone und Hintergrund-Aktualisierungsintervall (1–60 Minuten).
+
+![Einstellungen – System](screenshots/settings-system.png)
+
+### Tab: Logs
+
+Maximale Anzahl Logs pro System, Aufbewahrungsdauer und minimales Log-Level.
+
+![Einstellungen – Logs](screenshots/settings-logs.png)
+
+---
+
+## 9. API & Swagger UI
+
+Das Dashboard stellt eine vollständige REST API bereit. Die interaktive Swagger UI ist unter `/admin/swagger` erreichbar.
+
+### Swagger UI
+
+![Swagger UI](screenshots/swagger-ui.png)
+
+Die API umfasst folgende Endpunkte:
+
+| Methode | Pfad | Beschreibung |
+|---------|------|-------------|
+| `GET` | `/` | Haupt-Dashboard (HTML) |
+| `GET` | `/api/systems` | Alle Storage-Systeme auflisten |
+| `GET` | `/api/status` | Live-Status aller aktiven Systeme |
+| `GET` | `/api/systems/{id}/status` | Live-Status eines einzelnen Systems |
+| `GET` | `/api/cached-status` | Gecachter Status aller aktiven Systeme |
+| `POST` | `/api/trigger-status-refresh` | Sofortige Statusaktualisierung auslösen |
+| `GET` | `/systems/{id}/details` | Detailansicht eines Systems |
+| `GET` | `/capacity/` | Kapazitätsreport |
+| `GET` | `/alerts/` | Alerts-Seite |
+| `GET` | `/admin/*` | Admin-Bereich (erfordert Anmeldung) |
+
+### API-Dokumentation (Einrichtungsanleitung)
+
+Unter `/admin/docs` finden Sie eine detaillierte Einrichtungsanleitung für jeden unterstützten Hersteller.
+
+![API-Dokumentation](screenshots/admin-docs.png)
+
+**OpenAPI-Spezifikation** herunterladen: `/static/openapi.json`
+
+---
+
+## 10. Systemanforderungen
+
+- **Betriebssystem**: Linux (SUSE 15, Ubuntu 22+, RHEL 8+, oder vergleichbar)
+- **Python**: 3.8 oder höher
+- **Datenbank**: PostgreSQL (empfohlen) oder SQLite
+- **Netzwerk**: HTTPS-Zugriff zu den Storage-Systemen (Port 443)
+
+> **Empfehlung**: PostgreSQL für Produktivumgebungen – SQLite kann bei vielen parallelen Zugriffen zu Sperrkonflikten führen. Siehe [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md).
+
+---
+
+## 11. Installation
 
 ### Option 1: Container-Deployment (Empfohlen)
-
-**Schnellstart mit vorgefertigtem GitHub Image:**
-
-```bash
-# .env Datei mit Secret Key und PostgreSQL Passwort erstellen
-python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
-python3 -c "import secrets; print('POSTGRES_PASSWORD=' + secrets.token_hex(32))" >> .env
-echo "SSL_VERIFY=false" >> .env
-
-# Container mit vorgefertigtem Image starten
-podman-compose up -d
-# oder mit Docker:
-docker-compose up -d
-# oder mit nerdctl:
-nerdctl compose up -d
-```
-
-Das Dashboard verwendet standardmäßig **PostgreSQL** für optimale Performance bei parallelen Anfragen.
-
-> **Hinweis:** PostgreSQL wird für Produktivumgebungen empfohlen, da SQLite bei vielen gleichzeitigen Zugriffen zu "database is locked" Fehlern führen kann. Siehe [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md) für Details.
-
-**Oder mit Compose (Podman/Docker/nerdctl - verwendet automatisch das GitHub Image):**
 
 ```bash
 git clone https://github.com/TimUx/storage-dashboard.git
@@ -124,59 +308,48 @@ echo "SSL_VERIFY=false" >> .env
 # Mit Podman starten
 podman-compose up -d
 
-# Oder mit Docker starten
+# Oder mit Docker
 docker-compose up -d
 
-# Oder mit nerdctl starten
+# Oder mit nerdctl
 nerdctl compose up -d
 ```
 
 Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
 
-📖 **Detaillierte Container-Dokumentation:** Siehe [CONTAINER.md](CONTAINER.md)
-📖 **Datenbank-Migrations-Guide:** Siehe [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md)
+📖 **Container-Dokumentation**: [CONTAINER.md](CONTAINER.md)  
+📖 **Datenbank-Migration**: [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md)
 
 ### Option 2: Manuelle Installation
 
-#### 1. Repository klonen
-
 ```bash
+# 1. Repository klonen
 git clone https://github.com/TimUx/storage-dashboard.git
 cd storage-dashboard
-```
 
-#### 2. Python Virtual Environment erstellen
-
-```bash
+# 2. Virtual Environment erstellen
 python3 -m venv venv
-source venv/bin/activate  # Auf Linux/Mac
-```
+source venv/bin/activate
 
-#### 3. Abhängigkeiten installieren
-
-```bash
+# 3. Abhängigkeiten installieren
 pip install -r requirements.txt
-```
 
-#### 4. Konfiguration
-
-Kopieren Sie die Beispiel-Konfiguration:
-
-```bash
+# 4. Konfiguration anpassen
 cp .env.example .env
+# .env bearbeiten: SECRET_KEY, DATABASE_URL, SSL_VERIFY
+
+# 5. Datenbank initialisieren und migrieren
+python cli.py migrate
+
+# 6. Server starten
+python run.py
 ```
 
-Optional: Passen Sie die `.env` Datei an (für Produktivumgebungen):
+---
 
-```
-SECRET_KEY=your-secure-secret-key
-DATABASE_URL=sqlite:///storage_dashboard.db
-FLASK_ENV=production
-```
+## 12. Admin-Benutzer erstellen
 
-## Admin-Benutzer erstellen
-
-Der Admin-Bereich (`/admin`) ist durch eine Anmeldung geschützt. Vor der ersten Nutzung muss ein Admin-Benutzer angelegt werden.
+Vor der ersten Nutzung muss ein Admin-Benutzer angelegt werden:
 
 ### Manuelle Installation
 
@@ -184,467 +357,141 @@ Der Admin-Bereich (`/admin`) ist durch eine Anmeldung geschützt. Vor der ersten
 python cli.py admin create-user
 ```
 
-Sie werden nach Benutzername und Passwort gefragt:
-
-```
-Username: admin
-Password:
-Repeat for confirmation:
-✓ Admin-Benutzer 'admin' erfolgreich erstellt.
-```
-
-### Container-Deployment (Docker / Podman / nerdctl)
+### Container (Docker/Podman/nerdctl)
 
 ```bash
-# Mit Docker
+# Docker
 docker exec -it storage-dashboard python cli.py admin create-user
 
-# Mit Podman
+# Podman
 podman exec -it storage-dashboard python cli.py admin create-user
 
-# Mit nerdctl
+# nerdctl
 nerdctl exec -it storage-dashboard python cli.py admin create-user
 ```
 
-### Vorhandene Benutzer anzeigen
+Der Admin-Bereich ist dann unter `http://localhost:5000/admin` erreichbar.
+
+---
+
+## 13. CLI-Interface
+
+### Lokale CLI (`cli.py`)
 
 ```bash
-python cli.py admin list-users
-```
-
-Nach der Benutzererstellung ist der Admin-Bereich unter `http://localhost:5000/admin` erreichbar. Melden Sie sich mit dem erstellten Benutzernamen und Passwort an.
-
-## Verwendung
-
-### Web-Dashboard starten
-
-```bash
-python run.py
-```
-
-Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
-
-**Dashboard-Features:**
-- **Hintergrund-API-Abfragen**: Die Dashboard-UI erscheint sofort; Statusdaten werden durch einen konfigurierbaren Hintergrund-Dienst abgerufen und im Cache gespeichert (siehe [ASYNC_LOADING.md](ASYNC_LOADING.md)). Das Aktualisierungsintervall ist unter **Admin → Einstellungen → System** einstellbar. Die gecachten Daten werden im Sekundenbereich als „aktuell" betrachtet; nach Ablauf des Intervalls werden sie im Hintergrund neu abgerufen, ohne die Benutzeroberfläche zu blockieren.
-- **Aktualisierungs-Button**: Der „↻ Aktualisieren"-Button löst eine sofortige Datenabfrage aus und aktualisiert alle Systemkarten ohne Seiten-Reload
-- **Auto-Refresh**: Aktivieren Sie die Auto-Refresh-Funktion, um das Dashboard automatisch alle 30–120 Sekunden (konfigurierbar) zu aktualisieren (ohne Seiten-Reload)
-- **Filter**: Nutzen Sie die Filteroptionen, um gezielt nach Systemen zu suchen
-- **Ansichten**: Wechseln Sie zwischen Card-View (Kacheln) und Table-View (Tabelle)
-- **Hochleistungs-Multithreading**: Alle Systeme werden parallel abgefragt (bis zu 32 gleichzeitig) für optimale Performance
-
-Für Produktivumgebungen mit Gunicorn:
-
-```bash
-gunicorn -w 4 -b 0.0.0.0:5000 run:app
-```
-
-### CLI verwenden
-
-Es gibt zwei CLI-Varianten:
-
-#### 1. Lokale CLI (cli.py)
-Für die Verwendung im Container oder mit direktem Datenbankzugriff:
-
-**Dashboard anzeigen:**
-
-```bash
+# Dashboard anzeigen
 python cli.py dashboard
-```
 
-**Systeme verwalten:**
-
-```bash
-# Alle Systeme auflisten
+# Systeme verwalten
 python cli.py admin list
-
-# Neues System hinzufügen
 python cli.py admin add
-
-# System aktivieren/deaktivieren
 python cli.py admin enable <ID>
 python cli.py admin disable <ID>
-
-# System löschen
 python cli.py admin remove <ID>
+
+# Datenbank migrieren
+python cli.py migrate
 ```
 
-#### 2. Remote CLI (remote-cli.py)
-Für den Zugriff von außerhalb des Containers oder von Remote-Systemen via HTTP API:
-
-**Dashboard anzeigen:**
+### Remote CLI (`remote-cli.py`)
 
 ```bash
-# Lokal (Standard: http://localhost:5000)
+# Dashboard (Standard: http://localhost:5000)
 python remote-cli.py dashboard
 
 # Remote-System
 python remote-cli.py --url http://dashboard.example.com:5000 dashboard
 
-# Mit Umgebungsvariable
-export DASHBOARD_URL=http://dashboard.example.com:5000
-python remote-cli.py dashboard
-```
-
-**Weitere Befehle:**
-
-```bash
 # Alle Systeme auflisten
 python remote-cli.py systems
 
-# Detaillierter Status eines Systems
+# Status eines Systems
 python remote-cli.py status <ID>
 
-# Daten exportieren (JSON oder Tabelle)
+# Daten exportieren
 python remote-cli.py export --format json
 python remote-cli.py export --format table
-
-# Verbindung testen
-python remote-cli.py version
 ```
 
-**Wichtig:** Der Remote CLI benötigt nur die Python-Pakete `click`, `requests` und `tabulate`. 
-Er kann auf jedem System verwendet werden, das Netzwerkzugriff zum Dashboard hat.
+📖 **Remote-CLI-Dokumentation**: [REMOTE_CLI.md](REMOTE_CLI.md)
 
-## Web-Interface
+---
 
-### Dashboard (`/`)
+## 14. Datenbankmigrationen
 
-Zeigt alle aktivierten Storage-Systeme gruppiert nach Hersteller:
-- **Hintergrund-API-Abfragen**: Daten werden von einem konfigurierbaren Hintergrund-Dienst abgerufen – die UI erscheint sofort ohne Wartezeit; Status wird aus dem Cache geladen
-- **Aktualisierungs-Button**: „↻ Aktualisieren" löst eine sofortige API-Abfrage aller Systeme aus
-- **Auto-Refresh**: Optionale automatische Aktualisierung (30 s bis 2 min) mit Countdown-Timer
-- **Ansichten**: Umschaltbar zwischen Card-View (Kacheln) und Table-View (Tabelle)
-- **Filter**: Filterung nach Hersteller, Status, Cluster-Typ und Freitext-Suche (Name, IP, DNS)
-- Hardware-Status
-- Cluster-Status
-- Anzahl Alerts
-- Kapazität (gesamt, belegt, Prozent)
-- Visuelle Kapazitäts-Anzeige mit Farbcodierung
-- Direkte Links zur System-WebUI
-- ITScare Corporate Design mit modernen Farbakzenten
+Das Dashboard verfügt über ein eingebautes Migrationssystem (`app/migrations.py`), das bei jedem Start automatisch ausgeführt wird und fehlende Spalten ergänzt.
 
-### Admin-Bereich (`/admin`)
+### Automatische Migration (Standard)
 
-- Übersicht aller konfigurierten Systeme
-- Systeme hinzufügen, bearbeiten, löschen
-- Aktivieren/Deaktivieren von Systemen
-- Zertifikatsverwaltung für firmeneigene CA- und Root-Zertifikate
+Beim Start der Anwendung oder beim Ausführen von `python cli.py migrate` werden automatisch alle erforderlichen Spalten geprüft und ergänzt.
 
-#### Einstellungen (`/admin/settings`)
+### Manuelle Migration
 
-Der Einstellungs-Bereich ist in Tabs unterteilt:
-
-| Tab | Inhalt |
-|-----|--------|
-| **🎨 Design** | Firmenname, -logo und Farbschema |
-| **🔑 API-Zugänge** | **Pure1 API-Konfiguration**: App-ID (Issuer), RSA Private Key (PEM), Passphrase und Public Key – alle Werte werden verschlüsselt gespeichert |
-| **🌐 Proxy** | HTTP/HTTPS-Proxy für ausgehende Verbindungen (z. B. Pure1) |
-| **⚙️ System** | Zeitzone, Hintergrund-Aktualisierungsintervall |
-| **📋 Logs** | Log-Level, Aufbewahrungsdauer |
-| **🔒 Zertifikate** | Übersicht und Verwaltung hochgeladener CA-Zertifikate |
-
-📖 **Detailliertes Administrator-Handbuch:** Siehe [ADMIN_GUIDE.md](ADMIN_GUIDE.md)
-
-### Kapazitätsreport (`/capacity/`)
-
-Der Kapazitätsreport bietet eine umfassende tabellarische und grafische Auswertung der Speicherkapazitäten aller konfigurierten Systeme. Die Daten werden stündlich im Hintergrund aktualisiert und täglich historisch gespeichert.
-
-**5 wechselbare Ansichten:**
-
-| Ansicht | Beschreibung |
-|---------|-------------|
-| **Nach Storage Art** | Eine Tabelle pro Storage-Typ (Block, File, Object, Archiv, Backup) mit je einer Zeile pro Betriebsumgebung (Produktion / Test/Dev) und einer Total-Zeile. Bei konfigurierter Pure1 API erscheint am Ende der Seite eine kompakte **Storage on Demand**-Zusammenfassung (Reserviert, Effektiv Genutzt, Auslastung). |
-| **Nach Umgebung** | Eine Tabelle pro Umgebung (Produktion, Test/Dev) mit Zeilen je Storage-Typ und Total. Enthält ebenfalls die Pure1 SoD-Zusammenfassung am Ende. |
-| **Nach Tätigkeitsfeld** | Eine Tabelle pro Abteilung/Tätigkeitsfeld mit Zeilen für jede Umgebung × Storage-Typ-Kombination. Enthält ebenfalls die Pure1 SoD-Zusammenfassung am Ende. |
-| **Details** | Alle Einzelsysteme mit Name, Umgebung, Tätigkeitsfeld und Kapazitätswerten, gruppiert nach Storage-Typ. Im Block-Bereich zusätzlich eine aufklappbare Untertabelle mit vollständigen Pure1 SoD-Lizenzdaten (Reserviert, Effektiv Genutzt, On Demand, Arrays). |
-| **Verlauf** | Liniendiagramme pro Storage-Typ in der gleichen Reihenfolge wie die Tabellen (Block → File → Object → Archiv → Backup) mit wählbarem Zeitraum (Alle / 2J / 1J / 6M / 3M) und linearer Wachstumsprognose als gestrichelte Linie. Der Block-Graph zeigt zusätzlich SoD-Vertragslinien mit eigenem Filter. |
-
-**Spalten in den Kapazitätstabellen:**
-- Gesamt [TB], Genutzt [TB], Frei [TB]
-- Genutzt [%], Frei [%] – mit farbigen Balkenanzeigen (grün / orange / rot)
-- **Effektiv Genutzt [TB]** *(nur bei konfiguriertem Pure1)* – aus den Pure1 API-Daten je Array, auf die jeweilige Gruppe summiert
-
-**Beispieldaten laden:**
 ```bash
-# Erstmalig oder nach Reset (bestehende Systeme/Daten werden gelöscht)
-DEMO_RESET=1 python examples/seed_demo_data.py
-
-# Nur fehlende Demo-Systeme ergänzen
-python examples/seed_demo_data.py
+python cli.py migrate
 ```
 
-Das Skript legt 17 Demo-Systeme (Block, File, Archiv, Object, Backup) mit 2 Jahren täglicher Verlaufshistorie **und** SoD-Vertragsdaten (4 Lizenzen, wöchentlich) an.
+### Migrationshistorie
 
-### Verlaufsdiagramme (`/capacity/` → Verlauf)
+| Version | Änderungen |
+|---------|-----------|
+| 1.0 | Basisschemata: StorageSystem, StatusCache, CapacitySnapshot, CapacityHistory |
+| 1.1 | `cluster_type`, `node_count`, `dns_names`, `all_ips`, `node_details`, `partner_cluster_id` |
+| 1.2 | `os_version`, `api_version`, `peer_connections`, `metrocluster_*` |
+| 1.3 | `pure1_array_name`, Pure1-Einstellungen, Proxy-Einstellungen |
+| 1.4 | `dashboard_refresh_interval`, `on_demand_tb` (SodHistory) |
+| 1.5 | `alert_details` in `StatusCache.status_json` (JSON-Blob, kein Schema-Change) – ONTAP EMS Events |
 
-Der **Verlauf**-Tab zeigt historische Kapazitätsgraphen für alle Storage-Typen.
+> **Hinweis zur Version 1.5**: Die ONTAP EMS Alert-Daten werden im bestehenden `status_json`-JSON-Blob der `StatusCache`-Tabelle gespeichert. Es ist **keine Datenbankänderung** erforderlich – bestehende Installationen profitieren nach einem einfachen Update-Deployment automatisch von der EMS-Alert-Abfrage.
 
-![Verlauf – Übersicht mit Block-Graph und SoD-Linien](screenshots/capacity-history-controls.png)
+### Migration für bestehende Installationen (v1.4 → v1.5)
 
-**Sortierung und Reihenfolge:**
-
-Die Graphen erscheinen in der gleichen Reihenfolge wie die Tabellen: **Block → File → Object → Archiv → Backup**.
-
-**Physische und SoD-Linien im Block-Graphen:**
-
-Der Block-Graph zeigt physische und SoD-Vertragswerte parallel. Physische Linien (Pure blau / grün) und SoD-Linien (Pure Storage Farben Orange / Dunkelrot / Goldgelb) sind klar unterschieden:
-
-| Linie | Farbe | Bedeutung |
-|-------|-------|-----------|
-| Genutzt [TB] | 🔵 Blau | Physisch genutzte Kapazität |
-| Gesamt [TB] | 🟡 Grüngelb | Physisch installierte Gesamtkapazität |
-| Prognose Genutzt [TB] | 🔴 Dunkelrot, gestrichelt | Lineare Prognose der physischen Nutzung |
-| SoD Reserviert [TB] | 🟠 Orange | Vertraglich reservierte SoD-Kapazität |
-| SoD Effektiv Genutzt [TB] | 🟣 Magenta | SoD effektiv genutzte Kapazität |
-| SoD On Demand [TB] | 🟡 Goldgelb, gestrichelt | Über-Vertrag-Nutzung (On Demand) |
-| SoD Eff. Genutzt Prognose [TB] | 🟣 Magenta, gestrichelt | Lineare Prognose der SoD-Nutzung – zeigt ab wann On-Demand-Kapazität benötigt wird |
-
-![Block-Graph mit physischen und SoD-Linien](screenshots/capacity-history.png)
-
-**Linienfilter (nur im Block-Graphen):**
-
-Die Schaltflächen **🗄️ Physisch** und **☁️ SoD** befinden sich direkt im Header des Block-Graphen und blenden die jeweiligen Liniengruppen nur für diesen Graphen ein oder aus. Aktive Gruppen erscheinen farbig hervorgehoben, inaktive ausgegraut.
-
-![Verlauf-Steuerleiste und Block-Graph mit Linienfilter](screenshots/capacity-history-controls.png)
-
-### Export und Import historischer Daten (`/capacity/` → Verlauf)
-
-**Export:**
-- **📥 CSV** – Wochenweise aggregierte Verlaufsdaten als CSV-Datei
-- **📥 Excel** – Dasselbe als formatierte Excel-Tabelle (`.xlsx`) mit farbiger Kopfzeile
-- **📥 PDF** – Druckansicht der aktuell angezeigten Verlaufsgraphen (Chart.js → PNG → Browser-Druck)
-
-Der Zeitraum der Export-Daten richtet sich nach dem gewählten Zeitraum-Filter (Alle / 2J / 1J / 6M / 3M).
-
-**Import:**
-
-Über die Schaltfläche **📤 Importieren** öffnet sich ein modaler Dialog mit zwei Tabs:
-
-**Tab 1 – 🗄️ Physische Systeme (CSV-Import):**
-
-![Import-Dialog – Physische Systeme](screenshots/capacity-import-modal-physical.png)
-
-Importiert Tages-Kapazitätswerte für physische Speichersysteme per CSV-Upload (Drag & Drop oder Datei auswählen).
-
-CSV-Format:
-```
-date,system_name,total_tb,used_tb,free_tb,percent_used
-2024-01-08,mein-system-01,100.00,45.50,54.50,45.5
-2024-01-15,mein-system-01,100.00,47.20,52.80,47.2
-```
-
-- `date`: ISO-Datum (YYYY-MM-DD)
-- `system_name`: exakter Name des Speichersystems (wie im Dashboard konfiguriert)
-- `total_tb / used_tb / free_tb`: Kapazitäten in TB
-- `percent_used`: Auslastung in Prozent (0–100)
-- Bestehende Einträge für dieselbe Kombination aus Datum und System werden überschrieben
-
-**Tab 2 – ☁️ Storage on Demand / Pure1 API:**
-
-![Import-Dialog – Storage on Demand](screenshots/capacity-import-modal-sod.png)
-
-Ruft historische Verlaufsdaten (Reserved, Effective Used, On Demand) direkt von der Pure1 REST API ab und speichert sie in der lokalen Datenbank. Nur verfügbar wenn Pure1 in den Einstellungen konfiguriert ist.
-
-- Start- und Enddatum wählen (Pure1 speichert Daten für ca. 2 Jahre)
-- Abruf via `GET /api/1.latest/metrics/history` mit wöchentlicher Auflösung
-- Bestehende Einträge werden überschrieben
-
-### Pure1 Storage on Demand (`/capacity/`)
-
-**Storage on Demand (SoD)** integriert Pure1 Subscription-Lizenzdaten direkt in den Kapazitätsreport.
-
-**Anzeige im Kapazitätsreport:**
-- **Zusammenfassungsansichten** (Nach Storage Art, Nach Umgebung, Nach Tätigkeitsfeld): Eine kompakte SoD-Zusammenfassungszeile am Ende jeder Seite mit den kumulierten Werten über alle Verträge: Reservierte Kapazität [TB], Effektiv Genutzt [TB] und Auslastung [%]. Die Kapazitätstabellen zeigen zusätzlich in der Spalte **„Effektiv Genutzt [TB]"** die auf die jeweilige Gruppe (z. B. Betriebsumgebung) summierten Pure1-Effektivwerte.
-- **Details-Tab**: Vollständige SoD-Detailinformationen im Block-Bereich als aufklappbare Untertabelle mit Verträgen, Lizenzen, Service-Tiers und Effektivwerten je Array.
-- **Verlauf-Tab (Block-Graph)**: SoD-Historische Verlaufswerte (Reserved, Effektiv Genutzt, On Demand) erscheinen als zusätzliche Liniengruppe im Block-Graphen, wenn historische SoD-Daten per Pure1-Import eingelesen wurden. Die Werte lassen sich per Linienfilter ein-/ausblenden.
-
-**Einrichtung:**
-1. Navigieren Sie zu `/admin/settings` und öffnen Sie den Tab **🔑 API-Zugänge**
-2. Tragen Sie Ihre **App-ID (Issuer)** aus dem Pure1-Portal ein (Format: `pure1:apikey:xxxxxxxx`)
-3. Fügen Sie den **RSA Private Key** im PEM-Format ein (inkl. `-----BEGIN / END-----`-Zeilen)
-4. Optional: Tragen Sie die **Passphrase** ein, falls der Private Key passwortgeschützt ist
-5. Optional: Fügen Sie den **Public Key** im PEM-Format ein
-6. Speichern – SoD-Daten erscheinen nun automatisch im Kapazitätsreport
-
-![Einstellungen – Pure1 API-Zugänge](screenshots/settings-api-access-pure1.png)
-
-**Daten-Abruf:**
-- Daten werden **wöchentlich automatisch** durch den Hintergrund-Dienst abgerufen
-- Manuelle Aktualisierung jederzeit per **„🔄 Jetzt abrufen"**-Button im Details-Tab
-- Bei Konfigurationsfehlern oder Netzwerkproblemen wird ein klarer Hinweis angezeigt
-- Ist Pure1 nicht konfiguriert, werden keine SoD-Bereiche angezeigt
-
-### Zertifikatsverwaltung (`/admin/certificates`)
-
-![Certificate Management](screenshots/certificates-page.png)
-
-Das Dashboard unterstützt firmeneigene CA- und Root-Zertifikate für sichere Verbindungen in internen Netzwerken:
-
-- **CA-Zertifikate hochladen**: Intermediate oder Sub-CA Zertifikate
-- **Root-Zertifikate verwalten**: Oberste Zertifizierungsstelle
-- **PEM-Format**: Unterstützung für .pem, .crt, .cer Dateien
-- **Aktivieren/Deaktivieren**: Flexible Kontrolle über verwendete Zertifikate
-- **Download**: Exportieren Sie gespeicherte Zertifikate
-
-**Verwendung:**
-1. Navigieren Sie zu `/admin/certificates`
-2. Laden Sie Ihre firmeneigenen Zertifikate hoch
-3. Setzen Sie `SSL_VERIFY=true` in der `.env`-Datei
-4. Starten Sie das Dashboard neu
-
-## Container-Deployment
-
-Das Dashboard kann als Docker/Podman/nerdctl Container betrieben werden. Siehe [CONTAINER.md](CONTAINER.md) für Details.
-
-**Schnellstart mit vorgefertigtem GitHub Image:**
 ```bash
-# .env Datei mit Secret Key erstellen
-python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
-echo "SSL_VERIFY=false" >> .env
+# Container-Deployment: einfach neues Image pullen und neu starten
+podman-compose pull && podman-compose up -d
 
-# Container starten mit Podman
-podman run -d \
-  --name storage-dashboard \
-  -p 5000:5000 \
-  -v storage-data:/app/data:Z \
-  --env-file .env \
-  ghcr.io/timux/storage-dashboard:latest
-
-# Oder mit nerdctl
-nerdctl run -d \
-  --name storage-dashboard \
-  -p 5000:5000 \
-  -v storage-data:/app/data \
-  --env-file .env \
-  ghcr.io/timux/storage-dashboard:latest
+# Oder manuelle Installation: Code aktualisieren und Dienst neu starten
+git pull
+systemctl restart storage-dashboard
+# oder:
+python run.py
 ```
 
-Dashboard verfügbar unter: `http://localhost:5000`
+Es sind keine weiteren Migrationsschritte notwendig, da Version 1.5 nur JSON-Blob-Daten ergänzt.
 
-**Mit Compose (Podman/Docker/nerdctl):**
+---
+
+## 15. Deployment
+
+### Produktivumgebung mit Gunicorn
+
 ```bash
-git clone https://github.com/TimUx/storage-dashboard.git
-cd storage-dashboard
-
-# .env Datei mit Secret Key erstellen
-python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > .env
-echo "SSL_VERIFY=false" >> .env
-
-# Container starten (verwendet automatisch das GitHub Image)
-podman-compose up -d
-# oder
-docker-compose up -d
-# oder
-nerdctl compose up -d
+gunicorn -w 4 -b 0.0.0.0:5000 run:app
 ```
 
-### Dokumentation (`/admin/docs`)
+### systemd-Service
 
-Detaillierte Anleitungen zur API-Einrichtung für jedes Storage-System.
-
-## API-Einrichtung
-
-### Pure Storage
-
-1. Im FlashArray unter **System → Users** einen API-Token erstellen
-2. Token im Dashboard unter "API Token" eintragen
-
-### NetApp ONTAP 9
-
-1. Benutzer mit REST API-Zugriff erstellen
-2. Benutzername und Passwort im Dashboard eintragen
-
-### NetApp StorageGRID 11
-
-1. Im Management Interface API-Credentials erstellen
-2. Bearer Token generieren und im Dashboard eintragen
-
-### Dell DataDomain
-
-1. REST API aktivieren
-2. Benutzer mit entsprechenden Rechten erstellen
-3. Benutzername und Passwort im Dashboard eintragen
-
-Detaillierte Anleitungen finden Sie in der Web-Dokumentation unter `/admin/docs`.
-
-## REST API Endpoints
-
-Das Dashboard bietet auch programmatischen Zugriff:
-
-- `GET /api/systems` - Liste aller Systeme
-- `GET /api/status` - Status aller aktivierten Systeme (aus dem Hintergrund-Cache)
-- `GET /api/systems/<id>/status` - Status eines spezifischen Systems
-- `POST /api/trigger-status-refresh` - Sofortige Aktualisierung aller Systemstatus auslösen (entspricht dem „↻ Aktualisieren"-Button)
-- `GET /capacity/api/data` - Aggregierte Kapazitätsdaten für alle Ansichten (JSON)
-- `GET /capacity/api/history?range=all|3m|6m|1y|2y` - Historische Kapazitätsdaten mit Prognose
-- `POST /capacity/api/refresh` - Manuelle Kapazitätsaktualisierung auslösen
-- `GET /capacity/api/sod` - Aktuelle Pure1 Storage on Demand Daten aus dem Cache (JSON)
-- `POST /capacity/api/sod-refresh` - Sofortige Aktualisierung der Pure1 SOD-Daten auslösen
-
-## Entwicklung
-
-### Projektstruktur
-
-```
-storage-dashboard/
-├── app/
-│   ├── __init__.py          # Flask App Factory
-│   ├── models.py            # Datenbankmodelle (inkl. CapacitySnapshot, CapacityHistory)
-│   ├── capacity_service.py  # Hintergrund-Refresh, Aggregation, Prognose
-│   ├── api/                 # Storage API Clients
-│   │   ├── base_client.py
-│   │   └── storage_clients.py
-│   ├── routes/              # Flask Routes
-│   │   ├── main.py          # Dashboard
-│   │   ├── admin.py         # Admin-Bereich
-│   │   ├── api.py           # REST API
-│   │   └── capacity.py      # Kapazitätsreport (/capacity/)
-│   ├── static/
-│   │   └── js/
-│   │       └── chart.umd.min.js  # Chart.js (lokal, kein CDN nötig)
-│   └── templates/           # HTML Templates
-│       ├── base.html
-│       ├── dashboard.html
-│       ├── capacity.html    # Kapazitätsreport
-│       └── admin/
-├── examples/
-│   ├── seed_demo_data.py    # Demo-Daten für Kapazitätsreport
-│   └── monitoring-example.py
-├── run.py                   # Web-Server Startskript
-├── cli.py                   # CLI Interface
-├── requirements.txt         # Python-Abhängigkeiten
-└── README.md
+```bash
+sudo cp storage-dashboard.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable storage-dashboard
+sudo systemctl start storage-dashboard
 ```
 
-### Neue Storage-Systeme hinzufügen
+### Umgebungsvariablen
 
-Um ein neues Storage-System zu unterstützen:
+| Variable | Beschreibung | Standard |
+|----------|-------------|---------|
+| `SECRET_KEY` | Flask Session-Secret (zufälliger Hex-String) | — (Pflichtfeld) |
+| `DATABASE_URL` | Datenbankverbindung | `sqlite:///storage_dashboard.db` |
+| `SSL_VERIFY` | TLS-Zertifikate prüfen | `true` |
+| `FLASK_ENV` | `development` oder `production` | `production` |
+| `POSTGRES_PASSWORD` | PostgreSQL-Passwort (nur Container) | — |
 
-1. Erstellen Sie eine neue Client-Klasse in `app/api/storage_clients.py`
-2. Implementieren Sie die `get_health_status()` Methode
-3. Registrieren Sie den Client in der `get_client()` Factory-Funktion
-4. Fügen Sie die Vendor-Option in den Admin-Formularen hinzu
+📖 **Deployment-Dokumentation**: [DEPLOYMENT.md](DEPLOYMENT.md)  
+📖 **Sicherheits-Dokumentation**: [SECURITY.md](SECURITY.md)  
+📖 **Container-Dokumentation**: [CONTAINER.md](CONTAINER.md)
 
-## Sicherheit
+---
 
-**Interne Netzwerk-Anwendung:**
-- Das Dashboard ist ausschließlich für den Einsatz in internen Firmennetzwerken konzipiert
-- Verwendet firmeneigene CA- und Root-Zertifikate (keine Let's Encrypt oder öffentliche CAs)
-- Zertifikatsverwaltung im Admin-Bereich verfügbar
-
-**Sicherheitsfeatures:**
-- API-Credentials werden in der Datenbank gespeichert
-- HTTPS-Verbindungen zu Storage-Systemen mit Custom CA-Zertifikaten
-- Verwenden Sie dedizierte Read-Only-Accounts für Storage-Systeme
-- Ändern Sie den `SECRET_KEY` in Produktivumgebungen
-- Setzen Sie `SSL_VERIFY=true` in `.env` und laden Sie CA-Zertifikate im Admin-Bereich hoch
-
-**Hinweis zur Passwort-Speicherung**: In der aktuellen Version werden Passwörter im Klartext in der Datenbank gespeichert. Für produktive Umgebungen sollte eine Verschlüsselung implementiert werden (z.B. mit `cryptography.fernet`).
-
-## Lizenz
-
-Siehe LICENSE Datei.
-
-## Support
-
-Bei Fragen oder Problemen erstellen Sie bitte ein Issue im GitHub Repository.
+*Powered by [ITscare](https://www.itscare.de/) | Storage Dashboard v1.0*
