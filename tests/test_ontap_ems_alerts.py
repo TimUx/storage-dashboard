@@ -124,21 +124,26 @@ def _make_client():
     return client
 
 
-def _default_route_map(ems_response):
+def _default_route_map(ems_response, recovery_response=None):
+    if recovery_response is None:
+        recovery_response = _ems_response([])
     return {
         '/api/cluster/metrocluster': _metrocluster_404(),
         '/api/cluster/peers': _peers_response(),
         '/api/cluster/nodes': _nodes_response(),
         '/api/storage/aggregates': _capacity_response(),
         '/api/cluster': _cluster_ok(),
-        '/api/support/ems/events': ems_response,
+        # Two sequential calls to the EMS endpoint:
+        #   call 1 – severity-based problem events query
+        #   call 2 – name-based recovery events query
+        '/api/support/ems/events': [ems_response, recovery_response],
     }
 
 
-def _run_client(ems_response):
+def _run_client(ems_response, recovery_response=None):
     """Run NetAppONTAPClient.get_health_status() with mocked HTTP."""
     client = _make_client()
-    fake_session = _FakeSession(_default_route_map(ems_response))
+    fake_session = _FakeSession(_default_route_map(ems_response, recovery_response))
     # Also stub out /api/cluster/nodes for hardware AND cluster-nodes call
     # (same URL, return _nodes_response twice)
     fake_session._map['/api/cluster/nodes'] = [_nodes_response(), _nodes_response()]
@@ -253,3 +258,184 @@ class TestONTAPEmsAlertFetch:
         assert result['alerts'] == 3
         assert len(result['alert_details']) == 3
         assert result['hardware_status'] == 'error'
+
+
+# ---------------------------------------------------------------------------
+# Recovery-filtering tests
+# Verify that already-resolved alerts are excluded from the result.
+# ---------------------------------------------------------------------------
+
+class TestONTAPEmsRecoveryFiltering:
+    """Tests for the EMS active-alert state reconstruction logic.
+
+    Each test supplies a ``problem_response`` (returned by the severity-based
+    first query) and a ``recovery_response`` (returned by the name-based second
+    query).  The implementation must apply ``_filter_active_ems_events`` before
+    counting/building alert_details.
+    """
+
+    # ---- helper factories ------------------------------------------------
+
+    @staticmethod
+    def _hm_raised(index, node, alert_id, time='2026-03-01T08:00:00+00:00'):
+        return {
+            'index': index,
+            'message': {'name': 'hm.alert.raised', 'severity': 'alert'},
+            'log_message': f'Health monitor alert {alert_id} raised on {node}',
+            'time': time,
+            'node': {'name': node},
+            'parameters': [{'name': 'alertId', 'value': alert_id}],
+        }
+
+    @staticmethod
+    def _hm_cleared(index, node, alert_id, time='2026-03-02T08:00:00+00:00'):
+        return {
+            'index': index,
+            'message': {'name': 'hm.alert.cleared', 'severity': 'informational'},
+            'log_message': f'Health monitor alert {alert_id} cleared on {node}',
+            'time': time,
+            'node': {'name': node},
+            'parameters': [{'name': 'alertId', 'value': alert_id}],
+        }
+
+    @staticmethod
+    def _cpeer_unavailable(index, node, peer, time='2026-03-01T08:00:00+00:00'):
+        return {
+            'index': index,
+            'message': {'name': 'cpeer.unavailable', 'severity': 'error'},
+            'log_message': f'Cluster peer {peer} unavailable',
+            'time': time,
+            'node': {'name': node},
+            'parameters': [{'name': 'peerName', 'value': peer}],
+        }
+
+    @staticmethod
+    def _cpeer_available(index, node, peer, time='2026-03-02T08:00:00+00:00'):
+        return {
+            'index': index,
+            'message': {'name': 'cpeer.available', 'severity': 'informational'},
+            'log_message': f'Cluster peer {peer} available',
+            'time': time,
+            'node': {'name': node},
+            'parameters': [{'name': 'peerName', 'value': peer}],
+        }
+
+    @staticmethod
+    def _cf_critical(index, node, time='2026-03-01T08:00:00+00:00'):
+        return {
+            'index': index,
+            'message': {'name': 'cf.fsm.monitor.globalStatus.critical', 'severity': 'alert'},
+            'log_message': f'Cluster failover critical on {node}',
+            'time': time,
+            'node': {'name': node},
+            'parameters': [],
+        }
+
+    @staticmethod
+    def _cf_ok(index, node, time='2026-03-02T08:00:00+00:00'):
+        return {
+            'index': index,
+            'message': {'name': 'cf.fsm.monitor.globalStatus.ok', 'severity': 'informational'},
+            'log_message': f'Cluster failover ok on {node}',
+            'time': time,
+            'node': {'name': node},
+            'parameters': [],
+        }
+
+    # ---- hm.alert tests --------------------------------------------------
+
+    def test_hm_alert_raised_without_cleared_is_active(self):
+        """hm.alert.raised with no corresponding cleared event → alert is active."""
+        problem = [self._hm_raised(1, 'node1', 'DiskFailure')]
+        result = _run_client(_ems_response(problem), _ems_response([]))
+        assert result['alerts'] == 1
+        assert result['alert_details'][0]['title'] == 'hm.alert.raised'
+
+    def test_hm_alert_raised_then_cleared_is_not_active(self):
+        """hm.alert.raised followed by hm.alert.cleared → alert must not appear."""
+        problem = [self._hm_raised(1, 'node1', 'DiskFailure', time='2026-03-01T08:00:00+00:00')]
+        recovery = [self._hm_cleared(2, 'node1', 'DiskFailure', time='2026-03-02T09:00:00+00:00')]
+        result = _run_client(_ems_response(problem), _ems_response(recovery))
+        assert result['alerts'] == 0
+
+    def test_hm_alert_cleared_then_raised_again_is_active(self):
+        """Cleared then raised again (more recent raise) → alert must appear."""
+        # problem_records contains only severity events, so the raise is there
+        problem = [self._hm_raised(3, 'node1', 'DiskFailure', time='2026-03-03T10:00:00+00:00')]
+        # recovery query returns the older cleared event
+        recovery = [self._hm_cleared(2, 'node1', 'DiskFailure', time='2026-03-02T09:00:00+00:00')]
+        result = _run_client(_ems_response(problem), _ems_response(recovery))
+        assert result['alerts'] == 1
+        assert result['alert_details'][0]['title'] == 'hm.alert.raised'
+
+    def test_two_distinct_hm_alerts_one_cleared(self):
+        """Two different hm.alert.raised events; only one is cleared → one active."""
+        problem = [
+            self._hm_raised(1, 'node1', 'DiskFailure',    time='2026-03-01T08:00:00+00:00'),
+            self._hm_raised(2, 'node1', 'FanFailure',     time='2026-03-01T09:00:00+00:00'),
+        ]
+        recovery = [self._hm_cleared(3, 'node1', 'DiskFailure', time='2026-03-02T08:00:00+00:00')]
+        result = _run_client(_ems_response(problem), _ems_response(recovery))
+        assert result['alerts'] == 1
+        active_ids = [d['error_code'] for d in result['alert_details']]
+        assert 'hm.alert.raised' in active_ids  # FanFailure alert still active
+
+    # ---- cpeer tests -----------------------------------------------------
+
+    def test_cpeer_unavailable_without_available_is_active(self):
+        """cpeer.unavailable with no cpeer.available → alert is active."""
+        problem = [self._cpeer_unavailable(10, 'node1', 'cluster-b')]
+        result = _run_client(_ems_response(problem), _ems_response([]))
+        assert result['alerts'] == 1
+
+    def test_cpeer_unavailable_then_available_is_not_active(self):
+        """cpeer.unavailable followed by cpeer.available → cleared, not active."""
+        problem = [self._cpeer_unavailable(10, 'node1', 'cluster-b',
+                                           time='2026-03-01T08:00:00+00:00')]
+        recovery = [self._cpeer_available(11, 'node1', 'cluster-b',
+                                          time='2026-03-02T08:00:00+00:00')]
+        result = _run_client(_ems_response(problem), _ems_response(recovery))
+        assert result['alerts'] == 0
+
+    # ---- cf.fsm.monitor tests --------------------------------------------
+
+    def test_cf_critical_without_ok_is_active(self):
+        """cf.fsm.monitor.globalStatus.critical with no ok event → active."""
+        problem = [self._cf_critical(20, 'node1')]
+        result = _run_client(_ems_response(problem), _ems_response([]))
+        assert result['alerts'] == 1
+
+    def test_cf_critical_then_ok_is_not_active(self):
+        """cf.fsm.monitor.globalStatus.critical followed by ok → cleared."""
+        problem  = [self._cf_critical(20, 'node1', time='2026-03-01T08:00:00+00:00')]
+        recovery = [self._cf_ok(21, 'node1',       time='2026-03-02T08:00:00+00:00')]
+        result = _run_client(_ems_response(problem), _ems_response(recovery))
+        assert result['alerts'] == 0
+
+    # ---- mixed tests -----------------------------------------------------
+
+    def test_tracked_cleared_plus_untracked_severity_event(self):
+        """Cleared tracked alert + untracked severity event → only untracked appears."""
+        problem = [
+            self._hm_raised(1, 'node1', 'DiskFailure',    time='2026-03-01T08:00:00+00:00'),
+            {'index': 5, 'message': {'name': 'callhome.spares.low', 'severity': 'error'},
+             'log_message': 'Spare capacity low', 'time': '2026-03-01T09:00:00+00:00',
+             'node': {'name': 'node1'}, 'parameters': []},
+        ]
+        recovery = [self._hm_cleared(2, 'node1', 'DiskFailure', time='2026-03-02T08:00:00+00:00')]
+        result = _run_client(_ems_response(problem), _ems_response(recovery))
+        assert result['alerts'] == 1
+        assert result['alert_details'][0]['error_code'] == 'callhome.spares.low'
+
+    def test_recovery_query_failure_does_not_crash(self):
+        """A failure fetching recovery events must be handled gracefully (no crash).
+
+        When the recovery endpoint is unreachable we fall back to showing all
+        severity-based events (conservative – no false negatives).
+        """
+        problem = [self._hm_raised(1, 'node1', 'DiskFailure')]
+        # 503 on the recovery query
+        result = _run_client(_ems_response(problem), _ems_503())
+        # Should still show the problem event (no crash, no silent loss)
+        assert result['alerts'] == 1
+        assert result['status'] == 'online'

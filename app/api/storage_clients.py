@@ -53,6 +53,160 @@ STORAGEGRID_HEALTHY_NODE_STATES = {'connected', 'online', 'ok', 'healthy'}
 # Based on StorageGRID API v4 alert states
 STORAGEGRID_ACTIVE_ALERT_STATES = {'active', 'triggered', 'firing'}
 
+# ---------------------------------------------------------------------------
+# ONTAP EMS active-alert filtering
+# ---------------------------------------------------------------------------
+# ONTAP EMS is an event log, not a state database.  Many problems generate two
+# events: a "problem" event when the issue occurs and a "recovery" event when
+# it is resolved.  Historical events for already-resolved issues remain in the
+# log forever, so we must reconstruct the current state by checking the most
+# recent event per affected resource.
+#
+# Map: problem event name  →  its corresponding recovery event name
+_EMS_PROBLEM_RECOVERY_PAIRS = {
+    'hm.alert.raised':                        'hm.alert.cleared',
+    'cpeer.unavailable':                      'cpeer.available',
+    'cf.fsm.monitor.globalStatus.critical':   'cf.fsm.monitor.globalStatus.ok',
+}
+
+_EMS_RECOVERY_EVENT_NAMES = set(_EMS_PROBLEM_RECOVERY_PAIRS.values())
+_EMS_PROBLEM_EVENT_NAMES  = set(_EMS_PROBLEM_RECOVERY_PAIRS.keys())
+_EMS_TRACKED_EVENT_NAMES  = _EMS_PROBLEM_EVENT_NAMES | _EMS_RECOVERY_EVENT_NAMES
+
+# ONTAP REST API filter string for all recovery events (used in the second query)
+_EMS_RECOVERY_FILTER = ','.join(sorted(_EMS_RECOVERY_EVENT_NAMES))
+
+
+def _get_ems_resource_key(event):
+    """Return a hashable key that uniquely identifies the resource affected by an EMS event.
+
+    The key is used to group problem and recovery events for the same resource
+    so that the most-recent event wins.
+
+    For health-monitor alerts the ONTAP EMS parameters include an ``alertId``
+    that distinguishes individual alerts on the same node.  For cluster-peer and
+    cluster-failover events the node name (or peer name from parameters) is
+    sufficient.
+    """
+    msg_name  = event.get('message', {}).get('name', '')
+    node_info = event.get('node', {})
+    node_name = node_info.get('name', '') if isinstance(node_info, dict) else ''
+
+    # Parse event-specific parameters (array of {name, value} objects)
+    params = {}
+    for p in event.get('parameters', []):
+        if isinstance(p, dict):
+            params[p.get('name', '')] = p.get('value', '')
+
+    if msg_name in ('hm.alert.raised', 'hm.alert.cleared'):
+        alert_id = params.get('alertId', params.get('alert_id', ''))
+        return ('hm.alert', node_name, alert_id)
+    elif msg_name in ('cpeer.unavailable', 'cpeer.available'):
+        peer = params.get('peerName', params.get('peer_name', params.get('peer', '')))
+        return ('cpeer', peer)
+    elif 'cf.fsm.monitor.globalStatus' in msg_name:
+        return ('cf.fsm.monitor.globalStatus', node_name)
+    # Fallback: not a tracked event family
+    return None
+
+
+def _filter_active_ems_events(problem_records, recovery_records):
+    """Return only the EMS problem events that are still active.
+
+    For each event in *problem_records* that belongs to a known problem/recovery
+    pair family (see ``_EMS_PROBLEM_RECOVERY_PAIRS``), this function checks
+    whether a more recent recovery event exists in *recovery_records* for the
+    same resource.  If one is found the problem is considered resolved and is
+    excluded from the result.
+
+    Events that do not belong to a tracked family (e.g. generic severity-based
+    events like ``callhome.spares.low``) are always included unchanged.
+
+    Args:
+        problem_records: list of EMS event dicts from the severity-based query.
+        recovery_records: list of EMS event dicts from the recovery-name query.
+
+    Returns:
+        A filtered list containing only currently active alert dicts.
+    """
+    # Build a map: resource_key → latest recovery event time
+    recovery_latest = {}
+    for event in recovery_records:
+        key = _get_ems_resource_key(event)
+        if key is None:
+            continue
+        event_time = event.get('time', '')
+        if key not in recovery_latest or event_time > recovery_latest[key]:
+            recovery_latest[key] = event_time
+
+    active = []
+    for event in problem_records:
+        msg_name = event.get('message', {}).get('name', '')
+        if msg_name not in _EMS_PROBLEM_EVENT_NAMES:
+            # Not a tracked problem event – include as-is
+            active.append(event)
+            continue
+
+        resource_key = _get_ems_resource_key(event)
+        if resource_key is None:
+            # Cannot determine resource key – include conservatively
+            active.append(event)
+            continue
+
+        problem_time         = event.get('time', '')
+        latest_recovery_time = recovery_latest.get(resource_key)
+
+        if latest_recovery_time is None or problem_time > latest_recovery_time:
+            # No recovery found, or problem is newer than any recovery → still active
+            active.append(event)
+        # else: a more recent recovery event exists → alert is cleared, skip
+
+    return active
+
+
+# ---------------------------------------------------------------------------
+# REST status alert helpers
+# ---------------------------------------------------------------------------
+
+_REST_ALERT_VENDOR   = 'netapp'
+_REST_ALERT_PLATFORM = 'ontap'
+
+
+def _make_rest_alert(category, resource, severity, message, source, timestamp=None):
+    """Create an alert dict in the common dashboard format from an ONTAP REST status check.
+
+    The returned dict is compatible with the existing ``alert_details`` schema
+    consumed by ``_normalize_alert_detail()`` in *routes/alerts.py* and also
+    carries the additional normalized fields described in the multi-vendor alert
+    specification (vendor / platform / category / source).
+
+    Args:
+        category:  One of 'cluster', 'node', 'network', 'storage', 'replication'.
+        resource:  Human-readable identifier of the affected object,
+                   e.g. "node1", "node1:e0c", "svm1:lif1".
+        severity:  'critical', 'error', or 'warning'.
+        message:   Human-readable description of the problem.
+        source:    REST API path used to detect the problem, e.g. '/api/cluster'.
+        timestamp: ISO-8601 string; defaults to current UTC time when omitted.
+    """
+    ts = timestamp or datetime.now(timezone.utc).isoformat()
+    safe_id = re.sub(r'[^a-z0-9_:-]', '-', resource.lower())
+    return {
+        # Fields used by _normalize_alert_detail() in routes/alerts.py
+        'id':         f'rest-{category}-{safe_id}',
+        'title':      f'{category.title()} issue: {resource}',
+        'details':    message,
+        'severity':   severity,
+        'error_code': f'{category}.status',
+        'timestamp':  ts,
+        'component':  resource,
+        # Normalized multi-vendor format fields
+        'vendor':     _REST_ALERT_VENDOR,
+        'platform':   _REST_ALERT_PLATFORM,
+        'category':   category,
+        'source':     source,
+    }
+
 
 # Suppress SSL warnings only when verification is disabled
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -639,7 +793,310 @@ class PureStorageClient(StorageClient):
 
 class NetAppONTAPClient(StorageClient):
     """NetApp ONTAP 9 client using REST API"""
-    
+
+    def _get_rest_status_alerts(self, cluster_name, auth, headers, ssl_verify):
+        """Query REST status APIs and return a list of currently active alert dicts.
+
+        Combines eight sources to detect problems that may not produce EMS events:
+
+        1. Cluster health            – GET /api/cluster?fields=health
+        2. Node state / health       – GET /api/cluster/nodes?fields=name,state,health,ha
+        3. Cluster peer availability – GET /api/cluster/peers
+        4. Network LIF state         – GET /api/network/ip/interfaces
+        5. Ethernet port state       – GET /api/network/ethernet/ports
+        6. Aggregate state           – GET /api/storage/aggregates?fields=name,state
+        7. Disk health               – GET /api/storage/disks
+        8. SnapMirror relationship   – GET /api/snapmirror/relationships
+
+        Each detected problem is normalized with ``_make_rest_alert()`` into the
+        common dashboard alert format (compatible with ``alert_details``).  Every
+        alert also carries ``vendor``, ``platform``, ``category``, and ``source``
+        fields for multi-vendor correlation in the UI.
+
+        All sub-queries are individually wrapped in try/except so a failure in
+        one check never blocks the others.
+
+        Args:
+            cluster_name: Cluster name string used as resource identifier.
+            auth:         ``(user, password)`` tuple for basic auth.
+            headers:      HTTP headers dict.
+            ssl_verify:   SSL verification flag passed through to requests.
+
+        Returns:
+            list of alert dicts.
+        """
+        alerts = []
+        now_ts = datetime.now(timezone.utc).isoformat()
+
+        # 1 ── Cluster health ─────────────────────────────────────────────────
+        try:
+            resp = _local_session.get(
+                f"{self.base_url}/api/cluster",
+                auth=auth, headers=headers,
+                params={'fields': 'health'},
+                verify=ssl_verify, timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                health = data.get('health', {})
+                if isinstance(health, dict):
+                    is_healthy = health.get('is_healthy', True)
+                    status_val = health.get('status', 'ok')
+                    if not is_healthy or str(status_val).lower() not in ('ok', ''):
+                        alerts.append(_make_rest_alert(
+                            category='cluster',
+                            resource=cluster_name or self.ip_address,
+                            severity='error',
+                            message=(
+                                f'Cluster health is degraded'
+                                + (f' (status: {status_val})' if status_val else '')
+                            ),
+                            source='/api/cluster',
+                            timestamp=now_ts,
+                        ))
+        except Exception as e:
+            logger.debug(f"Could not check cluster health for {self.ip_address}: {e}")
+
+        # 2 ── Node state / health ────────────────────────────────────────────
+        try:
+            resp = _local_session.get(
+                f"{self.base_url}/api/cluster/nodes",
+                auth=auth, headers=headers,
+                params={'fields': 'name,state,health,ha'},
+                verify=ssl_verify, timeout=10,
+            )
+            if resp.status_code == 200:
+                for node in resp.json().get('records', []):
+                    node_name = node.get('name', 'unknown')
+                    state = node.get('state', 'up')
+                    if state and state != 'up':
+                        alerts.append(_make_rest_alert(
+                            category='node',
+                            resource=node_name,
+                            severity='critical',
+                            message=f'Node {node_name} is {state} (expected: up)',
+                            source='/api/cluster/nodes',
+                            timestamp=now_ts,
+                        ))
+                    # health.is_healthy (boolean) or health field may be absent
+                    health = node.get('health', {})
+                    if isinstance(health, dict):
+                        is_healthy = health.get('is_healthy', True)
+                        if not is_healthy:
+                            alerts.append(_make_rest_alert(
+                                category='node',
+                                resource=f'{node_name}:health',
+                                severity='error',
+                                message=f'Node {node_name} health check failed',
+                                source='/api/cluster/nodes',
+                                timestamp=now_ts,
+                            ))
+                    # HA state checks
+                    ha = node.get('ha', {})
+                    if isinstance(ha, dict):
+                        for ha_section in ('giveback', 'takeover'):
+                            ha_state = ha.get(ha_section, {})
+                            if isinstance(ha_state, dict):
+                                state_val = ha_state.get('state', '')
+                                if state_val and state_val not in (
+                                    '', 'nothing_to_giveback', 'not_attempted', 'enabled', 'ready',
+                                ):
+                                    alerts.append(_make_rest_alert(
+                                        category='node',
+                                        resource=f'{node_name}:ha.{ha_section}',
+                                        severity='warning',
+                                        message=(
+                                            f'Node {node_name} HA {ha_section} state is '
+                                            f'{state_val!r} (not normal)'
+                                        ),
+                                        source='/api/cluster/nodes',
+                                        timestamp=now_ts,
+                                    ))
+        except Exception as e:
+            logger.debug(f"Could not check node health for {self.ip_address}: {e}")
+
+        # 3 ── Cluster peer availability ──────────────────────────────────────
+        try:
+            resp = _local_session.get(
+                f"{self.base_url}/api/cluster/peers",
+                auth=auth, headers=headers,
+                params={'fields': 'name,availability'},
+                verify=ssl_verify, timeout=10,
+            )
+            if resp.status_code == 200:
+                for peer in resp.json().get('records', []):
+                    peer_name    = peer.get('name', 'unknown')
+                    availability = peer.get('availability', 'available')
+                    if availability and availability != 'available':
+                        alerts.append(_make_rest_alert(
+                            category='cluster',
+                            resource=f'peer:{peer_name}',
+                            severity='error',
+                            message=(
+                                f'Cluster peer {peer_name!r} is not available '
+                                f'(availability: {availability})'
+                            ),
+                            source='/api/cluster/peers',
+                            timestamp=now_ts,
+                        ))
+        except Exception as e:
+            logger.debug(f"Could not check cluster peers for {self.ip_address}: {e}")
+
+        # 4 ── Network LIF state ──────────────────────────────────────────────
+        try:
+            resp = _local_session.get(
+                f"{self.base_url}/api/network/ip/interfaces",
+                auth=auth, headers=headers,
+                params={'fields': 'name,state,location,svm'},
+                verify=ssl_verify, timeout=10,
+            )
+            if resp.status_code == 200:
+                for lif in resp.json().get('records', []):
+                    lif_name  = lif.get('name', 'unknown')
+                    state     = lif.get('state', 'up')
+                    svm_name  = lif.get('svm', {}).get('name', '') if isinstance(lif.get('svm'), dict) else ''
+                    resource  = f'{svm_name}:{lif_name}' if svm_name else lif_name
+                    if state and state != 'up':
+                        alerts.append(_make_rest_alert(
+                            category='network',
+                            resource=resource,
+                            severity='warning',
+                            message=f'Network LIF {resource} is {state} (expected: up)',
+                            source='/api/network/ip/interfaces',
+                            timestamp=now_ts,
+                        ))
+        except Exception as e:
+            logger.debug(f"Could not check network LIF state for {self.ip_address}: {e}")
+
+        # 5 ── Ethernet port state ────────────────────────────────────────────
+        try:
+            resp = _local_session.get(
+                f"{self.base_url}/api/network/ethernet/ports",
+                auth=auth, headers=headers,
+                params={'fields': 'name,node,state,type'},
+                verify=ssl_verify, timeout=10,
+            )
+            if resp.status_code == 200:
+                for port in resp.json().get('records', []):
+                    port_name = port.get('name', 'unknown')
+                    node_info = port.get('node', {})
+                    node_name = node_info.get('name', '') if isinstance(node_info, dict) else ''
+                    state     = port.get('state', 'up')
+                    port_type = port.get('type', '')
+                    # Only alert on physical / lag ports; skip vlan/ifgroup internals
+                    if port_type in ('vlan',):
+                        continue
+                    resource  = f'{node_name}:{port_name}' if node_name else port_name
+                    if state and state != 'up':
+                        alerts.append(_make_rest_alert(
+                            category='network',
+                            resource=resource,
+                            severity='warning',
+                            message=f'Ethernet port {resource} is {state} (expected: up)',
+                            source='/api/network/ethernet/ports',
+                            timestamp=now_ts,
+                        ))
+        except Exception as e:
+            logger.debug(f"Could not check ethernet port state for {self.ip_address}: {e}")
+
+        # 6 ── Aggregate state ────────────────────────────────────────────────
+        try:
+            resp = _local_session.get(
+                f"{self.base_url}/api/storage/aggregates",
+                auth=auth, headers=headers,
+                params={'fields': 'name,state'},
+                verify=ssl_verify, timeout=10,
+            )
+            if resp.status_code == 200:
+                for aggr in resp.json().get('records', []):
+                    aggr_name = aggr.get('name', 'unknown')
+                    state     = aggr.get('state', 'online')
+                    if state and state != 'online':
+                        alerts.append(_make_rest_alert(
+                            category='storage',
+                            resource=aggr_name,
+                            severity='critical',
+                            message=f'Aggregate {aggr_name!r} is {state} (expected: online)',
+                            source='/api/storage/aggregates',
+                            timestamp=now_ts,
+                        ))
+        except Exception as e:
+            logger.debug(f"Could not check aggregate state for {self.ip_address}: {e}")
+
+        # 7 ── Disk health ────────────────────────────────────────────────────
+        try:
+            resp = _local_session.get(
+                f"{self.base_url}/api/storage/disks",
+                auth=auth, headers=headers,
+                params={'fields': 'name,state,raid_state'},
+                verify=ssl_verify, timeout=10,
+            )
+            if resp.status_code == 200:
+                for disk in resp.json().get('records', []):
+                    disk_name  = disk.get('name', 'unknown')
+                    state      = disk.get('state', 'present')
+                    raid_state = disk.get('raid_state', 'normal')
+                    if state == 'broken' or raid_state == 'failed':
+                        alerts.append(_make_rest_alert(
+                            category='storage',
+                            resource=disk_name,
+                            severity='critical',
+                            message=(
+                                f'Disk {disk_name} is failed'
+                                f' (state: {state}, raid_state: {raid_state})'
+                            ),
+                            source='/api/storage/disks',
+                            timestamp=now_ts,
+                        ))
+        except Exception as e:
+            logger.debug(f"Could not check disk health for {self.ip_address}: {e}")
+
+        # 8 ── SnapMirror relationship health ─────────────────────────────────
+        try:
+            resp = _local_session.get(
+                f"{self.base_url}/api/snapmirror/relationships",
+                auth=auth, headers=headers,
+                params={'fields': 'healthy,unhealthy_reason,source,destination,state'},
+                verify=ssl_verify, timeout=10,
+            )
+            if resp.status_code == 200:
+                for rel in resp.json().get('records', []):
+                    healthy  = rel.get('healthy', True)
+                    if healthy:
+                        continue
+                    src = rel.get('source', {})
+                    dst = rel.get('destination', {})
+                    src_path = (
+                        f"{src.get('svm', {}).get('name', '')}:{src.get('path', '')}"
+                        if isinstance(src, dict) else str(src)
+                    )
+                    dst_path = (
+                        f"{dst.get('svm', {}).get('name', '')}:{dst.get('path', '')}"
+                        if isinstance(dst, dict) else str(dst)
+                    )
+                    reason_list = rel.get('unhealthy_reason', [])
+                    reason_msg  = (
+                        reason_list[0].get('message', '')
+                        if reason_list and isinstance(reason_list[0], dict)
+                        else str(reason_list)
+                    )
+                    resource = f'{src_path} → {dst_path}'
+                    alerts.append(_make_rest_alert(
+                        category='replication',
+                        resource=resource,
+                        severity='warning',
+                        message=(
+                            f'SnapMirror relationship unhealthy: {resource}'
+                            + (f' – {reason_msg}' if reason_msg else '')
+                        ),
+                        source='/api/snapmirror/relationships',
+                        timestamp=now_ts,
+                    ))
+        except Exception as e:
+            logger.debug(f"Could not check SnapMirror relationships for {self.ip_address}: {e}")
+
+        return alerts
+
     def get_health_status(self):
         try:
             if not self.username or not self.password:
@@ -1037,12 +1494,21 @@ class NetAppONTAPClient(StorageClient):
             # Severity hierarchy: emergency > alert > error > notice > informational > debug
             # We only retrieve events that represent actionable problems (emergency/alert/error).
             # Fields per ems_event schema:
-            #   index           – event ID (integer)
-            #   message.name    – event name (e.g. "callhome.spares.low")
-            #   message.severity – enum: emergency, alert, error, notice, informational, debug
-            #   log_message     – formatted human-readable description
-            #   time            – ISO-8601 timestamp
-            #   node.name       – node where the event originated
+            #   index              – event ID (integer)
+            #   message.name       – event name (e.g. "callhome.spares.low")
+            #   message.severity   – enum: emergency, alert, error, notice, informational, debug
+            #   log_message        – formatted human-readable description
+            #   time               – ISO-8601 timestamp
+            #   node.name          – node where the event originated
+            #   parameters         – event-specific key/value pairs (e.g. alertId for hm.alert)
+            #
+            # Because ONTAP EMS is an event *log* (not a state database) resolved issues
+            # remain in the log forever.  Many problems produce a paired recovery event
+            # (e.g. hm.alert.raised / hm.alert.cleared).  We therefore:
+            #   1. Fetch candidate problem events by severity (this query).
+            #   2. Fetch recent recovery events for known event families (second query).
+            #   3. Apply _filter_active_ems_events() to suppress already-resolved alerts.
+            _EMS_FIELDS = 'index,message.name,message.severity,log_message,time,node.name,parameters'
             alerts_count = 0
             alert_details = []
             try:
@@ -1052,8 +1518,8 @@ class NetAppONTAPClient(StorageClient):
                     headers=headers,
                     params={
                         'message.severity': 'emergency,alert,error',
-                        'fields': 'index,message.name,message.severity,log_message,time,node.name',
-                        'max_records': 100,
+                        'fields': _EMS_FIELDS,
+                        'max_records': 500,
                         'order_by': 'time desc',
                     },
                     verify=ssl_verify,
@@ -1062,7 +1528,34 @@ class NetAppONTAPClient(StorageClient):
 
                 if ems_response.status_code == 200:
                     ems_data = ems_response.json()
-                    records = ems_data.get('records', [])
+                    problem_records = ems_data.get('records', [])
+
+                    # Second query: fetch recovery events for known event families so we
+                    # can determine which problem events have already been resolved.
+                    recovery_records = []
+                    try:
+                        recovery_response = _local_session.get(
+                            f"{self.base_url}/api/support/ems/events",
+                            auth=auth,
+                            headers=headers,
+                            params={
+                                'message.name': _EMS_RECOVERY_FILTER,
+                                'fields': _EMS_FIELDS,
+                                'max_records': 500,
+                                'order_by': 'time desc',
+                            },
+                            verify=ssl_verify,
+                            timeout=15
+                        )
+                        if recovery_response.status_code == 200:
+                            recovery_records = recovery_response.json().get('records', [])
+                    except Exception as rec_error:
+                        logger.debug(
+                            f"Could not fetch EMS recovery events for ONTAP {self.ip_address}: {rec_error}"
+                        )
+
+                    # Apply state-reconstruction filter: keep only active alerts
+                    records = _filter_active_ems_events(problem_records, recovery_records)
                     alerts_count = len(records)
 
                     for event in records:
@@ -1090,7 +1583,7 @@ class NetAppONTAPClient(StorageClient):
 
                     if alerts_count > 0:
                         logger.warning(
-                            f"Found {alerts_count} EMS events (emergency/alert/error) "
+                            f"Found {alerts_count} active EMS events (emergency/alert/error) "
                             f"for ONTAP {self.ip_address}"
                         )
                 elif ems_response.status_code == 401:
@@ -1105,6 +1598,36 @@ class NetAppONTAPClient(StorageClient):
                     )
             except Exception as ems_error:
                 logger.warning(f"Could not get EMS events for ONTAP {self.ip_address}: {ems_error}")
+
+            # Collect REST status-based alerts (node/peer/LIF/port/aggregate/disk/SnapMirror)
+            # These detect problems that may not generate EMS events.  Each sub-check is
+            # independently fault-tolerant; failures are logged at DEBUG level only.
+            try:
+                rest_alerts = self._get_rest_status_alerts(cluster_name, auth, headers, ssl_verify)
+                if rest_alerts:
+                    # Deduplicate: skip REST alerts whose resource is already covered by an
+                    # EMS alert (identified by a matching 'component' value).
+                    ems_components = {d.get('component', '') for d in alert_details}
+                    for ra in rest_alerts:
+                        if ra.get('component', '') not in ems_components:
+                            alert_details.append(ra)
+
+                    alerts_count = len(alert_details)
+
+                    # Escalate hardware_status based on REST alert severity
+                    for ra in rest_alerts:
+                        sev = ra.get('severity', '')
+                        if sev == 'critical' and hardware_status != 'error':
+                            hardware_status = 'error'
+                        elif sev in ('error', 'warning') and hardware_status == 'ok':
+                            hardware_status = 'warning'
+
+                    if rest_alerts:
+                        logger.warning(
+                            f"Found {len(rest_alerts)} REST status alert(s) for ONTAP {self.ip_address}"
+                        )
+            except Exception as rest_err:
+                logger.warning(f"Could not collect REST status alerts for {self.ip_address}: {rest_err}")
 
             return self._format_response(
                 status='online',
