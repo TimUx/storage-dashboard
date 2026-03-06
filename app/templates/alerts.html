@@ -67,6 +67,102 @@
     overflow: hidden;
 }
 
+/* ── Filter bar ── */
+.al-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+    align-items: flex-end;
+    padding: .85rem 1rem;
+    background: var(--al-bg);
+    border-bottom: 1px solid var(--al-border);
+}
+.al-filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+    min-width: 140px;
+}
+.al-filter-group label {
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--al-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.al-filter-group input,
+.al-filter-group select {
+    padding: .35rem .65rem;
+    border: 1px solid var(--al-border);
+    border-radius: 6px;
+    font-size: .85rem;
+    background: var(--al-white);
+    color: var(--al-text);
+    outline: none;
+    transition: border-color .15s;
+}
+.al-filter-group input:focus,
+.al-filter-group select:focus { border-color: var(--al-blue); }
+.al-filter-group input[type="text"] { min-width: 200px; }
+.al-filter-reset {
+    padding: .35rem .9rem;
+    border: 1px solid var(--al-border);
+    border-radius: 6px;
+    background: var(--al-white);
+    color: var(--al-muted);
+    font-size: .82rem;
+    cursor: pointer;
+    align-self: flex-end;
+    transition: background .15s;
+}
+.al-filter-reset:hover { background: #edf0f4; }
+.al-filter-info {
+    margin-left: auto;
+    font-size: .75rem;
+    color: var(--al-muted);
+    align-self: flex-end;
+    white-space: nowrap;
+}
+.al-filter-count { font-weight: 600; color: var(--al-text); }
+
+/* ── Refresh status bar ── */
+.al-refresh-bar {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: .4rem 1rem;
+    background: var(--al-bg);
+    border-bottom: 1px solid var(--al-border);
+    font-size: .77rem;
+    color: var(--al-muted);
+}
+.al-refresh-spinner {
+    display: none;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--al-border);
+    border-top-color: var(--al-blue);
+    border-radius: 50%;
+    animation: al-spin .7s linear infinite;
+}
+.al-refresh-spinner.active { display: inline-block; }
+@keyframes al-spin { to { transform: rotate(360deg); } }
+.al-refresh-ts { font-weight: 600; color: var(--al-text); transition: color .3s; }
+.al-ts-added   { color: #c02020 !important; }
+.al-ts-removed { color: #208020 !important; }
+.al-refresh-btn {
+    margin-left: auto;
+    padding: .25rem .7rem;
+    border: 1px solid var(--al-border);
+    border-radius: 5px;
+    background: var(--al-white);
+    font-size: .77rem;
+    cursor: pointer;
+    color: var(--al-text);
+    transition: background .15s;
+}
+.al-refresh-btn:hover { background: #edf0f4; }
+
 /* ── Table ── */
 .al-table {
     width: 100%;
@@ -84,13 +180,29 @@
     letter-spacing: .04em;
     border-bottom: 2px solid var(--al-border);
     white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
 }
+.al-table thead th:hover { background: #edf0f4; }
+.al-sort-icon {
+    display: inline-block;
+    margin-left: .3rem;
+    opacity: .35;
+    font-style: normal;
+}
+th.al-sort-asc  .al-sort-icon,
+th.al-sort-desc .al-sort-icon { opacity: 1; }
 .al-table tbody tr {
     border-bottom: 1px solid var(--al-border);
-    transition: background .15s;
+    transition: background .15s, opacity .3s;
 }
 .al-table tbody tr:last-child { border-bottom: none; }
 .al-table tbody tr:hover { background: rgba(0,152,219,.04); }
+.al-table tbody tr.al-row-removed {
+    opacity: 0;
+    pointer-events: none;
+}
 .al-table td {
     padding: .75rem 1rem;
     vertical-align: top;
@@ -106,13 +218,15 @@
     font-weight: 600;
     white-space: nowrap;
 }
-.sev-critical { background: rgba(167,2,64,.15); color: #8a0235; }
-.sev-major    { background: rgba(255,165,0,.15); color: #b37400; }
-.sev-minor    { background: rgba(0,152,219,.15); color: #006b99; }
-.sev-warning  { background: rgba(255,165,0,.15); color: #b37400; }
-.sev-error    { background: rgba(167,2,64,.15); color: #8a0235; }
-.sev-info     { background: rgba(190,214,0,.15); color: #6a7700; }
-.sev-unknown  { background: rgba(0,0,0,.08);     color: var(--al-muted); }
+.sev-critical  { background: rgba(167,2,64,.15); color: #8a0235; }
+.sev-emergency { background: rgba(167,2,64,.15); color: #8a0235; }
+.sev-major     { background: rgba(255,165,0,.15); color: #b37400; }
+.sev-minor     { background: rgba(0,152,219,.15); color: #006b99; }
+.sev-warning   { background: rgba(255,165,0,.15); color: #b37400; }
+.sev-alert     { background: rgba(255,100,0,.15); color: #a03000; }
+.sev-error     { background: rgba(167,2,64,.15); color: #8a0235; }
+.sev-info      { background: rgba(190,214,0,.15); color: #6a7700; }
+.sev-unknown   { background: rgba(0,0,0,.08);     color: var(--al-muted); }
 
 /* ── Empty state ── */
 .al-empty {
@@ -156,49 +270,84 @@
 {% block content %}
 <div class="al-header">
     <h2>🔔 Offene Alerts</h2>
-    <div class="al-summary">
+    <div class="al-summary" id="al-summary">
         {% set total = all_alerts | length %}
-        {% set critical_count = all_alerts | selectattr('severity', 'equalto', 'critical') | list | length %}
+        {% set critical_count = all_alerts | selectattr('severity', 'in', ['critical','emergency']) | list | length %}
         {% set major_count    = all_alerts | selectattr('severity', 'equalto', 'major')    | list | length %}
-        {% set error_count    = all_alerts | selectattr('severity', 'equalto', 'error')    | list | length %}
+        {% set error_count    = all_alerts | selectattr('severity', 'in', ['error','alert']) | list | length %}
         {% set warning_count  = all_alerts | selectattr('severity', 'in', ['warning', 'minor']) | list | length %}
-        <span class="al-badge al-badge-total">📋 Gesamt: {{ total }}</span>
-        {% if critical_count %}<span class="al-badge al-badge-critical">🔴 Kritisch: {{ critical_count }}</span>{% endif %}
-        {% if error_count    %}<span class="al-badge al-badge-error"   >🔴 Error: {{ error_count }}</span>{% endif %}
-        {% if major_count    %}<span class="al-badge al-badge-major"   >🟠 Major: {{ major_count }}</span>{% endif %}
-        {% if warning_count  %}<span class="al-badge al-badge-warning" >🟡 Warning/Minor: {{ warning_count }}</span>{% endif %}
+        <span class="al-badge al-badge-total" id="badge-total">📋 Gesamt: {{ total }}</span>
+        {% if critical_count %}<span class="al-badge al-badge-critical" id="badge-critical">🔴 Kritisch: {{ critical_count }}</span>{% endif %}
+        {% if error_count    %}<span class="al-badge al-badge-error"    id="badge-error"   >🔴 Error/Alert: {{ error_count }}</span>{% endif %}
+        {% if major_count    %}<span class="al-badge al-badge-major"    id="badge-major"   >🟠 Major: {{ major_count }}</span>{% endif %}
+        {% if warning_count  %}<span class="al-badge al-badge-warning"  id="badge-warning" >🟡 Warning/Minor: {{ warning_count }}</span>{% endif %}
     </div>
 </div>
 
 <div class="al-card">
+
+    <!-- Refresh status bar -->
+    <div class="al-refresh-bar">
+        <span class="al-refresh-spinner" id="al-spinner"></span>
+        <span>Zuletzt aktualisiert: <span class="al-refresh-ts" id="al-refresh-ts">–</span></span>
+        <span id="al-refresh-note" style="display:none;color:#c08000"> ⚠ Daten veraltet</span>
+        <button class="al-refresh-btn" onclick="pollAlerts(true)">↺ Jetzt aktualisieren</button>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="al-filter-bar">
+        <div class="al-filter-group">
+            <label for="al-search">Suche</label>
+            <input type="text" id="al-search" placeholder="System, Titel, Details …" oninput="applyFilters()">
+        </div>
+        <div class="al-filter-group">
+            <label for="al-sev-filter">Severity</label>
+            <select id="al-sev-filter" onchange="applyFilters()">
+                <option value="">Alle</option>
+            </select>
+        </div>
+        <div class="al-filter-group">
+            <label for="al-sys-filter">System</label>
+            <select id="al-sys-filter" onchange="applyFilters()">
+                <option value="">Alle</option>
+            </select>
+        </div>
+        <button class="al-filter-reset" onclick="resetFilters()">✕ Filter zurücksetzen</button>
+        <span class="al-filter-info">
+            <span class="al-filter-count" id="al-visible-count">{{ all_alerts | length }}</span>
+            von <span id="al-total-count">{{ all_alerts | length }}</span> Alerts angezeigt
+        </span>
+    </div>
+
+    <div id="al-table-wrap">
     {% if all_alerts %}
-    <table class="al-table">
+    <table class="al-table" id="al-table">
         <thead>
             <tr>
-                <th>System / Hersteller</th>
-                <th>Severity</th>
-                <th>Alert-Nummer / ID</th>
-                <th>Titel</th>
-                <th>Details</th>
-                <th>Error-Code</th>
-                <th>Zeitstempel</th>
-                <th>Komponente</th>
+                <th data-col="system_name"   onclick="sortBy('system_name')">System / Hersteller<i class="al-sort-icon">⇅</i></th>
+                <th data-col="severity"      onclick="sortBy('severity')">Severity<i class="al-sort-icon">⇅</i></th>
+                <th data-col="alert_id"      onclick="sortBy('alert_id')">Alert-ID<i class="al-sort-icon">⇅</i></th>
+                <th data-col="title"         onclick="sortBy('title')">Titel<i class="al-sort-icon">⇅</i></th>
+                <th data-col="details">Details</th>
+                <th data-col="error_code"    onclick="sortBy('error_code')">Error-Code<i class="al-sort-icon">⇅</i></th>
+                <th data-col="timestamp"     onclick="sortBy('timestamp')">Zeitstempel<i class="al-sort-icon">⇅</i></th>
+                <th data-col="component"     onclick="sortBy('component')">Komponente<i class="al-sort-icon">⇅</i></th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="al-tbody">
             {% for alert in all_alerts %}
-            <tr>
+            <tr data-sev="{{ alert.severity | lower }}" data-sys="{{ alert.system_name }}">
                 <td>
                     <div class="system-chip">{{ alert.system_name }}</div>
                     <div class="vendor-chip">{{ alert.system_vendor }}</div>
                 </td>
                 <td>
                     <span class="sev-pill sev-{{ alert.severity | lower }}">
-                        {% if alert.severity | lower == 'critical' %}🔴
-                        {% elif alert.severity | lower == 'error'    %}🔴
-                        {% elif alert.severity | lower == 'major'    %}🟠
-                        {% elif alert.severity | lower in ['warning', 'minor'] %}🟡
-                        {% elif alert.severity | lower == 'info'     %}🔵
+                        {% if alert.severity | lower in ['critical','emergency'] %}🔴
+                        {% elif alert.severity | lower in ['error','alert']      %}🔴
+                        {% elif alert.severity | lower == 'major'               %}🟠
+                        {% elif alert.severity | lower in ['warning', 'minor']  %}🟡
+                        {% elif alert.severity | lower == 'info'                %}🔵
                         {% else %}⚪
                         {% endif %}
                         {{ alert.severity | title }}
@@ -215,10 +364,304 @@
         </tbody>
     </table>
     {% else %}
-    <div class="al-empty">
+    <div class="al-empty" id="al-empty">
         <div class="al-empty-icon">✅</div>
         <p>Keine offenen Alerts – alle Systeme sind in Ordnung.</p>
     </div>
     {% endif %}
+    </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let allAlerts   = {{ all_alerts | tojson }};   // seeded from server-side render
+let sortCol     = 'severity';
+let sortDir     = 'asc';
+let pollTimer   = null;
+const POLL_MS   = 60_000;  // re-poll every 60 s
+
+// Severity sort order (lower index = more critical → sorts first when asc)
+const SEV_ORDER = ['emergency','critical','alert','error','major','warning','minor','info','unknown'];
+
+// ─── Utility helpers ─────────────────────────────────────────────────────────
+function fmtTimestamp(isoString) {
+    /** Format an ISO-8601 string to HH:MM:SS (German locale, UTC) */
+    if (!isoString) return null;
+    const s = isoString.endsWith('Z') ? isoString : isoString + 'Z';
+    const d = new Date(s);
+    if (isNaN(d)) return null;
+    return d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+// ─── Severity helpers ─────────────────────────────────────────────────────────
+function sevIcon(sev) {
+    const s = (sev || '').toLowerCase();
+    if (['critical','emergency'].includes(s)) return '🔴';
+    if (['error','alert'].includes(s))        return '🔴';
+    if (s === 'major')                        return '🟠';
+    if (['warning','minor'].includes(s))      return '🟡';
+    if (s === 'info')                         return '🔵';
+    return '⚪';
+}
+function sevIndex(sev) {
+    const i = SEV_ORDER.indexOf((sev || '').toLowerCase());
+    return i === -1 ? SEV_ORDER.length : i;
+}
+
+// ─── HTML escaping ─────────────────────────────────────────────────────────────
+function esc(s) {
+    return String(s ?? '-')
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function renderTable() {
+    const search    = document.getElementById('al-search').value.toLowerCase();
+    const sevFilter = document.getElementById('al-sev-filter').value.toLowerCase();
+    const sysFilter = document.getElementById('al-sys-filter').value;
+
+    // Filter
+    let rows = allAlerts.filter(a => {
+        if (sevFilter && (a.severity || '').toLowerCase() !== sevFilter) return false;
+        if (sysFilter && a.system_name !== sysFilter)                    return false;
+        if (search) {
+            const hay = [a.system_name, a.system_vendor, a.title,
+                         a.details, a.error_code, a.component,
+                         a.alert_id, a.timestamp].join(' ').toLowerCase();
+            if (!hay.includes(search)) return false;
+        }
+        return true;
+    });
+
+    // Sort
+    rows = [...rows].sort((a, b) => {
+        let va = a[sortCol] ?? '';
+        let vb = b[sortCol] ?? '';
+        let cmp;
+        if (sortCol === 'severity') {
+            cmp = sevIndex(va) - sevIndex(vb);
+        } else {
+            cmp = String(va).localeCompare(String(vb), undefined, {numeric: true});
+        }
+        return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    // Update header indicators
+    document.querySelectorAll('#al-table thead th').forEach(th => {
+        th.classList.remove('al-sort-asc', 'al-sort-desc');
+        const icon = th.querySelector('.al-sort-icon');
+        if (icon) icon.textContent = '⇅';
+    });
+    const activeTh = document.querySelector(`#al-table thead th[data-col="${sortCol}"]`);
+    if (activeTh) {
+        activeTh.classList.add(sortDir === 'asc' ? 'al-sort-asc' : 'al-sort-desc');
+        const icon = activeTh.querySelector('.al-sort-icon');
+        if (icon) icon.textContent = sortDir === 'asc' ? '▲' : '▼';
+    }
+
+    // Build tbody HTML
+    const tbody = document.getElementById('al-tbody');
+    if (!tbody) return;
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--al-muted)">
+            Keine Alerts entsprechen den gewählten Filterkriterien.</td></tr>`;
+    } else {
+        tbody.innerHTML = rows.map(a => {
+            const sev = (a.severity || 'unknown').toLowerCase();
+            return `<tr data-sev="${esc(sev)}" data-sys="${esc(a.system_name)}">
+                <td>
+                    <div class="system-chip">${esc(a.system_name)}</div>
+                    <div class="vendor-chip">${esc(a.system_vendor)}</div>
+                </td>
+                <td>
+                    <span class="sev-pill sev-${esc(sev)}">
+                        ${sevIcon(sev)} ${esc(a.severity ?? 'Unknown')}
+                    </span>
+                </td>
+                <td><span class="al-id-code">${esc(a.alert_id)}</span></td>
+                <td><strong>${esc(a.title)}</strong></td>
+                <td><span class="al-details-text">${esc(a.details)}</span></td>
+                <td><span class="al-id-code">${esc(a.error_code)}</span></td>
+                <td><span class="al-timestamp">${esc(a.timestamp)}</span></td>
+                <td>${esc(a.component)}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // Update counters
+    document.getElementById('al-visible-count').textContent = rows.length;
+    document.getElementById('al-total-count').textContent   = allAlerts.length;
+    updateSummaryBadges();
+}
+
+// ─── Summary badges ───────────────────────────────────────────────────────────
+function updateSummaryBadges() {
+    const total    = allAlerts.length;
+    const critical = allAlerts.filter(a => ['critical','emergency'].includes((a.severity||'').toLowerCase())).length;
+    const errorN   = allAlerts.filter(a => ['error','alert'].includes((a.severity||'').toLowerCase())).length;
+    const major    = allAlerts.filter(a => (a.severity||'').toLowerCase() === 'major').length;
+    const warning  = allAlerts.filter(a => ['warning','minor'].includes((a.severity||'').toLowerCase())).length;
+
+    document.getElementById('badge-total').textContent = `📋 Gesamt: ${total}`;
+
+    const mkBadge = (id, cls, icon, label, count) => {
+        let el = document.getElementById(id);
+        if (count > 0) {
+            if (!el) {
+                el = document.createElement('span');
+                el.id = id;
+                el.className = `al-badge al-badge-${cls}`;
+                document.getElementById('al-summary').appendChild(el);
+            }
+            el.textContent = `${icon} ${label}: ${count}`;
+            el.style.display = '';
+        } else if (el) {
+            el.style.display = 'none';
+        }
+    };
+    mkBadge('badge-critical', 'critical', '🔴', 'Kritisch',      critical);
+    mkBadge('badge-error',    'error',    '🔴', 'Error/Alert',    errorN);
+    mkBadge('badge-major',    'major',    '🟠', 'Major',          major);
+    mkBadge('badge-warning',  'warning',  '🟡', 'Warning/Minor',  warning);
+}
+
+// ─── Dropdown population ──────────────────────────────────────────────────────
+function populateDropdowns() {
+    const sevSel = document.getElementById('al-sev-filter');
+    const sysSel = document.getElementById('al-sys-filter');
+    const prevSev = sevSel.value;
+    const prevSys = sysSel.value;
+
+    const severities = [...new Set(allAlerts.map(a => a.severity || 'unknown'))].sort(
+        (a, b) => sevIndex(a) - sevIndex(b)
+    );
+    const systems = [...new Set(allAlerts.map(a => a.system_name))].sort();
+
+    sevSel.innerHTML = '<option value="">Alle</option>' +
+        severities.map(s => `<option value="${esc(s.toLowerCase())}">${esc(s)}</option>`).join('');
+    sysSel.innerHTML = '<option value="">Alle</option>' +
+        systems.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+
+    // Restore selections if they still exist
+    if ([...sevSel.options].some(o => o.value === prevSev)) sevSel.value = prevSev;
+    if ([...sysSel.options].some(o => o.value === prevSys)) sysSel.value = prevSys;
+}
+
+// ─── Filter / Sort handlers ───────────────────────────────────────────────────
+function applyFilters() { renderTable(); }
+
+function resetFilters() {
+    document.getElementById('al-search').value     = '';
+    document.getElementById('al-sev-filter').value = '';
+    document.getElementById('al-sys-filter').value = '';
+    renderTable();
+}
+
+function sortBy(col) {
+    if (sortCol === col) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        sortCol = col;
+        sortDir = col === 'severity' ? 'asc' : 'asc';
+    }
+    renderTable();
+}
+
+// ─── Auto-refresh / cleanup polling ──────────────────────────────────────────
+function pollAlerts(manual = false) {
+    clearTimeout(pollTimer);
+    const spinner = document.getElementById('al-spinner');
+    spinner.classList.add('active');
+
+    fetch('/api/alerts')
+        .then(r => r.json())
+        .then(data => {
+            spinner.classList.remove('active');
+            document.getElementById('al-refresh-note').style.display = 'none';
+
+            // Update the "last updated" timestamp
+            if (data.fetched_at) {
+                const ts = fmtTimestamp(data.fetched_at);
+                if (ts) document.getElementById('al-refresh-ts').textContent = ts;
+            }
+
+            // Detect removed alerts (cleanup) and new alerts
+            const newAlerts  = data.alerts || [];
+            const oldIds     = new Set(allAlerts.map(a => `${a.system_name}|${a.alert_id}|${a.title}`));
+            const newIds     = new Set(newAlerts.map(a => `${a.system_name}|${a.alert_id}|${a.title}`));
+
+            const removedCount = [...oldIds].filter(k => !newIds.has(k)).length;
+            const addedCount   = [...newIds].filter(k => !oldIds.has(k)).length;
+
+            allAlerts = newAlerts;
+
+            // Ensure table element exists (handles transition from empty→rows)
+            const wrap = document.getElementById('al-table-wrap');
+            if (!document.getElementById('al-table') && allAlerts.length > 0) {
+                wrap.innerHTML = `
+                    <table class="al-table" id="al-table">
+                        <thead><tr>
+                            <th data-col="system_name" onclick="sortBy('system_name')">System / Hersteller<i class="al-sort-icon">⇅</i></th>
+                            <th data-col="severity"    onclick="sortBy('severity')"   >Severity<i class="al-sort-icon">⇅</i></th>
+                            <th data-col="alert_id"    onclick="sortBy('alert_id')"   >Alert-ID<i class="al-sort-icon">⇅</i></th>
+                            <th data-col="title"       onclick="sortBy('title')"      >Titel<i class="al-sort-icon">⇅</i></th>
+                            <th data-col="details"                                    >Details</th>
+                            <th data-col="error_code"  onclick="sortBy('error_code')" >Error-Code<i class="al-sort-icon">⇅</i></th>
+                            <th data-col="timestamp"   onclick="sortBy('timestamp')"  >Zeitstempel<i class="al-sort-icon">⇅</i></th>
+                            <th data-col="component"   onclick="sortBy('component')"  >Komponente<i class="al-sort-icon">⇅</i></th>
+                        </tr></thead>
+                        <tbody id="al-tbody"></tbody>
+                    </table>`;
+            } else if (document.getElementById('al-table') && allAlerts.length === 0) {
+                wrap.innerHTML = `<div class="al-empty" id="al-empty">
+                    <div class="al-empty-icon">✅</div>
+                    <p>Keine offenen Alerts – alle Systeme sind in Ordnung.</p>
+                </div>`;
+            }
+
+            populateDropdowns();
+            renderTable();
+
+            if (removedCount > 0 || addedCount > 0) {
+                // Flash the refresh timestamp to draw attention: red = new alerts, green = resolved
+                const tsEl = document.getElementById('al-refresh-ts');
+                tsEl.classList.add(addedCount > 0 ? 'al-ts-added' : 'al-ts-removed');
+                setTimeout(() => {
+                    tsEl.classList.remove('al-ts-added', 'al-ts-removed');
+                }, 3000);
+            }
+        })
+        .catch(err => {
+            spinner.classList.remove('active');
+            document.getElementById('al-refresh-note').style.display = '';
+            console.warn('Alert poll failed:', err);
+        })
+        .finally(() => {
+            pollTimer = setTimeout(pollAlerts, POLL_MS);
+        });
+}
+
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    // Build table and dropdowns from server-seeded data
+    if (allAlerts.length > 0) {
+        populateDropdowns();
+        renderTable();
+    }
+    // Start polling loop (first poll fires after one interval)
+    pollTimer = setTimeout(pollAlerts, POLL_MS);
+    // Also update the timestamp label immediately from the server-rendered data
+    const firstTs = allAlerts.length > 0 ? allAlerts[0].fetched_at : null;
+    if (firstTs) {
+        const ts = fmtTimestamp(firstTs);
+        if (ts) document.getElementById('al-refresh-ts').textContent = ts;
+    }
+});
+</script>
 {% endblock %}

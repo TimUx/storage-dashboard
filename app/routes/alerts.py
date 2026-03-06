@@ -50,9 +50,14 @@ def _normalize_alert_detail(alert, system):
     }
 
 
-@bp.route('/alerts/')
-def alerts():
-    """Alerts page – aggregates open alerts from all cached system statuses."""
+def collect_alerts():
+    """Build the normalised list of open alerts from the current StatusCache.
+
+    Returns a list of alert dicts in the common schema.  Each dict also carries
+    a ``fetched_at`` key (ISO-8601 string or ``None``) indicating how fresh the
+    underlying cache entry is.  This function is used by both the HTML route and
+    the JSON API endpoint so that both views always reflect the same data.
+    """
     systems = StorageSystem.query.filter_by(enabled=True).order_by(StorageSystem.name).all()
 
     all_alerts = []
@@ -64,16 +69,22 @@ def alerts():
         if not status:
             continue
 
+        fetched_at = cache.fetched_at.isoformat() if cache.fetched_at else None
+
+        def _tag(alert_dict):
+            alert_dict['fetched_at'] = fetched_at
+            return alert_dict
+
         # DataDomain stores alert details under 'active_alerts'
         if status.get('active_alerts'):
             for alert in status['active_alerts']:
-                all_alerts.append(_normalize_dd_alert(alert, system))
+                all_alerts.append(_tag(_normalize_dd_alert(alert, system)))
             continue
 
         # Pure Storage / StorageGRID store alert details under 'alert_details'
         if status.get('alert_details'):
             for alert in status['alert_details']:
-                all_alerts.append(_normalize_alert_detail(alert, system))
+                all_alerts.append(_tag(_normalize_alert_detail(alert, system)))
             continue
 
         # Fallback: no details available but alerts count > 0
@@ -89,6 +100,14 @@ def alerts():
                 'error_code': '-',
                 'timestamp': '-',
                 'component': '-',
+                'fetched_at': fetched_at,
             })
 
+    return all_alerts
+
+
+@bp.route('/alerts/')
+def alerts():
+    """Alerts page – aggregates open alerts from all cached system statuses."""
+    all_alerts = collect_alerts()
     return render_template('alerts.html', all_alerts=all_alerts)

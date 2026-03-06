@@ -14,8 +14,14 @@ system is needed.  Verifies:
 """
 
 import json
+from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch, call
 import pytest
+
+
+def _ago(hours):
+    """Return an ISO-8601 timestamp for *hours* hours before now (UTC)."""
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -240,8 +246,22 @@ class TestONTAPEmsAlertFetch:
     def test_ems_missing_node_field_handled_gracefully(self):
         """EMS events without a 'node' field should not cause a KeyError."""
         events = [
-            {'index': 5, 'message': {'name': 'some.event', 'severity': 'error'},
-             'log_message': 'Something', 'time': '2026-03-06T08:00:00+00:00'},
+            {'index': 5, 'message': {'name': 'hm.something', 'severity': 'error'},
+             'log_message': 'Something', 'time': _ago(1)},
+        ]
+        result = _run_client(_ems_response(events))
+        assert result['alerts'] == 1
+        assert result['alert_details'][0]['component'] == '-'
+
+    def test_non_hw_event_missing_node_field_handled_gracefully(self):
+        """Non-hardware events without a 'node' field should not cause a KeyError.
+
+        The category filter passes emergency-level non-hardware events; a missing
+        node field must not raise an exception regardless of event family.
+        """
+        events = [
+            {'index': 6, 'message': {'name': 'some.unknown.event', 'severity': 'emergency'},
+             'log_message': 'Unknown emergency', 'time': _ago(1)},
         ]
         result = _run_client(_ems_response(events))
         assert result['alerts'] == 1
@@ -275,69 +295,71 @@ class TestONTAPEmsRecoveryFiltering:
     """
 
     # ---- helper factories ------------------------------------------------
+    # Default timestamps are relative to now so they always fall within the
+    # 48-hour lookback window regardless of when the tests are executed.
 
     @staticmethod
-    def _hm_raised(index, node, alert_id, time='2026-03-01T08:00:00+00:00'):
+    def _hm_raised(index, node, alert_id, time=None):
         return {
             'index': index,
             'message': {'name': 'hm.alert.raised', 'severity': 'alert'},
             'log_message': f'Health monitor alert {alert_id} raised on {node}',
-            'time': time,
+            'time': time if time is not None else _ago(24),
             'node': {'name': node},
             'parameters': [{'name': 'alertId', 'value': alert_id}],
         }
 
     @staticmethod
-    def _hm_cleared(index, node, alert_id, time='2026-03-02T08:00:00+00:00'):
+    def _hm_cleared(index, node, alert_id, time=None):
         return {
             'index': index,
             'message': {'name': 'hm.alert.cleared', 'severity': 'informational'},
             'log_message': f'Health monitor alert {alert_id} cleared on {node}',
-            'time': time,
+            'time': time if time is not None else _ago(12),
             'node': {'name': node},
             'parameters': [{'name': 'alertId', 'value': alert_id}],
         }
 
     @staticmethod
-    def _cpeer_unavailable(index, node, peer, time='2026-03-01T08:00:00+00:00'):
+    def _cpeer_unavailable(index, node, peer, time=None):
         return {
             'index': index,
             'message': {'name': 'cpeer.unavailable', 'severity': 'error'},
             'log_message': f'Cluster peer {peer} unavailable',
-            'time': time,
+            'time': time if time is not None else _ago(24),
             'node': {'name': node},
             'parameters': [{'name': 'peerName', 'value': peer}],
         }
 
     @staticmethod
-    def _cpeer_available(index, node, peer, time='2026-03-02T08:00:00+00:00'):
+    def _cpeer_available(index, node, peer, time=None):
         return {
             'index': index,
             'message': {'name': 'cpeer.available', 'severity': 'informational'},
             'log_message': f'Cluster peer {peer} available',
-            'time': time,
+            'time': time if time is not None else _ago(12),
             'node': {'name': node},
             'parameters': [{'name': 'peerName', 'value': peer}],
         }
 
     @staticmethod
-    def _cf_critical(index, node, time='2026-03-01T08:00:00+00:00'):
+    def _cf_critical(index, node, time=None):
         return {
             'index': index,
             'message': {'name': 'cf.fsm.monitor.globalStatus.critical', 'severity': 'alert'},
             'log_message': f'Cluster failover critical on {node}',
-            'time': time,
+            'time': time if time is not None else _ago(24),
             'node': {'name': node},
             'parameters': [],
         }
 
     @staticmethod
-    def _cf_ok(index, node, time='2026-03-02T08:00:00+00:00'):
+    def _cf_ok(index, node, time=None):
         return {
             'index': index,
             'message': {'name': 'cf.fsm.monitor.globalStatus.ok', 'severity': 'informational'},
             'log_message': f'Cluster failover ok on {node}',
-            'time': time,
+            'time': time if time is not None else _ago(12),
             'node': {'name': node},
             'parameters': [],
         }
@@ -353,17 +375,17 @@ class TestONTAPEmsRecoveryFiltering:
 
     def test_hm_alert_raised_then_cleared_is_not_active(self):
         """hm.alert.raised followed by hm.alert.cleared → alert must not appear."""
-        problem = [self._hm_raised(1, 'node1', 'DiskFailure', time='2026-03-01T08:00:00+00:00')]
-        recovery = [self._hm_cleared(2, 'node1', 'DiskFailure', time='2026-03-02T09:00:00+00:00')]
+        problem  = [self._hm_raised(1, 'node1', 'DiskFailure',  time=_ago(30))]
+        recovery = [self._hm_cleared(2, 'node1', 'DiskFailure', time=_ago(6))]
         result = _run_client(_ems_response(problem), _ems_response(recovery))
         assert result['alerts'] == 0
 
     def test_hm_alert_cleared_then_raised_again_is_active(self):
         """Cleared then raised again (more recent raise) → alert must appear."""
         # problem_records contains only severity events, so the raise is there
-        problem = [self._hm_raised(3, 'node1', 'DiskFailure', time='2026-03-03T10:00:00+00:00')]
+        problem  = [self._hm_raised(3, 'node1', 'DiskFailure',  time=_ago(4))]
         # recovery query returns the older cleared event
-        recovery = [self._hm_cleared(2, 'node1', 'DiskFailure', time='2026-03-02T09:00:00+00:00')]
+        recovery = [self._hm_cleared(2, 'node1', 'DiskFailure', time=_ago(12))]
         result = _run_client(_ems_response(problem), _ems_response(recovery))
         assert result['alerts'] == 1
         assert result['alert_details'][0]['title'] == 'hm.alert.raised'
@@ -371,10 +393,10 @@ class TestONTAPEmsRecoveryFiltering:
     def test_two_distinct_hm_alerts_one_cleared(self):
         """Two different hm.alert.raised events; only one is cleared → one active."""
         problem = [
-            self._hm_raised(1, 'node1', 'DiskFailure',    time='2026-03-01T08:00:00+00:00'),
-            self._hm_raised(2, 'node1', 'FanFailure',     time='2026-03-01T09:00:00+00:00'),
+            self._hm_raised(1, 'node1', 'DiskFailure', time=_ago(30)),
+            self._hm_raised(2, 'node1', 'FanFailure',  time=_ago(20)),
         ]
-        recovery = [self._hm_cleared(3, 'node1', 'DiskFailure', time='2026-03-02T08:00:00+00:00')]
+        recovery = [self._hm_cleared(3, 'node1', 'DiskFailure', time=_ago(10))]
         result = _run_client(_ems_response(problem), _ems_response(recovery))
         assert result['alerts'] == 1
         active_ids = [d['error_code'] for d in result['alert_details']]
@@ -390,10 +412,8 @@ class TestONTAPEmsRecoveryFiltering:
 
     def test_cpeer_unavailable_then_available_is_not_active(self):
         """cpeer.unavailable followed by cpeer.available → cleared, not active."""
-        problem = [self._cpeer_unavailable(10, 'node1', 'cluster-b',
-                                           time='2026-03-01T08:00:00+00:00')]
-        recovery = [self._cpeer_available(11, 'node1', 'cluster-b',
-                                          time='2026-03-02T08:00:00+00:00')]
+        problem  = [self._cpeer_unavailable(10, 'node1', 'cluster-b', time=_ago(30))]
+        recovery = [self._cpeer_available(11, 'node1', 'cluster-b',   time=_ago(6))]
         result = _run_client(_ems_response(problem), _ems_response(recovery))
         assert result['alerts'] == 0
 
@@ -407,8 +427,8 @@ class TestONTAPEmsRecoveryFiltering:
 
     def test_cf_critical_then_ok_is_not_active(self):
         """cf.fsm.monitor.globalStatus.critical followed by ok → cleared."""
-        problem  = [self._cf_critical(20, 'node1', time='2026-03-01T08:00:00+00:00')]
-        recovery = [self._cf_ok(21, 'node1',       time='2026-03-02T08:00:00+00:00')]
+        problem  = [self._cf_critical(20, 'node1', time=_ago(30))]
+        recovery = [self._cf_ok(21,       'node1', time=_ago(6))]
         result = _run_client(_ems_response(problem), _ems_response(recovery))
         assert result['alerts'] == 0
 
@@ -417,12 +437,12 @@ class TestONTAPEmsRecoveryFiltering:
     def test_tracked_cleared_plus_untracked_severity_event(self):
         """Cleared tracked alert + untracked severity event → only untracked appears."""
         problem = [
-            self._hm_raised(1, 'node1', 'DiskFailure',    time='2026-03-01T08:00:00+00:00'),
+            self._hm_raised(1, 'node1', 'DiskFailure', time=_ago(30)),
             {'index': 5, 'message': {'name': 'callhome.spares.low', 'severity': 'error'},
-             'log_message': 'Spare capacity low', 'time': '2026-03-01T09:00:00+00:00',
+             'log_message': 'Spare capacity low', 'time': _ago(20),
              'node': {'name': 'node1'}, 'parameters': []},
         ]
-        recovery = [self._hm_cleared(2, 'node1', 'DiskFailure', time='2026-03-02T08:00:00+00:00')]
+        recovery = [self._hm_cleared(2, 'node1', 'DiskFailure', time=_ago(10))]
         result = _run_client(_ems_response(problem), _ems_response(recovery))
         assert result['alerts'] == 1
         assert result['alert_details'][0]['error_code'] == 'callhome.spares.low'
@@ -439,3 +459,157 @@ class TestONTAPEmsRecoveryFiltering:
         # Should still show the problem event (no crash, no silent loss)
         assert result['alerts'] == 1
         assert result['status'] == 'online'
+
+
+# ---------------------------------------------------------------------------
+# Age and category filter tests (_filter_ems_by_age_and_category)
+# ---------------------------------------------------------------------------
+
+class TestEmsAgeAndCategoryFilter:
+    """Unit tests for _filter_ems_by_age_and_category().
+
+    These tests exercise the helper directly (no full client mock needed).
+    """
+
+    @staticmethod
+    def _event(name, severity, hours_ago):
+        """Build a minimal EMS event dict."""
+        from datetime import datetime, timezone, timedelta
+        ts = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+        return {
+            'index': 1,
+            'message': {'name': name, 'severity': severity},
+            'log_message': f'{name} event',
+            'time': ts,
+            'node': {'name': 'node1'},
+            'parameters': [],
+        }
+
+    def test_recent_hardware_error_is_kept(self):
+        """A hardware 'error' event within 48 h must be included."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        events = [self._event('hm.alert.raised', 'error', hours_ago=1)]
+        result = _filter_ems_by_age_and_category(events)
+        assert len(result) == 1
+
+    def test_recent_non_hw_error_is_dropped(self):
+        """A non-hardware 'error' event (e.g. capacity) must be suppressed."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        events = [self._event('wafl.vol.autosize.done', 'error', hours_ago=1)]
+        result = _filter_ems_by_age_and_category(events)
+        assert len(result) == 0
+
+    def test_recent_non_hw_alert_severity_is_kept(self):
+        """A non-hardware 'alert'-severity event within 48 h must be kept."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        events = [self._event('wafl.vol.autosize.done', 'alert', hours_ago=1)]
+        result = _filter_ems_by_age_and_category(events)
+        assert len(result) == 1
+
+    def test_recent_non_hw_emergency_is_kept(self):
+        """A non-hardware 'emergency' event within 48 h must always be kept."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        events = [self._event('some.unknown.event', 'emergency', hours_ago=2)]
+        result = _filter_ems_by_age_and_category(events)
+        assert len(result) == 1
+
+    def test_old_event_is_dropped_regardless_of_severity(self):
+        """An event older than 48 h must be dropped even if severity is emergency."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        events = [self._event('hm.alert.raised', 'emergency', hours_ago=50)]
+        result = _filter_ems_by_age_and_category(events)
+        assert len(result) == 0
+
+    def test_event_at_exactly_48h_boundary_is_dropped(self):
+        """An event at exactly 48 h (or marginally older) must be dropped."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        events = [self._event('disk.write.failure', 'error', hours_ago=48.01)]
+        result = _filter_ems_by_age_and_category(events)
+        assert len(result) == 0
+
+    def test_event_just_inside_window_is_kept(self):
+        """An event raised 47.9 h ago must be kept."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        events = [self._event('disk.write.failure', 'error', hours_ago=47.9)]
+        result = _filter_ems_by_age_and_category(events)
+        assert len(result) == 1
+
+    def test_unparseable_timestamp_is_kept_conservatively(self):
+        """An event with an unparseable timestamp must be included (conservative)."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        event = {
+            'index': 1,
+            'message': {'name': 'hm.alert.raised', 'severity': 'error'},
+            'log_message': 'bad ts',
+            'time': 'not-a-timestamp',
+            'node': {'name': 'node1'},
+            'parameters': [],
+        }
+        result = _filter_ems_by_age_and_category([event])
+        assert len(result) == 1
+
+    def test_missing_timestamp_is_kept_conservatively(self):
+        """An event with no 'time' field must be included (conservative)."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        event = {
+            'index': 1,
+            'message': {'name': 'hm.alert.raised', 'severity': 'error'},
+            'log_message': 'no ts',
+            'node': {'name': 'node1'},
+            'parameters': [],
+        }
+        result = _filter_ems_by_age_and_category([event])
+        assert len(result) == 1
+
+    def test_hardware_prefixes_all_kept_at_error(self):
+        """All hardware event prefixes must be treated as hardware at 'error' severity."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category, _EMS_HARDWARE_EVENT_PREFIXES
+        hardware_names = [pfx + 'something' for pfx in _EMS_HARDWARE_EVENT_PREFIXES]
+        events = [self._event(name, 'error', hours_ago=1) for name in hardware_names]
+        result = _filter_ems_by_age_and_category(events)
+        assert len(result) == len(hardware_names), (
+            f"Expected all {len(hardware_names)} hardware events, got {len(result)}"
+        )
+
+    def test_mixed_events_filtered_correctly(self):
+        """Mix of old, new, hw, non-hw events: only recent hw+alert-priority non-hw kept."""
+        from app.api.storage_clients import _filter_ems_by_age_and_category
+        events = [
+            self._event('hm.alert.raised',       'error',     hours_ago=1),   # keep: hw, recent
+            self._event('disk.write.failure',     'error',     hours_ago=1),   # keep: hw, recent
+            self._event('callhome.spares.low',    'error',     hours_ago=60),  # drop: old
+            self._event('wafl.vol.autosize.done', 'error',     hours_ago=1),   # drop: non-hw error
+            self._event('wafl.vol.autosize.done', 'alert',     hours_ago=1),   # keep: non-hw alert
+            self._event('some.unknown.event',     'emergency', hours_ago=1),   # keep: non-hw emergency
+        ]
+        result = _filter_ems_by_age_and_category(events)
+        assert len(result) == 4
+        names = [e['message']['name'] for e in result]
+        assert 'hm.alert.raised' in names
+        assert 'disk.write.failure' in names
+        assert 'wafl.vol.autosize.done' in names
+        assert 'some.unknown.event' in names
+
+    def test_old_events_are_excluded_from_full_client(self):
+        """Old EMS events are excluded from get_health_status() via the pre-filter."""
+        from datetime import datetime, timezone, timedelta
+        old_ts = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
+        events = [
+            {'index': 1, 'message': {'name': 'callhome.spares.low', 'severity': 'error'},
+             'log_message': 'Old spare event', 'time': old_ts, 'node': {'name': 'node1'}},
+        ]
+        result = _run_client(_ems_response(events))
+        assert result['alerts'] == 0
+
+    def test_recent_non_hw_error_excluded_from_full_client(self):
+        """Recent non-hardware 'error' events are excluded by the category filter."""
+        from datetime import datetime, timezone, timedelta
+        recent_ts = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        events = [
+            {'index': 2, 'message': {'name': 'wafl.vol.autosize.done', 'severity': 'error'},
+             'log_message': 'Volume autosize triggered', 'time': recent_ts,
+             'node': {'name': 'node1'}, 'parameters': []},
+        ]
+        result = _run_client(_ems_response(events))
+        assert result['alerts'] == 0
+

@@ -112,3 +112,32 @@ def trigger_status_refresh():
     results = do_refresh_sync(app)
     return jsonify(results)
 
+
+@bp.route('/alerts')
+def get_alerts():
+    """Return the current open alerts from the StatusCache as JSON.
+
+    Used by the alerts page for live auto-refresh: the JavaScript polling loop
+    calls this endpoint periodically and updates the table to reflect the latest
+    cached state.  Resolved alerts that are no longer present in the cache are
+    automatically absent from the response, so the table cleans itself up
+    without requiring a full page reload.
+
+    Response shape::
+
+        {
+            "alerts": [ { ...alert fields... }, ... ],
+            "fetched_at": "<ISO-8601 timestamp of the most recent cache entry>"
+        }
+    """
+    from app.routes.alerts import collect_alerts
+    alerts = collect_alerts()
+    # Determine the most recent fetched_at across all alerts so the UI can
+    # show a single "last updated" timestamp.
+    fetched_at = None
+    for a in alerts:
+        fa = a.get('fetched_at')
+        if fa and (fetched_at is None or fa > fetched_at):
+            fetched_at = fa
+    return jsonify({'alerts': alerts, 'fetched_at': fetched_at})
+
