@@ -89,6 +89,9 @@
             font-size: 0.95rem;
             background: #f5f7fa;
             border: 1px solid #e1e8ed;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
         }
         
         .navbar a:hover {
@@ -102,6 +105,32 @@
             color: white;
             border-color: var(--primary-color);
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+        
+        .navbar a.alerts-active {
+            background: #FFA500;
+            color: white;
+            border-color: #e69400;
+            box-shadow: 0 2px 6px rgba(255, 165, 0, 0.4);
+        }
+        
+        .navbar a.alerts-active:hover {
+            background: #e69400;
+        }
+        
+        .alert-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            color: #e69400;
+            border-radius: 10px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            min-width: 1.2rem;
+            height: 1.2rem;
+            padding: 0 0.3rem;
+            line-height: 1;
         }
         
         .container {
@@ -137,14 +166,15 @@
     <nav class="navbar">
         <h1 aria-label="{% if settings and settings.logo_filename %}{{ settings.company_name }} Logo{% endif %}">{{ settings.company_name if settings else 'Storage Dashboard' }}</h1>
         <div class="navbar-links">
-            <a href="/">Dashboard</a>
-            <a href="/capacity/">Kapazitätsreport</a>
-            <a href="/admin">Admin</a>
+            <a href="/">📊 Dashboard</a>
+            <a href="/alerts/"{% if open_alerts_count > 0 %} class="alerts-active"{% endif %}>🔔 Alerts{% if open_alerts_count > 0 %} <span class="alert-badge">{{ open_alerts_count }}</span>{% endif %}</a>
+            <a href="/capacity/">📈 Kapazitätsreport</a>
+            <a href="/admin">⚙️ Admin</a>
             {% if current_user.is_authenticated %}
-            <a href="/admin/docs">Dokumentation</a>
+            <a href="/admin/docs">📚 Dokumentation</a>
             {% endif %}
             {% if current_user.is_authenticated %}
-            <a href="{{ url_for('admin.logout') }}">Abmelden</a>
+            <a href="{{ url_for('admin.logout') }}">🚪 Abmelden</a>
             {% endif %}
         </div>
     </nav>

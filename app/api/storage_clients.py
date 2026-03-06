@@ -9,8 +9,27 @@ import warnings
 import logging
 import re
 import traceback
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+_EPOCH_TS_FORMAT = '%Y-%m-%d %H:%M:%S UTC'
+
+
+def _epoch_ms_to_str(epoch_ms):
+    """Convert a Unix timestamp in milliseconds to a human-readable UTC string."""
+    try:
+        return datetime.fromtimestamp(int(epoch_ms) / 1000, tz=timezone.utc).strftime(_EPOCH_TS_FORMAT)
+    except Exception:
+        return str(epoch_ms)
+
+
+def _epoch_s_to_str(epoch_s):
+    """Convert a Unix timestamp in seconds to a human-readable UTC string."""
+    try:
+        return datetime.fromtimestamp(int(epoch_s), tz=timezone.utc).strftime(_EPOCH_TS_FORMAT)
+    except Exception:
+        return str(epoch_s)
 
 # Session used for ALL calls to local storage systems.
 # Setting empty proxy strings explicitly overrides any HTTP_PROXY / HTTPS_PROXY
@@ -449,6 +468,7 @@ class PureStorageClient(StorageClient):
             # Get alerts
             # REST API v2: GET /api/2.x/alerts?filter=state='open'
             alerts_count = 0
+            alert_details = []
             try:
                 alerts_response = _local_session.get(
                     f"{self.base_url}/api/{api_version}/alerts",
@@ -463,7 +483,20 @@ class PureStorageClient(StorageClient):
                     items = alerts_data.get('items', [])
                     # API should return only open alerts, but filter as fallback
                     # in case the API doesn't support the filter parameter
-                    alerts_count = sum(1 for a in items if a.get('state', '').lower() != 'closed')
+                    open_items = [a for a in items if a.get('state', '').lower() != 'closed']
+                    alerts_count = len(open_items)
+                    
+                    for a in open_items:
+                        alert_details.append({
+                            'id': str(a.get('id', '-')),
+                            'title': a.get('name', '-'),
+                            # 'summary' is the primary detail; fall back to 'description' or 'issue'
+                            'details': a.get('summary') or a.get('description') or a.get('issue') or '-',
+                            'severity': a.get('severity', 'unknown'),
+                            'error_code': str(a.get('code', '-')),
+                            'timestamp': _epoch_ms_to_str(a['created']) if a.get('created') else '-',
+                            'component': a.get('component_name', '-'),
+                        })
                     
                     if alerts_count > 0:
                         logger.info(f"Found {alerts_count} open alerts for {self.ip_address}")
@@ -594,7 +627,8 @@ class PureStorageClient(StorageClient):
                 site_count=site_count,
                 pods_info=pods_info if pods_info else None,
                 all_mgmt_ips=mgmt_ips_with_dns if mgmt_ips_with_dns else None,
-                hardware_details=hardware_details if (hardware_details.get('components') or hardware_details.get('drives')) else None
+                hardware_details=hardware_details if (hardware_details.get('components') or hardware_details.get('drives')) else None,
+                alert_details=alert_details if alert_details else None
             )
                 
         except Exception as e:
@@ -1194,10 +1228,13 @@ class NetAppStorageGRIDClient(StorageClient):
             
             # Get alerts count and severity
             # API: GET /api/v4/grid/alerts?include=active
+            # Schema reference: grid-combined-schema.yml – "alert" definition
+            # Severity is nested under alert.labels.severity (not a top-level field)
             alerts_count = 0
             critical_alerts = 0
             major_alerts = 0
             minor_alerts = 0
+            alert_details = []
             try:
                 alerts_response = _local_session.get(
                     f"{self.base_url}/api/v4/grid/alerts",
@@ -1213,15 +1250,28 @@ class NetAppStorageGRIDClient(StorageClient):
                     # API returns only active alerts with include=active parameter
                     alerts_count = len(alerts_list)
                     
-                    # Count alerts by severity to determine health status
+                    # Count alerts by severity to determine health status.
+                    # Per the API schema, severity lives inside alert.labels.severity
                     for alert in alerts_list:
-                        severity = alert.get('severity', '').lower()
+                        labels = alert.get('labels', {})
+                        severity = labels.get('severity', '').lower()
                         if severity == 'critical':
                             critical_alerts += 1
                         elif severity == 'major':
                             major_alerts += 1
                         elif severity == 'minor':
                             minor_alerts += 1
+                        
+                        annotations = alert.get('annotations', {})
+                        alert_details.append({
+                            'id': str(alert.get('id', '-')),
+                            'title': alert.get('name', '-'),
+                            'details': annotations.get('description', annotations.get('summary', '-')),
+                            'severity': severity or 'unknown',
+                            'error_code': '-',
+                            'timestamp': alert.get('startsAt', '-'),
+                            'component': labels.get('instance', '-'),
+                        })
                     
                     # Determine hardware status based on alert severity
                     if critical_alerts > 0:
@@ -1419,7 +1469,8 @@ class NetAppStorageGRIDClient(StorageClient):
                 controllers=nodes_info if nodes_info else None,
                 site_count=site_count,
                 sites_info=sites_info if sites_info else None,
-                new_api_token=self.token if new_token_generated else None
+                new_api_token=self.token if new_token_generated else None,
+                alert_details=alert_details if alert_details else None
             )
         except Exception as e:
             logger.error(f"Error getting StorageGRID health status for {self.ip_address}: {e}")
@@ -1637,28 +1688,43 @@ class DellDataDomainClient(StorageClient):
         
         Returns:
             list: List of active alerts with severity, message, etc.
+        
+        API schema reference: dd_api.json – alertDetail definition
+        Response key: alert_list (alerts definition)
+        Key fields: msg, class, status, alert_gen_epoch, alert_id, description, partError
         """
         try:
             data = self._make_api_request('/rest/v1.0/dd-systems/0/alerts', headers, ssl_verify)
             if not data:
                 return []
             
-            # Extract alerts from response
-            # DataDomain API may return alerts in different formats
+            # The v1.0 API response wraps the list under 'alert_list' (alerts schema).
+            # Fallback to legacy key names for safety.
             alerts = []
-            alert_list = data.get('alerts', []) or data.get('alert', []) or []
+            alert_list = (
+                data.get('alert_list')
+                or data.get('alerts', [])
+                or data.get('alert', [])
+                or []
+            )
             
             if isinstance(alert_list, list):
                 for alert in alert_list:
-                    # Only include active alerts (using class constant)
-                    if alert.get('state', '').lower() in self.ACTIVE_ALERT_STATES:
+                    # Filter to only active alerts.
+                    # API schema: status field with enum [active, cleared]
+                    if alert.get('status', '').lower() in self.ACTIVE_ALERT_STATES:
+                        epoch = alert.get('alert_gen_epoch')
+                        timestamp = _epoch_s_to_str(epoch) if epoch else '-'
+                        
                         alerts.append({
-                            'id': alert.get('id'),
+                            'id': alert.get('alert_id', alert.get('id', '-')),
                             'severity': alert.get('severity', 'unknown'),
-                            'category': alert.get('category', 'general'),
-                            'message': alert.get('message', ''),
-                            'timestamp': alert.get('timestamp', ''),
-                            'state': alert.get('state', 'active')
+                            'category': alert.get('class', '-'),
+                            'message': alert.get('msg', alert.get('description', '')),
+                            'timestamp': timestamp,
+                            'state': alert.get('status', 'active'),
+                            'error_code': alert.get('partError', '-'),
+                            'name': alert.get('name', '-'),
                         })
             
             logger.debug(f"DataDomain {self.ip_address} - Found {len(alerts)} active alerts")

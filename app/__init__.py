@@ -119,6 +119,18 @@ def create_app():
         except RuntimeError:
             # Outside application context, return None for settings
             return dict(settings=None)
+
+    # Context processor for open alert count (used by navbar)
+    @app.context_processor
+    def inject_alert_count():
+        """Inject the total number of open alerts into all templates"""
+        try:
+            from app.models import StatusCache
+            caches = StatusCache.query.all()
+            total = sum((cache.get_status() or {}).get('alerts', 0) for cache in caches)
+            return dict(open_alerts_count=total)
+        except Exception:
+            return dict(open_alerts_count=0)
     
     # Add cache control headers to prevent browser caching
     @app.after_request
@@ -132,10 +144,12 @@ def create_app():
     # Register blueprints
     from app.routes import main, admin, api
     from app.routes import capacity as capacity_routes
+    from app.routes import alerts as alerts_routes
     app.register_blueprint(main.bp)
     app.register_blueprint(admin.bp)
     app.register_blueprint(api.bp)
     app.register_blueprint(capacity_routes.bp)
+    app.register_blueprint(alerts_routes.bp)
     
     with app.app_context():
         # Create tables if they don't exist

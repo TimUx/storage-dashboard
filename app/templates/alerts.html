@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}Alerts – Storage Dashboard{% endblock %}
+
+{% block styles %}
+:root {
+    --al-blue:    var(--accent-color);
+    --al-red:     var(--primary-color);
+    --al-green:   var(--secondary-color);
+    --al-orange:  #FFA500;
+    --al-border:  #e1e8ed;
+    --al-bg:      #f5f7fa;
+    --al-white:   #ffffff;
+    --al-text:    #333;
+    --al-muted:   #6a6a6a;
+}
+
+/* ── Header ── */
+.al-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--al-white);
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    border-left: 4px solid var(--al-orange);
+    margin-bottom: 1rem;
+}
+.al-header h2 {
+    font-size: 1.4rem;
+    color: var(--al-orange);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+/* ── Summary badges ── */
+.al-summary {
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.al-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .3rem .8rem;
+    border-radius: 20px;
+    font-size: .82rem;
+    font-weight: 600;
+}
+.al-badge-critical { background: rgba(167,2,64,.12); color: #8a0235; border: 1px solid var(--al-red); }
+.al-badge-major    { background: rgba(255,165,0,.12); color: #b37400; border: 1px solid var(--al-orange); }
+.al-badge-minor    { background: rgba(0,152,219,.12); color: #006b99; border: 1px solid var(--al-blue); }
+.al-badge-warning  { background: rgba(255,165,0,.12); color: #b37400; border: 1px solid var(--al-orange); }
+.al-badge-error    { background: rgba(167,2,64,.12); color: #8a0235; border: 1px solid var(--al-red); }
+.al-badge-total    { background: rgba(0,0,0,.06);     color: var(--al-text); border: 1px solid var(--al-border); }
+
+/* ── Table card ── */
+.al-card {
+    background: var(--al-white);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    overflow: hidden;
+}
+
+/* ── Table ── */
+.al-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .9rem;
+}
+.al-table thead th {
+    background: var(--al-bg);
+    padding: .75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--al-muted);
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    border-bottom: 2px solid var(--al-border);
+    white-space: nowrap;
+}
+.al-table tbody tr {
+    border-bottom: 1px solid var(--al-border);
+    transition: background .15s;
+}
+.al-table tbody tr:last-child { border-bottom: none; }
+.al-table tbody tr:hover { background: rgba(0,152,219,.04); }
+.al-table td {
+    padding: .75rem 1rem;
+    vertical-align: top;
+    color: var(--al-text);
+}
+
+/* ── Severity pill ── */
+.sev-pill {
+    display: inline-block;
+    padding: .2rem .6rem;
+    border-radius: 12px;
+    font-size: .75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.sev-critical { background: rgba(167,2,64,.15); color: #8a0235; }
+.sev-major    { background: rgba(255,165,0,.15); color: #b37400; }
+.sev-minor    { background: rgba(0,152,219,.15); color: #006b99; }
+.sev-warning  { background: rgba(255,165,0,.15); color: #b37400; }
+.sev-error    { background: rgba(167,2,64,.15); color: #8a0235; }
+.sev-info     { background: rgba(190,214,0,.15); color: #6a7700; }
+.sev-unknown  { background: rgba(0,0,0,.08);     color: var(--al-muted); }
+
+/* ── Empty state ── */
+.al-empty {
+    text-align: center;
+    padding: 3rem 1.5rem;
+    color: var(--al-muted);
+}
+.al-empty .al-empty-icon { font-size: 3rem; margin-bottom: .75rem; }
+.al-empty p { font-size: 1rem; margin: 0; }
+
+/* ── System / vendor chip ── */
+.system-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    font-weight: 600;
+    color: var(--al-text);
+}
+.vendor-chip {
+    display: inline-block;
+    font-size: .72rem;
+    color: var(--al-muted);
+    margin-top: .15rem;
+}
+.al-id-code {
+    font-family: monospace;
+    font-size: .82rem;
+    color: var(--al-muted);
+}
+.al-details-text {
+    max-width: 380px;
+    word-break: break-word;
+}
+.al-timestamp {
+    font-size: .8rem;
+    color: var(--al-muted);
+    white-space: nowrap;
+}
+{% endblock %}
+
+{% block content %}
+<div class="al-header">
+    <h2>🔔 Offene Alerts</h2>
+    <div class="al-summary">
+        {% set total = all_alerts | length %}
+        {% set critical_count = all_alerts | selectattr('severity', 'equalto', 'critical') | list | length %}
+        {% set major_count    = all_alerts | selectattr('severity', 'equalto', 'major')    | list | length %}
+        {% set error_count    = all_alerts | selectattr('severity', 'equalto', 'error')    | list | length %}
+        {% set warning_count  = all_alerts | selectattr('severity', 'in', ['warning', 'minor']) | list | length %}
+        <span class="al-badge al-badge-total">📋 Gesamt: {{ total }}</span>
+        {% if critical_count %}<span class="al-badge al-badge-critical">🔴 Kritisch: {{ critical_count }}</span>{% endif %}
+        {% if error_count    %}<span class="al-badge al-badge-error"   >🔴 Error: {{ error_count }}</span>{% endif %}
+        {% if major_count    %}<span class="al-badge al-badge-major"   >🟠 Major: {{ major_count }}</span>{% endif %}
+        {% if warning_count  %}<span class="al-badge al-badge-warning" >🟡 Warning/Minor: {{ warning_count }}</span>{% endif %}
+    </div>
+</div>
+
+<div class="al-card">
+    {% if all_alerts %}
+    <table class="al-table">
+        <thead>
+            <tr>
+                <th>System / Hersteller</th>
+                <th>Severity</th>
+                <th>Alert-Nummer / ID</th>
+                <th>Titel</th>
+                <th>Details</th>
+                <th>Error-Code</th>
+                <th>Zeitstempel</th>
+                <th>Komponente</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in all_alerts %}
+            <tr>
+                <td>
+                    <div class="system-chip">{{ alert.system_name }}</div>
+                    <div class="vendor-chip">{{ alert.system_vendor }}</div>
+                </td>
+                <td>
+                    <span class="sev-pill sev-{{ alert.severity | lower }}">
+                        {% if alert.severity | lower == 'critical' %}🔴
+                        {% elif alert.severity | lower == 'error'    %}🔴
+                        {% elif alert.severity | lower == 'major'    %}🟠
+                        {% elif alert.severity | lower in ['warning', 'minor'] %}🟡
+                        {% elif alert.severity | lower == 'info'     %}🔵
+                        {% else %}⚪
+                        {% endif %}
+                        {{ alert.severity | title }}
+                    </span>
+                </td>
+                <td><span class="al-id-code">{{ alert.alert_id }}</span></td>
+                <td><strong>{{ alert.title }}</strong></td>
+                <td><span class="al-details-text">{{ alert.details }}</span></td>
+                <td><span class="al-id-code">{{ alert.error_code }}</span></td>
+                <td><span class="al-timestamp">{{ alert.timestamp }}</span></td>
+                <td>{{ alert.component }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="al-empty">
+        <div class="al-empty-icon">✅</div>
+        <p>Keine offenen Alerts – alle Systeme sind in Ordnung.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
