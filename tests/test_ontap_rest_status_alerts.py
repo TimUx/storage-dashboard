@@ -655,3 +655,71 @@ class TestGetHealthStatusRestIntegration:
         node1_alerts = [a for a in (result.get('alert_details') or [])
                         if a.get('component') == 'node1']
         assert len(node1_alerts) == 1
+
+
+# ===========================================================================
+# Tests for _strip_version_date helper
+# ===========================================================================
+
+class TestStripVersionDate:
+    """Verify that the date/timestamp is stripped from ONTAP version strings."""
+
+    def _strip(self, s):
+        from app.api.storage_clients import _strip_version_date
+        return _strip_version_date(s)
+
+    def test_strips_date_from_full_version_string(self):
+        result = self._strip('NetApp Release 9.16.1P11: Thu Jan 15 11:21:38 UTC 2026')
+        assert result == 'NetApp Release 9.16.1P11'
+
+    def test_version_without_date_unchanged(self):
+        result = self._strip('NetApp Release 9.14.1')
+        assert result == 'NetApp Release 9.14.1'
+
+    def test_none_returns_none(self):
+        assert self._strip(None) is None
+
+    def test_empty_string_returns_empty(self):
+        assert self._strip('') == ''
+
+    def test_non_string_returned_as_is(self):
+        assert self._strip(9) == 9
+
+    def test_os_version_stripped_in_get_health_status(self):
+        """os_version in get_health_status() response must not contain a timestamp."""
+        result = _run({
+            '/api/cluster': _ok({
+                'name': 'test-cluster',
+                'version': {
+                    'full': 'NetApp Release 9.16.1P11: Thu Jan 15 11:21:38 UTC 2026',
+                    'generation': 9,
+                },
+            }),
+        })
+        assert result.get('os_version') == 'NetApp Release 9.16.1P11'
+
+    def test_node_version_stripped_in_get_health_status(self):
+        """Node version in controllers list must not contain a timestamp."""
+        nodes_with_version = _ok({'records': [
+            {
+                'name': 'node1',
+                'uuid': 'uuid-1',
+                'state': 'up',
+                'model': 'AFF-A400',
+                'serial_number': 'SN123',
+                'version': {
+                    'full': 'NetApp Release 9.16.1P11: Thu Jan 15 11:21:38 UTC 2026',
+                },
+                'management_interfaces': [],
+            }
+        ]})
+        # Call order for /api/cluster/nodes in get_health_status():
+        #   [0] cluster nodes info (uuid/name/state/model/version/…)
+        #   [1] hardware check (controller fields)
+        #   [2] REST status check (name/state/health/ha)
+        result = _run({
+            '/api/cluster/nodes': [nodes_with_version, _nodes_hw_ok(), _nodes_hw_ok()],
+        })
+        controllers = result.get('controllers', [])
+        assert controllers, 'Expected at least one controller'
+        assert controllers[0].get('version') == 'NetApp Release 9.16.1P11'
