@@ -585,6 +585,7 @@ let pollTimer       = null;
 let currentView     = 'active';   // 'active' | 'acked' | 'all'
 let assigneeHistory = [];
 const POLL_MS       = 60_000;
+const TABLE_COLS    = 12;   // number of <th> columns (update if columns are added/removed)
 
 const SEV_ORDER = ['emergency','critical','alert','error','major','warning','minor','info','unknown'];
 
@@ -680,7 +681,7 @@ function renderTable() {
     if (!tbody) return;
 
     if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--al-muted)">
+        tbody.innerHTML = `<tr><td colspan="${TABLE_COLS}" style="text-align:center;padding:2rem;color:var(--al-muted)">
             Keine Alerts entsprechen den gewählten Filterkriterien.</td></tr>`;
     } else {
         tbody.innerHTML = rows.map(a => {
