@@ -123,11 +123,11 @@ def create_app():
     # Context processor for open alert count (used by navbar)
     @app.context_processor
     def inject_alert_count():
-        """Inject the total number of open alerts into all templates"""
+        """Inject the number of active (non-acknowledged) open alerts into all templates"""
         try:
-            from app.models import StatusCache
-            caches = StatusCache.query.all()
-            total = sum((cache.get_status() or {}).get('alerts', 0) for cache in caches)
+            from app.routes.alerts import collect_alerts
+            alerts = collect_alerts()
+            total = sum(1 for a in alerts if not a.get('acknowledged', False))
             return dict(open_alerts_count=total)
         except Exception:
             return dict(open_alerts_count=0)

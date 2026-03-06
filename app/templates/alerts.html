@@ -14,6 +14,121 @@
     --al-text:    #333;
     --al-muted:   #6a6a6a;
 }
+/* ── View toggle ── */
+.al-view-toggle {
+    display: flex;
+    gap: 0;
+    align-self: flex-end;
+}
+.al-view-btn {
+    padding: .35rem .8rem;
+    border: 1px solid var(--al-border);
+    background: var(--al-white);
+    color: var(--al-muted);
+    font-size: .82rem;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+.al-view-btn:first-child { border-radius: 6px 0 0 6px; }
+.al-view-btn:last-child  { border-radius: 0 6px 6px 0; border-left: none; }
+.al-view-btn:not(:first-child):not(:last-child) { border-left: none; }
+.al-view-btn.active {
+    background: var(--al-blue);
+    color: #fff;
+    border-color: var(--al-blue);
+}
+/* ── Bulk action bar ── */
+.al-bulk-bar {
+    display: none;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .6rem;
+    padding: .6rem 1rem;
+    background: #fffbe6;
+    border-bottom: 1px solid #ffe58f;
+    font-size: .85rem;
+}
+.al-bulk-bar.visible { display: flex; }
+.al-bulk-count { font-weight: 600; color: var(--al-text); }
+.al-bulk-btn {
+    padding: .3rem .75rem;
+    border-radius: 5px;
+    border: 1px solid var(--al-border);
+    background: var(--al-white);
+    font-size: .82rem;
+    cursor: pointer;
+    transition: background .15s;
+}
+.al-bulk-btn:hover { background: #edf0f4; }
+.al-bulk-btn.btn-ack    { background: #e6f7e6; border-color: #52c41a; color: #237804; }
+.al-bulk-btn.btn-ack:hover { background: #d9f7be; }
+.al-bulk-btn.btn-unack  { background: #fff1f0; border-color: #ff4d4f; color: #a8071a; }
+.al-bulk-btn.btn-unack:hover { background: #ffccc7; }
+.al-bulk-btn.btn-save   { background: var(--al-blue); border-color: var(--al-blue); color: #fff; }
+.al-bulk-btn.btn-save:hover { opacity: .9; }
+.al-bulk-sep { color: var(--al-border); }
+/* Assignee combo in bulk bar */
+.al-assignee-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+.al-assignee-input {
+    padding: .3rem .65rem;
+    border: 1px solid var(--al-border);
+    border-radius: 5px;
+    font-size: .82rem;
+    width: 180px;
+    outline: none;
+}
+.al-assignee-input:focus { border-color: var(--al-blue); }
+.al-assignee-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    min-width: 180px;
+    background: var(--al-white);
+    border: 1px solid var(--al-border);
+    border-radius: 5px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.1);
+    z-index: 200;
+    max-height: 200px;
+    overflow-y: auto;
+}
+.al-assignee-dropdown.open { display: block; }
+.al-assignee-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: .35rem .65rem;
+    cursor: pointer;
+    font-size: .82rem;
+}
+.al-assignee-item:hover { background: #f0f5ff; }
+.al-assignee-item-name { flex: 1; }
+.al-assignee-remove {
+    color: #ff4d4f;
+    font-size: .75rem;
+    padding: 0 .2rem;
+    cursor: pointer;
+    font-weight: 700;
+    border: none;
+    background: none;
+    line-height: 1;
+}
+.al-assignee-remove:hover { color: #cf1322; }
+.al-comment-input {
+    padding: .3rem .65rem;
+    border: 1px solid var(--al-border);
+    border-radius: 5px;
+    font-size: .82rem;
+    width: 260px;
+    outline: none;
+}
+.al-comment-input:focus { border-color: var(--al-blue); }
+/* Badge variants */
+.al-badge-acked { background: rgba(82,196,26,.1); color: #237804; border: 1px solid #52c41a; }
 
 /* ── Header ── */
 .al-header {
@@ -171,7 +286,7 @@
 }
 .al-table thead th {
     background: var(--al-bg);
-    padding: .75rem 1rem;
+    padding: .75rem .75rem;
     text-align: left;
     font-weight: 600;
     color: var(--al-muted);
@@ -184,7 +299,8 @@
     user-select: none;
     position: relative;
 }
-.al-table thead th:hover { background: #edf0f4; }
+.al-table thead th.no-sort { cursor: default; }
+.al-table thead th:hover:not(.no-sort) { background: #edf0f4; }
 .al-sort-icon {
     display: inline-block;
     margin-left: .3rem;
@@ -193,6 +309,36 @@
 }
 th.al-sort-asc  .al-sort-icon,
 th.al-sort-desc .al-sort-icon { opacity: 1; }
+/* Checkbox column */
+.al-col-cb { width: 36px; text-align: center; }
+.al-cb { cursor: pointer; width: 16px; height: 16px; accent-color: var(--al-blue); }
+/* Acked row highlight */
+.al-table tbody tr.al-row-acked { background: #f6ffed; }
+.al-table tbody tr.al-row-acked:hover { background: #d9f7be; }
+/* Acknowledge pill */
+.ack-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    padding: .15rem .5rem;
+    border-radius: 12px;
+    font-size: .73rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background .15s;
+}
+.ack-pill.acked   { background: #e6f7e6; color: #237804; border-color: #52c41a; }
+.ack-pill.unacked { background: #f5f5f5; color: #888; border-color: #ddd; }
+.ack-pill.acked:hover   { background: #d9f7be; }
+.ack-pill.unacked:hover { background: #e8f0fe; }
+/* Assignee & comment cell */
+.al-cell-assignee, .al-cell-comment {
+    font-size: .82rem;
+    color: var(--al-text);
+    max-width: 160px;
+    word-break: break-word;
+}
 .al-table tbody tr {
     border-bottom: 1px solid var(--al-border);
     transition: background .15s, opacity .3s;
@@ -257,7 +403,7 @@ th.al-sort-desc .al-sort-icon { opacity: 1; }
     color: var(--al-muted);
 }
 .al-details-text {
-    max-width: 380px;
+    max-width: 340px;
     word-break: break-word;
 }
 .al-timestamp {
@@ -271,12 +417,14 @@ th.al-sort-desc .al-sort-icon { opacity: 1; }
 <div class="al-header">
     <h2>🔔 Offene Alerts</h2>
     <div class="al-summary" id="al-summary">
-        {% set total = all_alerts | length %}
-        {% set critical_count = all_alerts | selectattr('severity', 'in', ['critical','emergency']) | list | length %}
-        {% set major_count    = all_alerts | selectattr('severity', 'equalto', 'major')    | list | length %}
-        {% set error_count    = all_alerts | selectattr('severity', 'in', ['error','alert']) | list | length %}
-        {% set warning_count  = all_alerts | selectattr('severity', 'in', ['warning', 'minor']) | list | length %}
-        <span class="al-badge al-badge-total" id="badge-total">📋 Gesamt: {{ total }}</span>
+        {% set active_list  = all_alerts | rejectattr('acknowledged') | list %}
+        {% set acked_count  = all_alerts | selectattr('acknowledged') | list | length %}
+        {% set critical_count = active_list | selectattr('severity', 'in', ['critical','emergency']) | list | length %}
+        {% set major_count    = active_list | selectattr('severity', 'equalto', 'major')    | list | length %}
+        {% set error_count    = active_list | selectattr('severity', 'in', ['error','alert']) | list | length %}
+        {% set warning_count  = active_list | selectattr('severity', 'in', ['warning', 'minor']) | list | length %}
+        <span class="al-badge al-badge-total" id="badge-total">📋 Aktiv: {{ active_list | length }}</span>
+        {% if acked_count   %}<span class="al-badge al-badge-acked"   id="badge-acked"  >✅ Bestätigt: {{ acked_count }}</span>{% endif %}
         {% if critical_count %}<span class="al-badge al-badge-critical" id="badge-critical">🔴 Kritisch: {{ critical_count }}</span>{% endif %}
         {% if error_count    %}<span class="al-badge al-badge-error"    id="badge-error"   >🔴 Error/Alert: {{ error_count }}</span>{% endif %}
         {% if major_count    %}<span class="al-badge al-badge-major"    id="badge-major"   >🟠 Major: {{ major_count }}</span>{% endif %}
@@ -312,11 +460,42 @@ th.al-sort-desc .al-sort-icon { opacity: 1; }
                 <option value="">Alle</option>
             </select>
         </div>
+        <div class="al-filter-group">
+            <label>Ansicht</label>
+            <div class="al-view-toggle">
+                <button class="al-view-btn active" id="view-active" onclick="setView('active')">Aktiv</button>
+                <button class="al-view-btn"        id="view-acked"  onclick="setView('acked')">Bestätigt</button>
+                <button class="al-view-btn"        id="view-all"    onclick="setView('all')">Alle</button>
+            </div>
+        </div>
         <button class="al-filter-reset" onclick="resetFilters()">✕ Filter zurücksetzen</button>
         <span class="al-filter-info">
-            <span class="al-filter-count" id="al-visible-count">{{ all_alerts | length }}</span>
+            <span class="al-filter-count" id="al-visible-count">0</span>
             von <span id="al-total-count">{{ all_alerts | length }}</span> Alerts angezeigt
         </span>
+    </div>
+
+    <!-- Bulk action bar (visible when ≥1 row selected) -->
+    <div class="al-bulk-bar" id="al-bulk-bar">
+        <span class="al-bulk-count" id="al-bulk-count">0 ausgewählt</span>
+        <button class="al-bulk-btn btn-ack"   onclick="bulkAcknowledge(true)"  title="Ausgewählte bestätigen">✓ Bestätigen</button>
+        <button class="al-bulk-btn btn-unack" onclick="bulkAcknowledge(false)" title="Bestätigung aufheben">✗ Aufheben</button>
+        <span class="al-bulk-sep">|</span>
+        <label style="font-size:.82rem;color:var(--al-muted)">Zuweisen:</label>
+        <div class="al-assignee-wrap" id="al-assignee-wrap">
+            <input type="text" class="al-assignee-input" id="al-assignee-input"
+                   placeholder="Name eingeben …"
+                   autocomplete="off"
+                   oninput="filterAssigneeDropdown()"
+                   onfocus="openAssigneeDropdown()"
+                   onblur="scheduleCloseAssigneeDropdown()">
+            <div class="al-assignee-dropdown" id="al-assignee-dropdown"></div>
+        </div>
+        <label style="font-size:.82rem;color:var(--al-muted)">Kommentar:</label>
+        <input type="text" class="al-comment-input" id="al-bulk-comment" placeholder="Kommentar …">
+        <button class="al-bulk-btn btn-save" onclick="bulkSave()">💾 Anwenden</button>
+        <span class="al-bulk-sep">|</span>
+        <button class="al-bulk-btn" onclick="clearSelection()">✕ Auswahl aufheben</button>
     </div>
 
     <div id="al-table-wrap">
@@ -324,19 +503,34 @@ th.al-sort-desc .al-sort-icon { opacity: 1; }
     <table class="al-table" id="al-table">
         <thead>
             <tr>
+                <th class="al-col-cb no-sort">
+                    <input type="checkbox" class="al-cb" id="al-select-all" onclick="toggleSelectAll(this)" title="Alle auswählen">
+                </th>
                 <th data-col="system_name"   onclick="sortBy('system_name')">System / Hersteller<i class="al-sort-icon">⇅</i></th>
                 <th data-col="severity"      onclick="sortBy('severity')">Severity<i class="al-sort-icon">⇅</i></th>
                 <th data-col="alert_id"      onclick="sortBy('alert_id')">Alert-ID<i class="al-sort-icon">⇅</i></th>
                 <th data-col="title"         onclick="sortBy('title')">Titel<i class="al-sort-icon">⇅</i></th>
-                <th data-col="details">Details</th>
+                <th data-col="details"       class="no-sort">Details</th>
                 <th data-col="error_code"    onclick="sortBy('error_code')">Error-Code<i class="al-sort-icon">⇅</i></th>
                 <th data-col="timestamp"     onclick="sortBy('timestamp')">Zeitstempel<i class="al-sort-icon">⇅</i></th>
                 <th data-col="component"     onclick="sortBy('component')">Komponente<i class="al-sort-icon">⇅</i></th>
+                <th data-col="assignee"      onclick="sortBy('assignee')" title="Zugewiesen an">Zugewiesen<i class="al-sort-icon">⇅</i></th>
+                <th data-col="comment"       class="no-sort">Kommentar</th>
+                <th data-col="acknowledged"  class="no-sort">Status</th>
             </tr>
         </thead>
         <tbody id="al-tbody">
             {% for alert in all_alerts %}
-            <tr data-sev="{{ alert.severity | lower }}" data-sys="{{ alert.system_name }}">
+            <tr data-sev="{{ alert.severity | lower }}"
+                data-sys="{{ alert.system_name }}"
+                data-acked="{{ 'true' if alert.acknowledged else 'false' }}"
+                data-key="{{ alert.alert_key }}"
+                {% if alert.acknowledged %}class="al-row-acked"{% endif %}>
+                <td class="al-col-cb">
+                    <input type="checkbox" class="al-cb al-row-cb"
+                           data-key="{{ alert.alert_key }}"
+                           onchange="onRowCheckChange()">
+                </td>
                 <td>
                     <div class="system-chip">{{ alert.system_name }}</div>
                     <div class="vendor-chip">{{ alert.system_vendor }}</div>
@@ -359,6 +553,16 @@ th.al-sort-desc .al-sort-icon { opacity: 1; }
                 <td><span class="al-id-code">{{ alert.error_code }}</span></td>
                 <td><span class="al-timestamp">{{ alert.timestamp }}</span></td>
                 <td>{{ alert.component }}</td>
+                <td><span class="al-cell-assignee">{{ alert.assignee or '' }}</span></td>
+                <td><span class="al-cell-comment">{{ alert.comment or '' }}</span></td>
+                <td>
+                    <span class="ack-pill {{ 'acked' if alert.acknowledged else 'unacked' }}"
+                          data-key="{{ alert.alert_key }}"
+                          onclick="toggleAcknowledge(this)"
+                          title="{{ 'Bestätigung aufheben' if alert.acknowledged else 'Bestätigen' }}">
+                        {{ '✓ Bestätigt' if alert.acknowledged else '○ Offen' }}
+                    </span>
+                </td>
             </tr>
             {% endfor %}
         </tbody>
@@ -374,26 +578,25 @@ th.al-sort-desc .al-sort-icon { opacity: 1; }
 
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
-let allAlerts   = {{ all_alerts | tojson }};   // seeded from server-side render
-let sortCol     = 'severity';
-let sortDir     = 'asc';
-let pollTimer   = null;
-const POLL_MS   = 60_000;  // re-poll every 60 s
+let allAlerts       = {{ all_alerts | tojson }};
+let sortCol         = 'severity';
+let sortDir         = 'asc';
+let pollTimer       = null;
+let currentView     = 'active';   // 'active' | 'acked' | 'all'
+let assigneeHistory = [];
+const POLL_MS       = 60_000;
+const TABLE_COLS    = 12;   // number of <th> columns (update if columns are added/removed)
 
-// Severity sort order (lower index = more critical → sorts first when asc)
 const SEV_ORDER = ['emergency','critical','alert','error','major','warning','minor','info','unknown'];
 
-// ─── Utility helpers ─────────────────────────────────────────────────────────
+// ─── Utility helpers ──────────────────────────────────────────────────────────
 function fmtTimestamp(isoString) {
-    /** Format an ISO-8601 string to HH:MM:SS (German locale, UTC) */
     if (!isoString) return null;
     const s = isoString.endsWith('Z') ? isoString : isoString + 'Z';
     const d = new Date(s);
     if (isNaN(d)) return null;
     return d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
 }
-
-// ─── Severity helpers ─────────────────────────────────────────────────────────
 function sevIcon(sev) {
     const s = (sev || '').toLowerCase();
     if (['critical','emergency'].includes(s)) return '🔴';
@@ -407,8 +610,6 @@ function sevIndex(sev) {
     const i = SEV_ORDER.indexOf((sev || '').toLowerCase());
     return i === -1 ? SEV_ORDER.length : i;
 }
-
-// ─── HTML escaping ─────────────────────────────────────────────────────────────
 function esc(s) {
     return String(s ?? '-')
         .replace(/&/g,'&amp;')
@@ -417,26 +618,41 @@ function esc(s) {
         .replace(/"/g,'&quot;');
 }
 
+// ─── View toggle ──────────────────────────────────────────────────────────────
+function setView(view) {
+    currentView = view;
+    ['active','acked','all'].forEach(v => {
+        document.getElementById('view-' + v).classList.toggle('active', v === view);
+    });
+    clearSelection();
+    renderTable();
+}
+function alertMatchesView(a) {
+    if (currentView === 'active') return !a.acknowledged;
+    if (currentView === 'acked')  return  !!a.acknowledged;
+    return true;
+}
+
 // ─── Render ───────────────────────────────────────────────────────────────────
 function renderTable() {
     const search    = document.getElementById('al-search').value.toLowerCase();
     const sevFilter = document.getElementById('al-sev-filter').value.toLowerCase();
     const sysFilter = document.getElementById('al-sys-filter').value;
 
-    // Filter
     let rows = allAlerts.filter(a => {
+        if (!alertMatchesView(a)) return false;
         if (sevFilter && (a.severity || '').toLowerCase() !== sevFilter) return false;
         if (sysFilter && a.system_name !== sysFilter)                    return false;
         if (search) {
             const hay = [a.system_name, a.system_vendor, a.title,
                          a.details, a.error_code, a.component,
-                         a.alert_id, a.timestamp].join(' ').toLowerCase();
+                         a.alert_id, a.timestamp,
+                         a.assignee || '', a.comment || ''].join(' ').toLowerCase();
             if (!hay.includes(search)) return false;
         }
         return true;
     });
 
-    // Sort
     rows = [...rows].sort((a, b) => {
         let va = a[sortCol] ?? '';
         let vb = b[sortCol] ?? '';
@@ -449,7 +665,6 @@ function renderTable() {
         return sortDir === 'asc' ? cmp : -cmp;
     });
 
-    // Update header indicators
     document.querySelectorAll('#al-table thead th').forEach(th => {
         th.classList.remove('al-sort-asc', 'al-sort-desc');
         const icon = th.querySelector('.al-sort-icon');
@@ -462,38 +677,50 @@ function renderTable() {
         if (icon) icon.textContent = sortDir === 'asc' ? '▲' : '▼';
     }
 
-    // Build tbody HTML
     const tbody = document.getElementById('al-tbody');
     if (!tbody) return;
 
     if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--al-muted)">
+        tbody.innerHTML = `<tr><td colspan="${TABLE_COLS}" style="text-align:center;padding:2rem;color:var(--al-muted)">
             Keine Alerts entsprechen den gewählten Filterkriterien.</td></tr>`;
     } else {
         tbody.innerHTML = rows.map(a => {
             const sev    = (a.severity || 'unknown').toLowerCase();
             const sevLbl = sev.charAt(0).toUpperCase() + sev.slice(1);
-            return `<tr data-sev="${esc(sev)}" data-sys="${esc(a.system_name)}">
+            const acked  = !!a.acknowledged;
+            const key    = esc(a.alert_key || '');
+            return `<tr data-sev="${esc(sev)}" data-sys="${esc(a.system_name)}"
+                        data-acked="${acked}" data-key="${key}"
+                        class="${acked ? 'al-row-acked' : ''}">
+                <td class="al-col-cb">
+                    <input type="checkbox" class="al-cb al-row-cb"
+                           data-key="${key}" onchange="onRowCheckChange()">
+                </td>
                 <td>
                     <div class="system-chip">${esc(a.system_name)}</div>
                     <div class="vendor-chip">${esc(a.system_vendor)}</div>
                 </td>
-                <td>
-                    <span class="sev-pill sev-${esc(sev)}">
-                        ${sevIcon(sev)} ${esc(sevLbl)}
-                    </span>
-                </td>
+                <td><span class="sev-pill sev-${esc(sev)}">${sevIcon(sev)} ${esc(sevLbl)}</span></td>
                 <td><span class="al-id-code">${esc(a.alert_id)}</span></td>
                 <td><strong>${esc(a.title)}</strong></td>
                 <td><span class="al-details-text">${esc(a.details)}</span></td>
                 <td><span class="al-id-code">${esc(a.error_code)}</span></td>
                 <td><span class="al-timestamp">${esc(a.timestamp)}</span></td>
                 <td>${esc(a.component)}</td>
+                <td><span class="al-cell-assignee">${esc(a.assignee || '')}</span></td>
+                <td><span class="al-cell-comment">${esc(a.comment || '')}</span></td>
+                <td>
+                    <span class="ack-pill ${acked ? 'acked' : 'unacked'}"
+                          data-key="${key}" onclick="toggleAcknowledge(this)"
+                          title="${acked ? 'Bestätigung aufheben' : 'Bestätigen'}">
+                        ${acked ? '✓ Bestätigt' : '○ Offen'}
+                    </span>
+                </td>
             </tr>`;
         }).join('');
+        syncCheckboxes();
     }
 
-    // Update counters
     document.getElementById('al-visible-count').textContent = rows.length;
     document.getElementById('al-total-count').textContent   = allAlerts.length;
     updateSummaryBadges();
@@ -501,13 +728,14 @@ function renderTable() {
 
 // ─── Summary badges ───────────────────────────────────────────────────────────
 function updateSummaryBadges() {
-    const total    = allAlerts.length;
-    const critical = allAlerts.filter(a => ['critical','emergency'].includes((a.severity||'').toLowerCase())).length;
-    const errorN   = allAlerts.filter(a => ['error','alert'].includes((a.severity||'').toLowerCase())).length;
-    const major    = allAlerts.filter(a => (a.severity||'').toLowerCase() === 'major').length;
-    const warning  = allAlerts.filter(a => ['warning','minor'].includes((a.severity||'').toLowerCase())).length;
+    const active   = allAlerts.filter(a => !a.acknowledged);
+    const acked    = allAlerts.filter(a =>  a.acknowledged);
+    const critical = active.filter(a => ['critical','emergency'].includes((a.severity||'').toLowerCase())).length;
+    const errorN   = active.filter(a => ['error','alert'].includes((a.severity||'').toLowerCase())).length;
+    const major    = active.filter(a => (a.severity||'').toLowerCase() === 'major').length;
+    const warning  = active.filter(a => ['warning','minor'].includes((a.severity||'').toLowerCase())).length;
 
-    document.getElementById('badge-total').textContent = `📋 Gesamt: ${total}`;
+    document.getElementById('badge-total').textContent = `📋 Aktiv: ${active.length}`;
 
     const mkBadge = (id, cls, icon, label, count) => {
         let el = document.getElementById(id);
@@ -524,6 +752,7 @@ function updateSummaryBadges() {
             el.style.display = 'none';
         }
     };
+    mkBadge('badge-acked',    'acked',    '✅', 'Bestätigt',    acked.length);
     mkBadge('badge-critical', 'critical', '🔴', 'Kritisch',      critical);
     mkBadge('badge-error',    'error',    '🔴', 'Error/Alert',    errorN);
     mkBadge('badge-major',    'major',    '🟠', 'Major',          major);
@@ -547,29 +776,195 @@ function populateDropdowns() {
     sysSel.innerHTML = '<option value="">Alle</option>' +
         systems.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
 
-    // Restore selections if they still exist
     if ([...sevSel.options].some(o => o.value === prevSev)) sevSel.value = prevSev;
     if ([...sysSel.options].some(o => o.value === prevSys)) sysSel.value = prevSys;
 }
 
 // ─── Filter / Sort handlers ───────────────────────────────────────────────────
 function applyFilters() { renderTable(); }
-
 function resetFilters() {
     document.getElementById('al-search').value     = '';
     document.getElementById('al-sev-filter').value = '';
     document.getElementById('al-sys-filter').value = '';
     renderTable();
 }
-
 function sortBy(col) {
-    if (sortCol === col) {
-        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-        sortCol = col;
-        sortDir = col === 'severity' ? 'asc' : 'asc';
-    }
+    if (sortCol === col) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+    else { sortCol = col; sortDir = 'asc'; }
     renderTable();
+}
+
+// ─── Selection management ─────────────────────────────────────────────────────
+let selectedKeys = new Set();
+
+function onRowCheckChange() {
+    selectedKeys.clear();
+    document.querySelectorAll('.al-row-cb:checked').forEach(cb => selectedKeys.add(cb.dataset.key));
+    updateBulkBar();
+    syncSelectAllCheckbox();
+}
+function toggleSelectAll(selectAllCb) {
+    const cbs = document.querySelectorAll('.al-row-cb');
+    cbs.forEach(cb => {
+        cb.checked = selectAllCb.checked;
+        if (selectAllCb.checked) selectedKeys.add(cb.dataset.key);
+    });
+    if (!selectAllCb.checked) selectedKeys.clear();
+    updateBulkBar();
+}
+function syncCheckboxes() {
+    document.querySelectorAll('.al-row-cb').forEach(cb => {
+        cb.checked = selectedKeys.has(cb.dataset.key);
+    });
+    syncSelectAllCheckbox();
+    updateBulkBar();
+}
+function syncSelectAllCheckbox() {
+    const all     = document.querySelectorAll('.al-row-cb');
+    const checked = document.querySelectorAll('.al-row-cb:checked');
+    const saEl    = document.getElementById('al-select-all');
+    if (!saEl) return;
+    if (all.length === 0)               { saEl.checked = false; saEl.indeterminate = false; }
+    else if (checked.length === all.length) { saEl.checked = true;  saEl.indeterminate = false; }
+    else if (checked.length === 0)      { saEl.checked = false; saEl.indeterminate = false; }
+    else                                { saEl.checked = false; saEl.indeterminate = true;  }
+}
+function updateBulkBar() {
+    const bar = document.getElementById('al-bulk-bar');
+    const cnt = document.getElementById('al-bulk-count');
+    const n   = selectedKeys.size;
+    bar.classList.toggle('visible', n > 0);
+    cnt.textContent = `${n} ausgewählt`;
+}
+function clearSelection() {
+    selectedKeys.clear();
+    document.querySelectorAll('.al-row-cb').forEach(cb => cb.checked = false);
+    const sa = document.getElementById('al-select-all');
+    if (sa) { sa.checked = false; sa.indeterminate = false; }
+    updateBulkBar();
+}
+
+// ─── Acknowledge toggle (single row) ─────────────────────────────────────────
+function toggleAcknowledge(pill) {
+    const key     = pill.dataset.key;
+    const newAcked = !pill.classList.contains('acked');
+    fetch('/api/alerts/state', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({alert_keys: [key], acknowledged: newAcked})
+    })
+    .then(r => r.json())
+    .then(() => {
+        const a = allAlerts.find(x => x.alert_key === key);
+        if (a) a.acknowledged = newAcked;
+        renderTable();
+        updateSummaryBadges();
+    })
+    .catch(err => console.warn('Acknowledge failed:', err));
+}
+
+// ─── Bulk actions ─────────────────────────────────────────────────────────────
+function bulkAcknowledge(acked) {
+    if (!selectedKeys.size) return;
+    const keys = [...selectedKeys];
+    fetch('/api/alerts/state', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({alert_keys: keys, acknowledged: acked})
+    })
+    .then(r => r.json())
+    .then(() => {
+        keys.forEach(k => { const a = allAlerts.find(x => x.alert_key === k); if (a) a.acknowledged = acked; });
+        clearSelection();
+        renderTable();
+        updateSummaryBadges();
+    })
+    .catch(err => console.warn('Bulk acknowledge failed:', err));
+}
+function bulkSave() {
+    if (!selectedKeys.size) return;
+    const keys     = [...selectedKeys];
+    const assignee = document.getElementById('al-assignee-input').value.trim() || null;
+    const comment  = document.getElementById('al-bulk-comment').value.trim()   || null;
+    const payload  = {alert_keys: keys};
+    if (assignee !== null) payload.assignee = assignee;
+    if (comment  !== null) payload.comment  = comment;
+    fetch('/api/alerts/state', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(() => {
+        keys.forEach(k => {
+            const a = allAlerts.find(x => x.alert_key === k);
+            if (a) {
+                if (assignee !== null) a.assignee = assignee || null;
+                if (comment  !== null) a.comment  = comment  || null;
+            }
+        });
+        if (assignee) loadAssigneeHistory();
+        document.getElementById('al-assignee-input').value = '';
+        document.getElementById('al-bulk-comment').value   = '';
+        clearSelection();
+        renderTable();
+    })
+    .catch(err => console.warn('Bulk save failed:', err));
+}
+
+// ─── Assignee history dropdown ────────────────────────────────────────────────
+function loadAssigneeHistory() {
+    fetch('/api/alerts/assignees')
+        .then(r => r.json())
+        .then(names => { assigneeHistory = names; })
+        .catch(() => {});
+}
+function renderAssigneeDropdown(names) {
+    const dd = document.getElementById('al-assignee-dropdown');
+    if (!dd) return;
+    if (!names.length) {
+        dd.innerHTML = '<div style="padding:.4rem .65rem;font-size:.8rem;color:var(--al-muted)">Keine gespeicherten Namen</div>';
+    } else {
+        dd.innerHTML = names.map(n => `
+            <div class="al-assignee-item" onmousedown="selectAssignee(event,'${esc(n)}')">
+                <span class="al-assignee-item-name">${esc(n)}</span>
+                <button class="al-assignee-remove" onmousedown="removeAssignee(event,'${esc(n)}')" title="Aus Verlauf entfernen">✕</button>
+            </div>`).join('');
+    }
+}
+function openAssigneeDropdown() {
+    const filter = (document.getElementById('al-assignee-input')?.value || '').toLowerCase();
+    renderAssigneeDropdown(filter ? assigneeHistory.filter(n => n.toLowerCase().includes(filter)) : assigneeHistory);
+    document.getElementById('al-assignee-dropdown').classList.add('open');
+}
+let _closeTimer = null;
+function scheduleCloseAssigneeDropdown() {
+    _closeTimer = setTimeout(() => {
+        document.getElementById('al-assignee-dropdown').classList.remove('open');
+    }, 200);
+}
+function filterAssigneeDropdown() {
+    const val = document.getElementById('al-assignee-input').value.toLowerCase();
+    renderAssigneeDropdown(val ? assigneeHistory.filter(n => n.toLowerCase().includes(val)) : assigneeHistory);
+    document.getElementById('al-assignee-dropdown').classList.add('open');
+}
+function selectAssignee(event, name) {
+    event.preventDefault();
+    clearTimeout(_closeTimer);
+    document.getElementById('al-assignee-input').value = name;
+    document.getElementById('al-assignee-dropdown').classList.remove('open');
+}
+function removeAssignee(event, name) {
+    event.preventDefault();
+    event.stopPropagation();
+    clearTimeout(_closeTimer);
+    fetch(`/api/alerts/assignees/${encodeURIComponent(name)}`, {method: 'DELETE'})
+        .then(() => {
+            assigneeHistory = assigneeHistory.filter(n => n !== name);
+            renderAssigneeDropdown(assigneeHistory);
+            document.getElementById('al-assignee-dropdown').classList.add('open');
+        })
+        .catch(err => console.warn('Remove assignee failed:', err));
 }
 
 // ─── Auto-refresh / cleanup polling ──────────────────────────────────────────
@@ -584,36 +979,38 @@ function pollAlerts(manual = false) {
             spinner.classList.remove('active');
             document.getElementById('al-refresh-note').style.display = 'none';
 
-            // Update the "last updated" timestamp
             if (data.fetched_at) {
                 const ts = fmtTimestamp(data.fetched_at);
                 if (ts) document.getElementById('al-refresh-ts').textContent = ts;
             }
 
-            // Detect removed alerts (cleanup) and new alerts
             const newAlerts  = data.alerts || [];
             const oldIds     = new Set(allAlerts.map(a => `${a.system_name}|${a.alert_id}|${a.title}`));
             const newIds     = new Set(newAlerts.map(a => `${a.system_name}|${a.alert_id}|${a.title}`));
-
             const removedCount = [...oldIds].filter(k => !newIds.has(k)).length;
             const addedCount   = [...newIds].filter(k => !oldIds.has(k)).length;
 
             allAlerts = newAlerts;
 
-            // Ensure table element exists (handles transition from empty→rows)
             const wrap = document.getElementById('al-table-wrap');
             if (!document.getElementById('al-table') && allAlerts.length > 0) {
                 wrap.innerHTML = `
                     <table class="al-table" id="al-table">
                         <thead><tr>
+                            <th class="al-col-cb no-sort">
+                                <input type="checkbox" class="al-cb" id="al-select-all" onclick="toggleSelectAll(this)" title="Alle auswählen">
+                            </th>
                             <th data-col="system_name" onclick="sortBy('system_name')">System / Hersteller<i class="al-sort-icon">⇅</i></th>
                             <th data-col="severity"    onclick="sortBy('severity')"   >Severity<i class="al-sort-icon">⇅</i></th>
                             <th data-col="alert_id"    onclick="sortBy('alert_id')"   >Alert-ID<i class="al-sort-icon">⇅</i></th>
                             <th data-col="title"       onclick="sortBy('title')"      >Titel<i class="al-sort-icon">⇅</i></th>
-                            <th data-col="details"                                    >Details</th>
+                            <th data-col="details"     class="no-sort"               >Details</th>
                             <th data-col="error_code"  onclick="sortBy('error_code')" >Error-Code<i class="al-sort-icon">⇅</i></th>
                             <th data-col="timestamp"   onclick="sortBy('timestamp')"  >Zeitstempel<i class="al-sort-icon">⇅</i></th>
                             <th data-col="component"   onclick="sortBy('component')"  >Komponente<i class="al-sort-icon">⇅</i></th>
+                            <th data-col="assignee"    onclick="sortBy('assignee')"   title="Zugewiesen an">Zugewiesen<i class="al-sort-icon">⇅</i></th>
+                            <th data-col="comment"     class="no-sort"               >Kommentar</th>
+                            <th data-col="acknowledged" class="no-sort"              >Status</th>
                         </tr></thead>
                         <tbody id="al-tbody"></tbody>
                     </table>`;
@@ -628,12 +1025,9 @@ function pollAlerts(manual = false) {
             renderTable();
 
             if (removedCount > 0 || addedCount > 0) {
-                // Flash the refresh timestamp to draw attention: red = new alerts, green = resolved
                 const tsEl = document.getElementById('al-refresh-ts');
                 tsEl.classList.add(addedCount > 0 ? 'al-ts-added' : 'al-ts-removed');
-                setTimeout(() => {
-                    tsEl.classList.remove('al-ts-added', 'al-ts-removed');
-                }, 3000);
+                setTimeout(() => tsEl.classList.remove('al-ts-added', 'al-ts-removed'), 3000);
             }
         })
         .catch(err => {
@@ -648,14 +1042,12 @@ function pollAlerts(manual = false) {
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    // Build table and dropdowns from server-seeded data
     if (allAlerts.length > 0) {
         populateDropdowns();
         renderTable();
     }
-    // Start polling loop (first poll fires after one interval)
+    loadAssigneeHistory();
     pollTimer = setTimeout(pollAlerts, POLL_MS);
-    // Also update the timestamp label immediately from the server-rendered data
     const firstTs = allAlerts.length > 0 ? allAlerts[0].fetched_at : null;
     if (firstTs) {
         const ts = fmtTimestamp(firstTs);

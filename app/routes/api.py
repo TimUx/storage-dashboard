@@ -1,5 +1,5 @@
 """API routes for programmatic access"""
-from flask import Blueprint, jsonify, current_app
+from flask import Blueprint, jsonify, current_app, request
 from app.models import StorageSystem
 from app.api import get_client
 from app.routes.main import fetch_system_status
@@ -140,4 +140,86 @@ def get_alerts():
         if fa and (fetched_at is None or fa > fetched_at):
             fetched_at = fa
     return jsonify({'alerts': alerts, 'fetched_at': fetched_at})
+
+
+@bp.route('/alerts/state', methods=['POST'])
+def update_alert_state():
+    """Update the user-managed state for one or more alerts (bulk-capable).
+
+    Request body (JSON)::
+
+        {
+            "alert_keys": ["system|id|title", ...],
+            "acknowledged": true,          // optional – omit to leave unchanged
+            "assignee":     "Max Müller",  // optional – null clears the field
+            "comment":      "Wird untersucht"  // optional – null clears the field
+        }
+
+    Returns the number of affected alert keys.
+    """
+    from app import db
+    from app.models import AlertState, AssigneeHistory
+    from datetime import datetime
+
+    data = request.get_json(silent=True) or {}
+    alert_keys = data.get('alert_keys')
+    if not alert_keys or not isinstance(alert_keys, list):
+        return jsonify({'error': 'alert_keys list required'}), 400
+
+    acknowledged = data.get('acknowledged')        # None means "don't change"
+    assignee     = data.get('assignee', _MISSING)  # _MISSING means "don't change"
+    comment      = data.get('comment',  _MISSING)
+
+    updated = 0
+    for key in alert_keys:
+        if not isinstance(key, str) or not key:
+            continue
+        state = AlertState.query.filter_by(alert_key=key).first()
+        if state is None:
+            state = AlertState(alert_key=key)
+            db.session.add(state)
+        if acknowledged is not None:
+            state.acknowledged = bool(acknowledged)
+        if assignee is not _MISSING:
+            state.assignee = assignee or None
+        if comment is not _MISSING:
+            state.comment = comment or None
+        state.updated_at = datetime.utcnow()
+        updated += 1
+
+    # Persist a new assignee name into the history table for autocomplete
+    assignee_name = data.get('assignee')
+    if assignee_name and isinstance(assignee_name, str):
+        existing = AssigneeHistory.query.filter_by(name=assignee_name).first()
+        if existing:
+            existing.used_at = datetime.utcnow()
+        else:
+            db.session.add(AssigneeHistory(name=assignee_name))
+
+    db.session.commit()
+    return jsonify({'updated': updated})
+
+
+# Sentinel to distinguish "key absent" from "key present with None value"
+_MISSING = object()
+
+
+@bp.route('/alerts/assignees', methods=['GET'])
+def get_assignees():
+    """Return all assignee names stored in history, ordered by most recently used."""
+    from app.models import AssigneeHistory
+    history = AssigneeHistory.query.order_by(AssigneeHistory.used_at.desc()).all()
+    return jsonify([h.name for h in history])
+
+
+@bp.route('/alerts/assignees/<path:name>', methods=['DELETE'])
+def delete_assignee(name):
+    """Remove an assignee name from the autocomplete history."""
+    from app import db
+    from app.models import AssigneeHistory
+    entry = AssigneeHistory.query.filter_by(name=name).first()
+    if entry:
+        db.session.delete(entry)
+        db.session.commit()
+    return jsonify({'deleted': name})
 
