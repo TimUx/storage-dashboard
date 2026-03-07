@@ -264,6 +264,11 @@ def seed_initial_tags():
             'description': 'Thematische Zuordnung',
             'tags': ['ERZ', 'EGK', 'OGS', 'EH', 'KNG', 'ITS', 'TSY'],
         },
+        {
+            'name': 'DataCenter',
+            'description': 'Standort des Rechenzentrums',
+            'tags': ['DC1 ( NTT )', 'DC2 ( Equinix )'],
+        },
     ]
 
     seeded = []
