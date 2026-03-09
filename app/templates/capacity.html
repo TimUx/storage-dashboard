@@ -421,6 +421,79 @@
     height: 300px;
 }
 
+/* ── Maximize button in chart section headers ── */
+.chart-maximize-btn {
+    background: rgba(255,255,255,.2);
+    border: none;
+    color: white;
+    font-size: .85rem;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: .1rem .45rem;
+    line-height: 1.6;
+    flex-shrink: 0;
+}
+.chart-maximize-btn:hover { background: rgba(255,255,255,.35); }
+
+/* ── Chart Fullscreen Modal ── */
+.chart-fs-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.6);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+.chart-fs-overlay.open { display: flex; }
+.chart-fs-box {
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.3);
+    width: 95vw;
+    max-width: 1400px;
+    height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.chart-fs-header {
+    background: var(--cap-blue);
+    color: white;
+    padding: .6rem 1.2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-shrink: 0;
+}
+.chart-fs-header .section-subtitle {
+    font-size: .8rem;
+    opacity: .8;
+    font-weight: 400;
+}
+.chart-fs-close {
+    margin-left: auto;
+    background: rgba(255,255,255,.2);
+    border: none;
+    color: white;
+    font-size: 1.1rem;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: .1rem .5rem;
+    line-height: 1.6;
+    flex-shrink: 0;
+}
+.chart-fs-close:hover { background: rgba(255,255,255,.35); }
+.chart-fs-body {
+    flex: 1;
+    min-height: 0;
+    padding: 1.25rem 1.5rem;
+    position: relative;
+}
+
 /* ── Loading / Empty state ── */
 .cap-loading, .cap-empty {
     text-align: center;
@@ -634,6 +707,22 @@
     </div>
 </div>
 
+<!-- ── Chart Fullscreen Modal ── -->
+<div class="chart-fs-overlay" id="chartFsOverlay" onclick="closeChartFullscreen(event)"
+     role="dialog" aria-modal="true" aria-labelledby="chartFsTitle">
+    <div class="chart-fs-box">
+        <div class="chart-fs-header">
+            <span id="chartFsTitle"></span>
+            <span class="section-subtitle" id="chartFsSubtitle"></span>
+            <span class="line-filter-group" id="chartFsFilter" style="display:none;margin-left:.5rem;"></span>
+            <button class="chart-fs-close" onclick="closeChartFullscreen()" aria-label="Schließen">✕</button>
+        </div>
+        <div class="chart-fs-body">
+            <canvas id="chartFsCanvas"></canvas>
+        </div>
+    </div>
+</div>
+
 <!-- Chart.js (served locally for reliability in air-gapped environments) -->
 <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
 
@@ -659,6 +748,10 @@ const lineFilterState = { physical: true, commercial: true };
 let percentMode = false;
 // Cache the last fetched history API response for pct-mode toggle (no re-fetch needed)
 let _lastHistoryData = null;
+
+// Fullscreen chart state
+let _fullscreenArt   = null;
+let _fullscreenChart = null;
 
 // ── View Switching ────────────────────────────────────────────────────────
 document.querySelectorAll('#viewToggle button').forEach(btn => {
@@ -1270,10 +1363,12 @@ function renderHistoryCharts(data) {
                 </button>
             </span>` : '';
         return `<div class="cap-section">
-            <div class="cap-section-header" style="display:flex;align-items:center;gap:.5rem;">
+            <div class="cap-section-header" style="display:flex;align-items:center;gap:.5rem;justify-content:flex-start;">
                 <span>${escHtml(art)}</span>
                 <span class="section-subtitle">${subtitle}</span>
                 ${filterHtml}
+                <button class="chart-maximize-btn" style="${hasSod ? '' : 'margin-left:auto;'}"
+                        onclick="openChartFullscreen('${escHtml(art)}')" title="Vollbild anzeigen">⛶</button>
             </div>
             <div class="chart-container"><canvas id="chart-${escHtml(art).replace(/\s+/g,'-')}"></canvas></div>
         </div>`;
@@ -1542,6 +1637,7 @@ function togglePctMode() {
     const btn = document.getElementById('pctModeBtn');
     if (btn) btn.classList.toggle('active', percentMode);
     Object.values(chartInstances).forEach(chart => _applyPctMode(chart));
+    if (_fullscreenChart) _applyPctMode(_fullscreenChart);
 }
 
 /** Switch an existing chart instance between TiB capacity and % utilisation mode. */
@@ -1585,19 +1681,29 @@ function _applyPctMode(chart) {
 // ── Line filter toggle (Block chart only) ────────────────────────────────
 function toggleLineFilter(group) {
     lineFilterState[group] = !lineFilterState[group];
-    // Update button state (the buttons live inside the Block chart header)
+    // Update button state (the buttons live inside the Block chart header and fullscreen header)
     document.querySelectorAll(`.line-filter-btn[data-filter="${group}"]`).forEach(btn => {
         btn.classList.toggle('active', lineFilterState[group]);
     });
 
     // Only update the Block chart instance
     const blockChart = chartInstances['Block'];
-    if (!blockChart) return;
-    blockChart.data.datasets.forEach(ds => {
-        if (ds._hideInPctMode && percentMode) return;
-        if (ds._group === group) ds.hidden = !lineFilterState[group];
-    });
-    blockChart.update();
+    if (blockChart) {
+        blockChart.data.datasets.forEach(ds => {
+            if (ds._hideInPctMode && percentMode) return;
+            if (ds._group === group) ds.hidden = !lineFilterState[group];
+        });
+        blockChart.update();
+    }
+
+    // Also update the fullscreen chart if the Block chart is currently in fullscreen
+    if (_fullscreenArt === 'Block' && _fullscreenChart) {
+        _fullscreenChart.data.datasets.forEach(ds => {
+            if (ds._hideInPctMode && percentMode) return;
+            if (ds._group === group) ds.hidden = !lineFilterState[group];
+        });
+        _fullscreenChart.update();
+    }
 }
 
 // ── Storage on Demand refresh ─────────────────────────────────────────────
@@ -1763,6 +1869,86 @@ function closeImportModal(e) {
     if (e && e.target !== document.getElementById('importModal')) return;
     document.getElementById('importModal').classList.remove('open');
 }
+
+// ── Chart Fullscreen ──────────────────────────────────────────────────────
+function openChartFullscreen(art) {
+    const srcChart = chartInstances[art];
+    if (!srcChart) return;
+    _fullscreenArt = art;
+
+    // Update header title and subtitle
+    document.getElementById('chartFsTitle').textContent = art;
+    const hasSod = srcChart.data.datasets.some(ds => ds._group === 'commercial');
+    document.getElementById('chartFsSubtitle').textContent =
+        hasSod ? 'Verlauf – Physische & SoD Kapazität' : 'Verlauf – Genutzte Kapazität';
+
+    // Show SoD filter buttons only for the Block chart
+    const filterEl = document.getElementById('chartFsFilter');
+    if (hasSod) {
+        filterEl.innerHTML =
+            `<button class="line-filter-btn${lineFilterState.physical ? ' active' : ''}" data-filter="physical"
+                     onclick="toggleLineFilter('physical')" title="Physische Linien ein-/ausblenden">🗄️ Physisch</button>
+             <button class="line-filter-btn commercial${lineFilterState.commercial ? ' active' : ''}" data-filter="commercial"
+                     onclick="toggleLineFilter('commercial')" title="SoD Linien ein-/ausblenden">☁️ SoD</button>`;
+        filterEl.style.display = '';
+    } else {
+        filterEl.innerHTML = '';
+        filterEl.style.display = 'none';
+    }
+
+    // Destroy any existing fullscreen chart
+    if (_fullscreenChart) { _fullscreenChart.destroy(); _fullscreenChart = null; }
+
+    // Build isolated options for the fullscreen chart (share callback functions)
+    const srcOpts = srcChart.config.options;
+    const fsOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { intersect: false, mode: 'index' },
+        scales: {
+            x: {
+                type: 'category',
+                ticks: { maxTicksLimit: 12, maxRotation: 45 },
+                grid: { display: false },
+            },
+            y: {
+                title: { display: true, text: srcOpts.scales.y.title.text },
+                beginAtZero: true,
+            }
+        },
+        plugins: {
+            legend: { position: 'top' },
+            tooltip: { callbacks: { label: srcOpts.plugins.tooltip.callbacks.label } }
+        }
+    };
+    if (percentMode) fsOptions.scales.y.suggestedMax = 110;
+
+    const canvas = document.getElementById('chartFsCanvas');
+    _fullscreenChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: srcChart.data.labels,
+            datasets: srcChart.data.datasets.map(ds => Object.assign({}, ds)),
+        },
+        options: fsOptions,
+    });
+
+    document.getElementById('chartFsOverlay').classList.add('open');
+}
+
+function closeChartFullscreen(e) {
+    if (e && e.target !== e.currentTarget) return;
+    document.getElementById('chartFsOverlay').classList.remove('open');
+    if (_fullscreenChart) { _fullscreenChart.destroy(); _fullscreenChart = null; }
+    _fullscreenArt = null;
+}
+
+// Close fullscreen chart with Escape key
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('chartFsOverlay').classList.contains('open')) {
+        closeChartFullscreen();
+    }
+});
 
 function handleDragOver(e, suffix) {
     e.preventDefault();
