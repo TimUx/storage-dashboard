@@ -1068,19 +1068,24 @@ class NetAppONTAPClient(StorageClient):
             resp = _local_session.get(
                 f"{self.base_url}/api/network/ip/interfaces",
                 auth=auth, headers=headers,
-                params={'fields': 'name,state,location,svm'},
+                params={'fields': 'name,state,enabled,location,svm'},
                 verify=ssl_verify, timeout=10,
             )
             if resp.status_code == 200:
                 for lif in resp.json().get('records', []):
                     lif_name  = lif.get('name', 'unknown')
                     state     = lif.get('state', 'up')
+                    enabled   = lif.get('enabled', True)
                     svm_name  = lif.get('svm', {}).get('name', '') if isinstance(lif.get('svm'), dict) else ''
                     resource  = f'{svm_name}:{lif_name}' if svm_name else lif_name
                     # Skip LIFs on MetroCluster destination vservers (name ends with
                     # "-mc"). These interfaces are intentionally down and only come
                     # online during a MetroCluster switchover.
                     if svm_name.endswith('-mc'):
+                        continue
+                    # Skip LIFs that are administratively disabled (enabled=false).
+                    # An admin-down LIF is intentionally offline and should not alert.
+                    if not enabled:
                         continue
                     if state and state != 'up':
                         alerts.append(_make_rest_alert(

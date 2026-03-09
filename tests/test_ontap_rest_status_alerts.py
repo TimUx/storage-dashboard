@@ -414,6 +414,44 @@ class TestNetworkLifCheck:
         assert len(lif_alerts) == 1
         assert 'svm1:data_lif' in lif_alerts[0]['component']
 
+    def test_admin_down_lif_no_alert(self):
+        # A LIF with enabled=false is administratively disabled (intentionally
+        # offline). It must not generate an alert even when its state is "down".
+        alerts = _run_rest_only({'/api/network/ip/interfaces': _lifs([
+            {'name': 'ogs02_3847', 'state': 'down', 'enabled': False, 'svm': {'name': 'ogs02m'}}
+        ])})
+        lif_alerts = [a for a in alerts if a.get('source') == '/api/network/ip/interfaces']
+        assert lif_alerts == []
+
+    def test_admin_down_multiple_lifs_no_alert(self):
+        # All three admin-down LIFs from the real-world report must be suppressed.
+        alerts = _run_rest_only({'/api/network/ip/interfaces': _lifs([
+            {'name': 'ogs02_3847', 'state': 'down', 'enabled': False, 'svm': {'name': 'ogs02m'}},
+            {'name': 'ogs02_3853', 'state': 'down', 'enabled': False, 'svm': {'name': 'ogs02m'}},
+            {'name': 'ogs02_3857', 'state': 'down', 'enabled': False, 'svm': {'name': 'ogs02m'}},
+        ])})
+        lif_alerts = [a for a in alerts if a.get('source') == '/api/network/ip/interfaces']
+        assert lif_alerts == []
+
+    def test_admin_up_lif_down_still_alerts(self):
+        # A LIF that is administratively enabled (enabled=true) but operationally
+        # down is a real failure and must still generate an alert.
+        alerts = _run_rest_only({'/api/network/ip/interfaces': _lifs([
+            {'name': 'lif1', 'state': 'down', 'enabled': True, 'svm': {'name': 'svm1'}}
+        ])})
+        lif_alerts = [a for a in alerts if a.get('source') == '/api/network/ip/interfaces']
+        assert len(lif_alerts) == 1
+        assert lif_alerts[0]['severity'] == 'warning'
+
+    def test_missing_enabled_field_defaults_to_alert(self):
+        # If the 'enabled' field is absent (older ONTAP versions), the existing
+        # behaviour is preserved: a down LIF still generates an alert.
+        alerts = _run_rest_only({'/api/network/ip/interfaces': _lifs([
+            {'name': 'lif1', 'state': 'down', 'svm': {'name': 'svm1'}}
+        ])})
+        lif_alerts = [a for a in alerts if a.get('source') == '/api/network/ip/interfaces']
+        assert len(lif_alerts) == 1
+
 
 class TestEthernetPortCheck:
     def test_port_up_no_alert(self):
