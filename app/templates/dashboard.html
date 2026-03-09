@@ -353,7 +353,6 @@ body {
     border-radius: 12px;
     font-size: 0.75rem;
     font-weight: 600;
-    margin-bottom: 0.5rem;
 }
 
 .status-online { 
@@ -836,6 +835,13 @@ body.table-view .systems-table {
     box-shadow: 0 2px 6px rgba(0, 102, 204, 0.3);
 }
 
+.status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
 .card-actions {
     display: flex;
     gap: 0.5rem;
@@ -1072,12 +1078,15 @@ body.table-view .systems-table {
                 <div class="system-version">{{ system.os_version }}</div>
                 {% endif %}
                 
-                <span class="status-badge status-{{ status.status if status else 'loading' }}">
-                    {% if not status %}⏳ Lädt...
-                    {% elif status.status == 'online' %}✓ Online
-                    {% elif status.status == 'error' %}✗ Fehler
-                    {% else %}? Unbekannt{% endif %}
-                </span>
+                <div class="status-row">
+                    <span class="status-badge status-{{ status.status if status else 'loading' }}">
+                        {% if not status %}⏳ Lädt...
+                        {% elif status.status == 'online' %}✓ Online
+                        {% elif status.status == 'error' %}✗ Fehler
+                        {% else %}? Unbekannt{% endif %}
+                    </span>
+                    <a href="/systems/{{ system.id }}/details" class="detail-btn">📊 Details</a>
+                </div>
                 
                 {% if system.node_count or system.site_count %}
                 <div class="node-info">
@@ -1133,9 +1142,7 @@ body.table-view .systems-table {
                 </div>
                 {% endif %}
                 
-                <div class="card-actions">
-                    <a href="/systems/{{ system.id }}/details" class="detail-btn">📊 Details</a>
-                </div>
+
             </div>
             {% endfor %}
         </div>
@@ -1587,9 +1594,9 @@ function updateSystemCard(system, status) {
         if (!errorDiv) {
             errorDiv = document.createElement('div');
             errorDiv.className = 'error-message';
-            const cardActions = card.querySelector('.card-actions');
-            if (cardActions) {
-                cardActions.parentNode.insertBefore(errorDiv, cardActions);
+            const metricsDivEl = card.querySelector('.metrics');
+            if (metricsDivEl) {
+                metricsDivEl.parentNode.insertBefore(errorDiv, metricsDivEl.nextSibling);
             }
         }
         errorDiv.textContent = status.error;
