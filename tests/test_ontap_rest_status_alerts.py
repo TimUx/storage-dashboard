@@ -379,6 +379,41 @@ class TestNetworkLifCheck:
         lif_alerts = [a for a in alerts if a.get('source') == '/api/network/ip/interfaces']
         assert lif_alerts == []
 
+    def test_mc_vserver_lif_down_no_alert(self):
+        # LIFs on MetroCluster destination vservers (SVM name ends with "-mc")
+        # are intentionally down; they must not generate alerts.
+        alerts = _run_rest_only({'/api/network/ip/interfaces': _lifs([
+            {'name': 'ogs01_3481', 'state': 'down', 'svm': {'name': 'ogs01-mc'}}
+        ])})
+        lif_alerts = [a for a in alerts if a.get('source') == '/api/network/ip/interfaces']
+        assert lif_alerts == []
+
+    def test_mc_vserver_lif_up_no_alert(self):
+        # Even an "up" LIF on a -mc vserver should produce no alert (state is fine).
+        alerts = _run_rest_only({'/api/network/ip/interfaces': _lifs([
+            {'name': 'ogs01_3481', 'state': 'up', 'svm': {'name': 'ogs01-mc'}}
+        ])})
+        lif_alerts = [a for a in alerts if a.get('source') == '/api/network/ip/interfaces']
+        assert lif_alerts == []
+
+    def test_non_mc_vserver_lif_down_still_alerts(self):
+        # LIFs on regular (non-MetroCluster-destination) vservers must still alert.
+        alerts = _run_rest_only({'/api/network/ip/interfaces': _lifs([
+            {'name': 'data_lif', 'state': 'down', 'svm': {'name': 'ogs01'}}
+        ])})
+        lif_alerts = [a for a in alerts if a.get('source') == '/api/network/ip/interfaces']
+        assert len(lif_alerts) == 1
+
+    def test_mixed_mc_and_regular_lifs(self):
+        # Only the regular-vserver down LIF should alert; the -mc one should not.
+        alerts = _run_rest_only({'/api/network/ip/interfaces': _lifs([
+            {'name': 'mc_lif',   'state': 'down', 'svm': {'name': 'svm1-mc'}},
+            {'name': 'data_lif', 'state': 'down', 'svm': {'name': 'svm1'}},
+        ])})
+        lif_alerts = [a for a in alerts if a.get('source') == '/api/network/ip/interfaces']
+        assert len(lif_alerts) == 1
+        assert 'svm1:data_lif' in lif_alerts[0]['component']
+
 
 class TestEthernetPortCheck:
     def test_port_up_no_alert(self):
