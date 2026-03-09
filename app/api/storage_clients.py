@@ -1077,6 +1077,11 @@ class NetAppONTAPClient(StorageClient):
                     state     = lif.get('state', 'up')
                     svm_name  = lif.get('svm', {}).get('name', '') if isinstance(lif.get('svm'), dict) else ''
                     resource  = f'{svm_name}:{lif_name}' if svm_name else lif_name
+                    # Skip LIFs on MetroCluster destination vservers (name ends with
+                    # "-mc"). These interfaces are intentionally down and only come
+                    # online during a MetroCluster switchover.
+                    if svm_name.endswith('-mc'):
+                        continue
                     if state and state != 'up':
                         alerts.append(_make_rest_alert(
                             category='network',
