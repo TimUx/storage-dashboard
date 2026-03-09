@@ -1133,14 +1133,6 @@ body.table-view .systems-table {
                 </div>
                 {% endif %}
                 
-                {% if system.tags %}
-                <div class="system-tags">
-                    {% for tag in system.tags %}
-                    <span class="tag-badge" title="{{ tag.group.name if tag.group else '' }}">{{ tag.name }}</span>
-                    {% endfor %}
-                </div>
-                {% endif %}
-                
                 <div class="card-actions">
                     <a href="/systems/{{ system.id }}/details" class="detail-btn">📊 Details</a>
                 </div>
@@ -1161,7 +1153,6 @@ body.table-view .systems-table {
                     <col style="width: 8%">   <!-- Cluster -->
                     <col style="width: 6%">   <!-- Alerts -->
                     <col style="width: 14%">  <!-- Kapazität -->
-                    <col style="width: 8%">   <!-- Tags -->
                     <col style="width: 4%">   <!-- Aktionen -->
                 </colgroup>
                 <thead>
@@ -1175,7 +1166,6 @@ body.table-view .systems-table {
                         <th>Cluster</th>
                         <th class="status-cell">Alerts</th>
                         <th class="capacity-cell">Kapazität</th>
-                        <th>Tags</th>
                         <th>Aktionen</th>
                     </tr>
                 </thead>
@@ -1258,15 +1248,6 @@ body.table-view .systems-table {
                                      style="width: {{ status.capacity_percent }}%"></div>
                             </div>
                             <div class="capacity-text">{{ "%.1f"|format(status.capacity_percent) }}%</div>
-                            {% else %}-{% endif %}
-                        </td>
-                        <td>
-                            {% if system.tags %}
-                            <div class="system-tags">
-                                {% for tag in system.tags %}
-                                <span class="tag-badge" title="{{ tag.group.name if tag.group else '' }}">{{ tag.name }}</span>
-                                {% endfor %}
-                            </div>
                             {% else %}-{% endif %}
                         </td>
                         <td>
