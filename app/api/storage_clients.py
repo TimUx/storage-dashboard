@@ -107,7 +107,7 @@ _EMS_RECOVERY_FILTER = ','.join(sorted(_EMS_RECOVERY_EVENT_NAMES))
 #
 # Hours of EMS history to show.  Events raised before this window are skipped
 # regardless of whether they have been recovered.
-_EMS_LOOKBACK_HOURS = 48
+_EMS_LOOKBACK_HOURS = 96
 
 # ONTAP EMS event-name prefixes that identify hardware-related events.
 # These events are retained at all fetched severity levels (emergency/alert/error).
@@ -1651,7 +1651,7 @@ class NetAppONTAPClient(StorageClient):
                     ems_data = ems_response.json()
                     problem_records = ems_data.get('records', [])
 
-                    # Pre-filter: drop events outside the 48-hour lookback window and
+                    # Pre-filter: drop events outside the 96-hour lookback window and
                     # suppress low-priority non-hardware "error"-class events before
                     # the more expensive state-reconstruction step.
                     problem_records = _filter_ems_by_age_and_category(problem_records)

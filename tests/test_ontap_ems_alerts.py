@@ -514,23 +514,23 @@ class TestEmsAgeAndCategoryFilter:
         assert len(result) == 1
 
     def test_old_event_is_dropped_regardless_of_severity(self):
-        """An event older than 48 h must be dropped even if severity is emergency."""
+        """An event older than 96 h must be dropped even if severity is emergency."""
         from app.api.storage_clients import _filter_ems_by_age_and_category
-        events = [self._event('hm.alert.raised', 'emergency', hours_ago=50)]
+        events = [self._event('hm.alert.raised', 'emergency', hours_ago=100)]
         result = _filter_ems_by_age_and_category(events)
         assert len(result) == 0
 
-    def test_event_at_exactly_48h_boundary_is_dropped(self):
-        """An event at exactly 48 h (or marginally older) must be dropped."""
+    def test_event_at_exactly_96h_boundary_is_dropped(self):
+        """An event at exactly 96 h (or marginally older) must be dropped."""
         from app.api.storage_clients import _filter_ems_by_age_and_category
-        events = [self._event('disk.write.failure', 'error', hours_ago=48.01)]
+        events = [self._event('disk.write.failure', 'error', hours_ago=96.01)]
         result = _filter_ems_by_age_and_category(events)
         assert len(result) == 0
 
     def test_event_just_inside_window_is_kept(self):
-        """An event raised 47.9 h ago must be kept."""
+        """An event raised 95.9 h ago must be kept."""
         from app.api.storage_clients import _filter_ems_by_age_and_category
-        events = [self._event('disk.write.failure', 'error', hours_ago=47.9)]
+        events = [self._event('disk.write.failure', 'error', hours_ago=95.9)]
         result = _filter_ems_by_age_and_category(events)
         assert len(result) == 1
 
@@ -577,7 +577,7 @@ class TestEmsAgeAndCategoryFilter:
         events = [
             self._event('hm.alert.raised',       'error',     hours_ago=1),   # keep: hw, recent
             self._event('disk.write.failure',     'error',     hours_ago=1),   # keep: hw, recent
-            self._event('callhome.spares.low',    'error',     hours_ago=60),  # drop: old
+            self._event('callhome.spares.low',    'error',     hours_ago=100),  # drop: old
             self._event('wafl.vol.autosize.done', 'error',     hours_ago=1),   # drop: non-hw error
             self._event('wafl.vol.autosize.done', 'alert',     hours_ago=1),   # keep: non-hw alert
             self._event('some.unknown.event',     'emergency', hours_ago=1),   # keep: non-hw emergency
@@ -593,7 +593,7 @@ class TestEmsAgeAndCategoryFilter:
     def test_old_events_are_excluded_from_full_client(self):
         """Old EMS events are excluded from get_health_status() via the pre-filter."""
         from datetime import datetime, timezone, timedelta
-        old_ts = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
+        old_ts = (datetime.now(timezone.utc) - timedelta(hours=100)).isoformat()
         events = [
             {'index': 1, 'message': {'name': 'callhome.spares.low', 'severity': 'error'},
              'log_message': 'Old spare event', 'time': old_ts, 'node': {'name': 'node1'}},
