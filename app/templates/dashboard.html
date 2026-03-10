@@ -795,6 +795,28 @@ body.table-view .systems-table {
     background: var(--text-medium);
 }
 
+.btn-collect-now {
+    background: var(--itscare-blue);
+    color: white;
+    border: none;
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.3s;
+    white-space: nowrap;
+}
+
+.btn-collect-now:hover {
+    background: var(--itscare-blue-dark);
+}
+
+.btn-collect-now:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 /* WebUI Links */
 .webui-link {
     color: inherit;
@@ -998,6 +1020,9 @@ body.table-view .systems-table {
             <div class="actions-section">
                 <h3>Dashboard Optionen</h3>
                 <div class="header-actions">
+                    <button id="collect-now-btn" class="btn-collect-now" onclick="triggerCollectNow()" title="Daten aller Systeme sofort neu abrufen">
+                        🔄 Jetzt abrufen
+                    </button>
                     <div class="refresh-indicator" id="refresh-indicator" title="Dashboard aktualisiert sich automatisch">
                         <span class="refresh-dot" id="refresh-dot"></span>
                         <span id="last-updated-label"></span>
@@ -1405,6 +1430,48 @@ function applyDashboardData(data) {
     });
     updateLastUpdatedLabel(data);
     applyFilters();
+}
+
+// Trigger an immediate data collection for all systems and refresh the dashboard
+function triggerCollectNow() {
+    const btn = document.getElementById('collect-now-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Wird abgerufen…';
+    }
+    // Cancel any pending poll so it doesn't race with the refresh
+    if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+    }
+    setSyncing(true);
+    fetch('/api/trigger-status-refresh', { method: 'POST' })
+        .then(response => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+        })
+        .then(data => {
+            setSyncing(false);
+            lastFetchedAt = getLatestFetchedAt(data);
+            applyDashboardData(data);
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '🔄 Jetzt abrufen';
+            }
+            // Resume normal polling
+            pollTimer = setTimeout(pollCachedStatus, POLL_INTERVAL_MS);
+        })
+        .catch(error => {
+            setSyncing(false);
+            console.error('Error triggering collect:', error);
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '⚠️ Fehler';
+                setTimeout(() => { btn.textContent = '🔄 Jetzt abrufen'; }, 3000);
+            }
+            // Resume normal polling even on error
+            pollTimer = setTimeout(pollCachedStatus, POLL_INTERVAL_MS);
+        });
 }
 
 // Set the syncing indicator on/off
