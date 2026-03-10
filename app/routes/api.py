@@ -69,6 +69,11 @@ def get_cached_status():
     ``CapacitySnapshot`` when available, as those values include the
     Pure1 physical-used supplement which provides accurate figures for
     Evergreen One arrays.
+
+    ``hardware_status``, ``cluster_status``, and the ``alerts`` count are
+    adjusted to reflect acknowledged alert states so that the dashboard
+    correctly shows OK once an operator has acknowledged the corresponding
+    alert(s) in the Alerts view.
     """
     from app.models import StatusCache, CapacitySnapshot
 
@@ -86,6 +91,9 @@ def get_cached_status():
                 status['capacity_total_tb'] = snap.total_tb
                 status['capacity_used_tb'] = snap.used_tb
                 status['capacity_percent'] = snap.percent_used
+            # Overlay acknowledged alert states so the dashboard reflects
+            # operator acknowledgments without requiring a live API refresh.
+            _apply_acknowledged_states(status, system.name)
             result.append({
                 'system': system.to_dict(),
                 'status': status,
@@ -98,6 +106,73 @@ def get_cached_status():
                 'fetched_at': None,
             })
     return jsonify(result)
+
+
+def _apply_acknowledged_states(status, system_name):
+    """Adjust *status* in-place to reflect acknowledged alert states.
+
+    For each alert stored in ``alert_details`` (Pure Storage / ONTAP /
+    StorageGRID) or ``active_alerts`` (DataDomain) the :class:`AlertState`
+    table is consulted.  Acknowledged alerts are excluded from the ``alerts``
+    count.  When **all** alerts for a system have been acknowledged both
+    ``hardware_status`` and ``cluster_status`` are set to ``'ok'`` (provided
+    they were non-ok before), matching the expectation that the dashboard
+    reflects operator acknowledgment.
+
+    If neither ``alert_details`` nor ``active_alerts`` is present in *status*
+    (e.g. ONTAP without EMS data) the function returns without modification so
+    that raw vendor-API status values are preserved.
+
+    Args:
+        status:      The mutable status dict from :class:`StatusCache`.
+        system_name: The human-readable name of the storage system, used as
+                     part of the composite alert key.
+    """
+    from app.models import AlertState
+
+    # Determine which alert list to use and how to extract key fields.
+    # DataDomain uses 'active_alerts' with 'id'/'name' fields;
+    # all other vendors use 'alert_details' with 'id'/'title' fields.
+    is_active_alerts = bool(status.get('active_alerts'))
+    alert_list = status.get('active_alerts') if is_active_alerts else status.get('alert_details')
+
+    if not alert_list:
+        return  # No per-alert detail → cannot determine acknowledged state
+
+    # Build composite keys for every alert in the list.
+    def _make_key(alert):
+        alert_id = str(alert.get('id', '-'))
+        if is_active_alerts:
+            title = alert.get('name', alert.get('category', '-'))
+        else:
+            title = alert.get('title', '-')
+        return AlertState.make_key(system_name, alert_id, title)
+
+    alert_keys = [_make_key(a) for a in alert_list]
+
+    # Single batch query – O(1) DB round-trips regardless of alert count.
+    acknowledged_keys = {
+        s.alert_key
+        for s in AlertState.query.filter(
+            AlertState.alert_key.in_(alert_keys),
+            AlertState.acknowledged,
+        ).all()
+    }
+
+    unacknowledged_count = sum(1 for k in alert_keys if k not in acknowledged_keys)
+
+    # Update the alert counter shown in the dashboard card.
+    status['alerts'] = unacknowledged_count
+
+    # When every alert for this system has been acknowledged, promote both
+    # hardware and cluster status back to 'ok' so the dashboard card turns
+    # green.  A single remaining unacknowledged alert keeps the original
+    # severity, ensuring a second error is never silently hidden.
+    if unacknowledged_count == 0:
+        if status.get('hardware_status') not in ('ok', None):
+            status['hardware_status'] = 'ok'
+        if status.get('cluster_status') not in ('ok', None):
+            status['cluster_status'] = 'ok'
 
 
 @bp.route('/trigger-status-refresh', methods=['POST'])
