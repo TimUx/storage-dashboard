@@ -386,6 +386,12 @@ class PureStorageClient(StorageClient):
     # Statuses that mean the slot/bay is empty (skip entirely)
     HW_SKIP_STATES = frozenset(('', 'unused', 'not_installed'))
     DRIVE_SKIP_STATES = frozenset(('', 'empty', 'unused'))
+    # Controller statuses that are considered healthy/normal.
+    # 'ready'   – normal operational state (REST API and CLI)
+    # 'ok'      – alternative healthy status reported by some firmware versions
+    # 'online'  – seen on some models when the controller is active
+    # 'healthy' – generic healthy status used in newer API revisions
+    CTRL_OK_STATES = frozenset(('ready', 'ok', 'online', 'healthy'))
     
     def detect_api_version(self):
         """Detect the API version supported by the FlashArray"""
@@ -756,6 +762,17 @@ class PureStorageClient(StorageClient):
                             logger.warning(f"Drive issue on {self.ip_address}: {drive_name} is {drive_status}")
             except Exception as drive_error:
                 logger.warning(f"Could not get drive status for {self.ip_address}: {drive_error}")
+            
+            # Check controller health status
+            # Controllers should all be in 'ready' state; 'not_ready' indicates rebooting/upgrading
+            for ctrl in controllers:
+                ctrl_status = (ctrl.get('status') or '').lower().replace(' ', '_')
+                if ctrl_status and ctrl_status not in self.CTRL_OK_STATES:
+                    hardware_status = 'error'
+                    logger.warning(
+                        f"Controller not ready on {self.ip_address}: "
+                        f"{ctrl.get('name')} is {ctrl.get('status')!r}"
+                    )
             
             # Get alerts
             # REST API v2: GET /api/2.x/alerts?filter=state='open'
