@@ -137,8 +137,10 @@ def _full_route_map(ctrl_items=None, overrides=None):
     base = {
         '/api/api_version':      _ok({'version': ['2.4', '2.10']}),
         '/api/2.10/login':       _ok({'username': 'pureuser'}),
-        '/api/2.10/arrays':      _arrays_ok(),
+        # /arrays/space must come BEFORE /arrays so the more-specific URL is
+        # matched first by the substring check in _FakeSession.get().
         '/api/2.10/arrays/space': _arrays_space_ok(),
+        '/api/2.10/arrays':      _arrays_ok(),
         '/api/2.10/controllers': _controllers(ctrl_items),
         '/api/2.10/network-interfaces': _network_ok(),
         '/api/2.10/hardware':    _hardware_ok(),
