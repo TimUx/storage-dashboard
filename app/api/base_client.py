@@ -85,7 +85,8 @@ class StorageClient(ABC):
                         metrocluster_info=None, metrocluster_nodes=None, metrocluster_dr_groups=None,
                         metrocluster_peers=None, site_count=None, is_active_cluster=None,
                         sites_info=None, pods_info=None, all_mgmt_ips=None, new_api_token=None,
-                        hardware_details=None, alert_details=None):
+                        hardware_details=None, alert_details=None,
+                        evergreen_one_dashboard_active=False):
         """Format standard response"""
         percent = (used_tb / total_tb * 100) if total_tb > 0 else 0
         response = {
@@ -132,4 +133,6 @@ class StorageClient(ABC):
             response['hardware_details'] = hardware_details
         if alert_details is not None:
             response['alert_details'] = alert_details
+        if evergreen_one_dashboard_active:
+            response['evergreen_one_dashboard_active'] = True
         return response
