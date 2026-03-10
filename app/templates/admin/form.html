@@ -244,6 +244,15 @@
                        value="{{ system.pure1_array_name if system else '' }}">
                 <small>Name des Arrays in Pure1 (leer lassen = System-Name wird verwendet). Wird benötigt, wenn der Array-Name in Pure1 vom System-Namen im Dashboard abweicht (Evergreen One Kapazitätsabfrage).</small>
             </div>
+
+            <div id="evergreen_one_group" class="form-group" style="display: none;">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="evergreen_one" name="evergreen_one"
+                           {{ 'checked' if system and system.evergreen_one else '' }}>
+                    <label for="evergreen_one" style="margin-bottom: 0;">Evergreen One / Subscription-Dashboard aktiv</label>
+                </div>
+                <small>Aktivieren, wenn dieses Array im Pure Evergreen One (Subscription) Dashboard eingetragen ist. In diesem Fall werden Kapazitätswerte über die Pure1 API abgefragt. Bei Standard-Dashboard (nicht aktiviert) werden Kapazitätswerte direkt über die Array API ausgelesen.</small>
+            </div>
         </div>
         
         <div class="form-group">
@@ -318,10 +327,14 @@ document.getElementById('vendor').addEventListener('change', function() {
         portHint.textContent = vendorHints[vendor];
     }
 
-    // Show Pure1 array name field only for Pure Storage
+    // Show Pure1 array name and Evergreen One fields only for Pure Storage
     const pure1Group = document.getElementById('pure1_array_name_group');
     if (pure1Group) {
         pure1Group.style.display = (vendor === 'pure') ? '' : 'none';
+    }
+    const evergreenGroup = document.getElementById('evergreen_one_group');
+    if (evergreenGroup) {
+        evergreenGroup.style.display = (vendor === 'pure') ? '' : 'none';
     }
 });
 

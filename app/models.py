@@ -96,6 +96,12 @@ class StorageSystem(db.Model):
     # When blank, the system's ``name`` field is used as the Pure1 array name.
     pure1_array_name = db.Column(db.String(100))
 
+    # Indicates whether the Pure FlashArray is enrolled in Evergreen One (True)
+    # or using the standard (non-subscription) dashboard (False/None).
+    # When True, capacity data is sourced from the Pure1 subscription-assets API.
+    # When False/None, capacity data is read directly from the local Array API.
+    evergreen_one = db.Column(db.Boolean, default=False)
+
     # Partner cluster reference (for MetroCluster, Active-Cluster)
     partner_cluster_id = db.Column(db.Integer, db.ForeignKey('storage_systems.id', ondelete='SET NULL'))
     partner_cluster = db.relationship('StorageSystem', remote_side=[id], backref='partners')
@@ -273,6 +279,7 @@ class StorageSystem(db.Model):
             'metrocluster_dr_groups': self.get_metrocluster_dr_groups(),
             'partner_cluster_id': self.partner_cluster_id,
             'pure1_array_name': self.pure1_array_name,
+            'evergreen_one': bool(self.evergreen_one),
             'os_version': self.os_version,
             'api_version': self.api_version,
             'last_discovery': self.last_discovery.isoformat() if self.last_discovery else None,

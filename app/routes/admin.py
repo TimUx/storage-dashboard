@@ -101,7 +101,8 @@ def new_system():
                 api_password=request.form.get('api_password', '').strip() or None,
                 api_token=request.form.get('api_token', '').strip() or None,
                 pure1_array_name=request.form.get('pure1_array_name', '').strip() or None,
-                enabled=request.form.get('enabled') == 'on'
+                enabled=request.form.get('enabled') == 'on',
+                evergreen_one=request.form.get('evergreen_one') == 'on',
             )
             
             # Auto-discover system details
@@ -185,6 +186,7 @@ def edit_system(system_id):
             system.api_password = request.form.get('api_password', '').strip() or None
             system.api_token = request.form.get('api_token', '').strip() or None
             system.pure1_array_name = request.form.get('pure1_array_name', '').strip() or None
+            system.evergreen_one = request.form.get('evergreen_one') == 'on'
             system.enabled = request.form.get('enabled') == 'on'
             
             # Handle tag assignment

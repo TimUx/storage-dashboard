@@ -94,52 +94,55 @@ def _do_refresh(app):
                     percent_used = status.get('capacity_percent', 0.0) or 0.0
                     percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
 
-                    # For Pure FlashArrays, supplement local capacity data with the
-                    # physical used space from Pure1's subscription-assets API.
-                    # Arrays enrolled in Evergreen One no longer report physical used
-                    # space locally (space.total_physical is 0), so Pure1 is the only
-                    # reliable source.  For non-Evergreen arrays the Pure1 value is
-                    # equally valid and preferred for consistency.  Pure1 also provides
-                    # the authoritative total capacity (array_total_capacity metric),
-                    # which is needed because Evergreen One arrays report a wrong
-                    # (too large) capacity via the local array API; Pure1 holds the
-                    # true licensed capacity.
-                    if system.vendor == 'pure' and pure1_configured:
-                        pure1_name = system.pure1_array_name or system.name
-                        try:
-                            from app.api.pure1_client import fetch_subscription_asset_physical_used
-                            pure1_space = fetch_subscription_asset_physical_used(
-                                pure1_app_id,
-                                pure1_private_key,
-                                pure1_name,
-                                passphrase=pure1_passphrase,
-                                proxies=proxies,
-                            )
-                            if pure1_space is not None:
-                                pure1_used_tb = pure1_space["used_bytes"] / (1024 ** 4)
-                                pure1_capacity_bytes = pure1_space["capacity_bytes"]
-                                if pure1_capacity_bytes is not None:
-                                    pure1_total_tb = pure1_capacity_bytes / (1024 ** 4)
-                                    logger.info(
-                                        "Pure1 capacity for %s (%s): %.2f TB "
-                                        "(local reported: %.2f TB)",
-                                        system.name, pure1_name, pure1_total_tb, total_tb,
-                                    )
-                                    total_tb = round(pure1_total_tb, 2)
-                                logger.info(
-                                    "Pure1 physical used for %s (%s): %.2f TB "
-                                    "(local reported: %.2f TB)",
-                                    system.name, pure1_name, pure1_used_tb, used_tb,
+                    # For Pure FlashArrays enrolled in Evergreen One, the local Array API
+                    # no longer reports physical used space (space.total_physical is 0) and
+                    # reports an incorrect total capacity.  In that case Pure1's
+                    # subscription-assets API is the authoritative source.
+                    # For arrays on the standard (non-subscription) dashboard the local API
+                    # values are correct and Pure1 should NOT be used.
+                    if system.vendor == 'pure' and system.evergreen_one:
+                        if pure1_configured:
+                            pure1_name = system.pure1_array_name or system.name
+                            try:
+                                from app.api.pure1_client import fetch_subscription_asset_physical_used
+                                pure1_space = fetch_subscription_asset_physical_used(
+                                    pure1_app_id,
+                                    pure1_private_key,
+                                    pure1_name,
+                                    passphrase=pure1_passphrase,
+                                    proxies=proxies,
                                 )
-                                used_tb = round(pure1_used_tb, 2)
-                                free_tb = round(total_tb - used_tb, 2)
-                                percent_used = round(used_tb / total_tb * 100, 1) if total_tb > 0 else 0.0
-                                percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
-                        except Exception as p1_exc:
+                                if pure1_space is not None:
+                                    pure1_used_tb = pure1_space["used_bytes"] / (1024 ** 4)
+                                    pure1_capacity_bytes = pure1_space["capacity_bytes"]
+                                    if pure1_capacity_bytes is not None:
+                                        pure1_total_tb = pure1_capacity_bytes / (1024 ** 4)
+                                        logger.info(
+                                            "Pure1 capacity for %s (%s): %.2f TB "
+                                            "(local reported: %.2f TB)",
+                                            system.name, pure1_name, pure1_total_tb, total_tb,
+                                        )
+                                        total_tb = round(pure1_total_tb, 2)
+                                    logger.info(
+                                        "Pure1 physical used for %s (%s): %.2f TB "
+                                        "(local reported: %.2f TB)",
+                                        system.name, pure1_name, pure1_used_tb, used_tb,
+                                    )
+                                    used_tb = round(pure1_used_tb, 2)
+                                    free_tb = round(total_tb - used_tb, 2)
+                                    percent_used = round(used_tb / total_tb * 100, 1) if total_tb > 0 else 0.0
+                                    percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
+                            except Exception as p1_exc:
+                                logger.warning(
+                                    "Pure1 physical-used fetch failed for %s (%s): %s – "
+                                    "falling back to local value",
+                                    system.name, pure1_name, p1_exc,
+                                )
+                        else:
                             logger.warning(
-                                "Pure1 physical-used fetch failed for %s (%s): %s – "
-                                "falling back to local value",
-                                system.name, pure1_name, p1_exc,
+                                "Pure array %s is flagged as Evergreen One but Pure1 API "
+                                "credentials are not configured – using local capacity values",
+                                system.name,
                             )
 
             except Exception as exc:
