@@ -270,22 +270,22 @@ tbody tr:hover {
                 </select>
             </div>
         </div>
-        <div class="filter-actions">
-            <a href="{{ url_for('admin.logs') }}" class="btn btn-secondary btn-sm">Filter zurücksetzen</a>
-            {% if selected_system_id %}
-            <form method="POST" action="{{ url_for('admin.clear_logs') }}" style="display: inline;" 
-                  onsubmit="return confirm('Möchten Sie wirklich alle Logs für dieses System löschen?');">
-                <input type="hidden" name="system_id" value="{{ selected_system_id }}">
-                <button type="submit" class="btn btn-danger btn-sm">Logs löschen</button>
-            </form>
-            {% else %}
-            <form method="POST" action="{{ url_for('admin.clear_logs') }}" style="display: inline;"
-                  onsubmit="return confirm('Möchten Sie wirklich ALLE System-Logs löschen?');">
-                <button type="submit" class="btn btn-danger btn-sm">Alle Logs löschen</button>
-            </form>
-            {% endif %}
-        </div>
     </form>
+    <div class="filter-actions">
+        <a href="{{ url_for('admin.logs') }}" class="btn btn-secondary btn-sm">Filter zurücksetzen</a>
+        {% if selected_system_id %}
+        <form method="POST" action="{{ url_for('admin.clear_logs') }}" style="display: inline;" 
+              onsubmit="return confirm('Möchten Sie wirklich alle Logs für dieses System löschen?');">
+            <input type="hidden" name="system_id" value="{{ selected_system_id }}">
+            <button type="submit" class="btn btn-danger btn-sm">Logs löschen</button>
+        </form>
+        {% else %}
+        <form method="POST" action="{{ url_for('admin.clear_logs') }}" style="display: inline;"
+              onsubmit="return confirm('Möchten Sie wirklich ALLE System-Logs löschen?');">
+            <button type="submit" class="btn btn-danger btn-sm">Alle Logs löschen</button>
+        </form>
+        {% endif %}
+    </div>
 </div>
 
 {% if logs %}

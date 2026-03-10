@@ -171,9 +171,6 @@
             <a href="/capacity/">📈 Kapazitätsreport</a>
             <a href="/admin">⚙️ Admin</a>
             {% if current_user.is_authenticated %}
-            <a href="/admin/docs">📚 Dokumentation</a>
-            {% endif %}
-            {% if current_user.is_authenticated %}
             <a href="{{ url_for('admin.logout') }}">🚪 Abmelden</a>
             {% endif %}
         </div>
