@@ -94,13 +94,14 @@ def _do_refresh(app):
                     percent_used = status.get('capacity_percent', 0.0) or 0.0
                     percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
 
-                    # For Pure FlashArrays enrolled in Evergreen One, the local Array API
-                    # no longer reports physical used space (space.total_physical is 0) and
-                    # reports an incorrect total capacity.  In that case Pure1's
+                    # For Pure FlashArrays, detect whether the Evergreen/One Dashboard API
+                    # is active on the local array.  When it is active, the local API returns
+                    # total_physical = 0 (physical used space is not reported) and may also
+                    # report an incorrect total capacity.  In that case Pure1's
                     # subscription-assets API is the authoritative source.
-                    # For arrays on the standard (non-subscription) dashboard the local API
-                    # values are correct and Pure1 should NOT be used.
-                    if system.vendor == 'pure' and system.evergreen_one:
+                    # When the Standard Dashboard API is active, the local API returns valid
+                    # physical capacity values and Pure1 should NOT be used.
+                    if system.vendor == 'pure' and status.get('evergreen_one_dashboard_active'):
                         if pure1_configured:
                             pure1_name = system.pure1_array_name or system.name
                             try:
@@ -140,8 +141,9 @@ def _do_refresh(app):
                                 )
                         else:
                             logger.warning(
-                                "Pure array %s is flagged as Evergreen One but Pure1 API "
-                                "credentials are not configured – using local capacity values",
+                                "Evergreen/One Dashboard API detected for Pure array %s "
+                                "but Pure1 API credentials are not configured – "
+                                "capacity values from local API may be inaccurate",
                                 system.name,
                             )
 

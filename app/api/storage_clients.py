@@ -533,6 +533,12 @@ class PureStorageClient(StorageClient):
             
             total_bytes = 0
             used_bytes = 0
+            # Evergreen/One Dashboard detection: when the Evergreen/One Dashboard API is
+            # active on the array, ``space.total_physical`` is absent or returns 0 and
+            # ``capacity`` may report an incorrect (too large) licensed value instead of
+            # the physically installed capacity.  Standard Dashboard arrays always return
+            # a non-zero ``total_physical``.
+            evergreen_one_dashboard_active = False
             
             if space_response.status_code == 200:
                 space_data = space_response.json()
@@ -546,9 +552,20 @@ class PureStorageClient(StorageClient):
                     # Get capacity (total available capacity in bytes)
                     total_bytes = item.get('capacity', 0) or 0
                     
-                    # Get used space (total_physical is the actual used space)
+                    # Get used space (total_physical is the actual physically used space).
+                    # When the Evergreen/One Dashboard API is active this value is 0 or absent.
                     space_info = item.get('space', {})
-                    used_bytes = space_info.get('total_physical', 0) or 0
+                    raw_total_physical = space_info.get('total_physical')
+                    used_bytes = raw_total_physical or 0
+                    
+                    # Detect Evergreen/One Dashboard: total_physical is absent or 0
+                    if not raw_total_physical:
+                        evergreen_one_dashboard_active = True
+                        logger.info(
+                            "Evergreen/One Dashboard API detected for %s "
+                            "(space.total_physical is absent or 0)",
+                            self.ip_address,
+                        )
             
             # Get controllers/nodes information
             # REST API v2: GET /api/2.x/controllers
@@ -903,7 +920,8 @@ class PureStorageClient(StorageClient):
                 pods_info=pods_info if pods_info else None,
                 all_mgmt_ips=mgmt_ips_with_dns if mgmt_ips_with_dns else None,
                 hardware_details=hardware_details if (hardware_details.get('components') or hardware_details.get('drives')) else None,
-                alert_details=alert_details if alert_details else None
+                alert_details=alert_details if alert_details else None,
+                evergreen_one_dashboard_active=evergreen_one_dashboard_active,
             )
                 
         except Exception as e:
