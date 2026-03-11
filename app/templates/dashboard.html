@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 
-{% block title %}Storage Dashboard - ITscare{% endblock %}
+{% block title %}Storage Dashboard{% endblock %}
 
 {% block styles %}
-/* ITscare Corporate Design - Full HD Optimization (1920x1080) */
+/* Dashboard Styles - Full HD Optimization (1920x1080) */
 :root {
     /* Use Admin Preset Colors */
-    --itscare-blue: var(--accent-color);  /* Admin Blue: #0098DB */
-    --itscare-blue-dark: #007ab8;  /* Darker shade of admin blue */
-    --itscare-blue-light: #33ade3;  /* Lighter shade of admin blue */
-    --itscare-red: var(--primary-color);  /* Admin Red: #A70240 */
-    --itscare-red-dark: #8a0235;  /* Darker shade of admin red */
-    --itscare-green: var(--secondary-color);  /* Admin Green: #BED600 */
-    --itscare-green-dark: #a8ba00;  /* Darker shade of admin green */
+    --brand-blue: var(--accent-color);  /* Admin Blue: #0098DB */
+    --brand-blue-dark: #007ab8;  /* Darker shade of admin blue */
+    --brand-blue-light: #33ade3;  /* Lighter shade of admin blue */
+    --brand-red: var(--primary-color);  /* Admin Red: #A70240 */
+    --brand-red-dark: #8a0235;  /* Darker shade of admin red */
+    --brand-green: var(--secondary-color);  /* Admin Green: #BED600 */
+    --brand-green-dark: #a8ba00;  /* Darker shade of admin green */
     
     /* UI Colors */
     --text-dark: #1a1a1a;
@@ -50,7 +50,7 @@ body {
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
     margin: 0.5rem 0 1rem 0;
-    border-bottom: 4px solid var(--itscare-red);
+    border-bottom: 4px solid var(--brand-red);
 }
 
 .overview-header {
@@ -63,7 +63,7 @@ body {
 
 .overview-header h2 {
     font-size: 1.5rem;
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
     margin: 0;
     font-weight: 600;
 }
@@ -81,12 +81,12 @@ body {
     padding: 1rem 1.5rem;
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
-    border-left: 4px solid var(--itscare-blue);
+    border-left: 4px solid var(--brand-blue);
 }
 
 .dashboard-header h2 {
     font-size: 1.5rem;
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
     margin: 0;
     font-weight: 600;
 }
@@ -113,13 +113,13 @@ body {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--itscare-green);
+    background: var(--brand-green);
     flex-shrink: 0;
 }
 
 .refresh-dot.syncing {
     animation: pulse 1s ease-in-out infinite;
-    background: var(--itscare-blue);
+    background: var(--brand-blue);
 }
 
 @keyframes pulse {
@@ -157,7 +157,7 @@ body {
 }
 
 .view-toggle button.active {
-    background: var(--itscare-blue);
+    background: var(--brand-blue);
     color: white;
 }
 
@@ -187,7 +187,7 @@ body {
 }
 
 .column-selector button.active {
-    background: var(--itscare-blue);
+    background: var(--brand-blue);
     color: white;
 }
 
@@ -205,7 +205,7 @@ body {
 
 .vendor-header {
     background: var(--bg-white);
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
     padding: 0.75rem 1.25rem;
     border-radius: 6px 6px 0 0;
     font-size: 1.05rem;
@@ -214,7 +214,7 @@ body {
     justify-content: space-between;
     align-items: center;
     box-shadow: 0 2px 4px rgba(0, 102, 204, 0.08);
-    border-bottom: 4px solid var(--itscare-blue);
+    border-bottom: 4px solid var(--brand-blue);
 }
 
 .vendor-count {
@@ -252,7 +252,7 @@ body {
     left: 0;
     width: 100%;
     height: 3px;
-    background: var(--itscare-blue);
+    background: var(--brand-blue);
     transform: scaleX(0);
     transition: transform 0.3s ease;
 }
@@ -264,7 +264,7 @@ body {
 .system-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(0, 102, 204, 0.15);
-    border-color: var(--itscare-blue);
+    border-color: var(--brand-blue);
 }
 
 .system-header {
@@ -293,17 +293,17 @@ body {
 
 .cluster-badge.ha { 
     background: rgba(0, 102, 204, 0.15); 
-    color: var(--itscare-blue); 
+    color: var(--brand-blue); 
     border: 1px solid rgba(0, 102, 204, 0.3);
 }
 .cluster-badge.active-cluster { 
     background: rgba(0, 102, 204, 0.15); 
-    color: var(--itscare-blue); 
+    color: var(--brand-blue); 
     border: 1px solid rgba(0, 102, 204, 0.3);
 }
 .cluster-badge.metrocluster { 
     background: rgba(0, 102, 204, 0.2); 
-    color: var(--itscare-blue-dark); 
+    color: var(--brand-blue-dark); 
     border: 1px solid rgba(0, 102, 204, 0.4);
 }
 .cluster-badge.local { 
@@ -313,7 +313,7 @@ body {
 }
 .cluster-badge.multi-site { 
     background: rgba(0, 102, 204, 0.2); 
-    color: var(--itscare-blue-dark); 
+    color: var(--brand-blue-dark); 
     border: 1px solid rgba(0, 102, 204, 0.4);
 }
 .cluster-badge.single-site { 
@@ -329,7 +329,7 @@ body {
     font-size: 0.7rem;
     font-weight: 500;
     background: rgba(0, 152, 219, 0.12);
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
     border: 1px solid rgba(0, 152, 219, 0.3);
     margin: 0.1rem 0.1rem 0 0;
     white-space: nowrap;
@@ -350,7 +350,7 @@ body {
 }
 
 .system-version {
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
     font-size: 0.7rem;
     margin-bottom: 0.5rem;
     font-weight: 500;
@@ -439,7 +439,7 @@ body {
 
 .metric-ok { color: #27ae60; }
 .metric-warning { color: var(--warning); }
-.metric-error { color: var(--itscare-red); }
+.metric-error { color: var(--brand-red); }
 
 .capacity-bar {
     width: 100%;
@@ -452,7 +452,7 @@ body {
 
 .capacity-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--itscare-blue) 0%, var(--itscare-blue-light) 100%);
+    background: linear-gradient(90deg, var(--brand-blue) 0%, var(--brand-blue-light) 100%);
     transition: width 0.3s ease;
 }
 
@@ -461,7 +461,7 @@ body {
 }
 
 .capacity-fill.critical {
-    background: linear-gradient(90deg, var(--itscare-red) 0%, var(--itscare-red-dark) 100%);
+    background: linear-gradient(90deg, var(--brand-red) 0%, var(--brand-red-dark) 100%);
 }
 
 .capacity-text {
@@ -490,7 +490,7 @@ body {
 }
 
 .systems-table thead {
-    background: linear-gradient(135deg, var(--itscare-blue) 0%, var(--itscare-blue-dark) 100%);
+    background: linear-gradient(135deg, var(--brand-blue) 0%, var(--brand-blue-dark) 100%);
     color: white;
 }
 
@@ -536,7 +536,7 @@ body {
 
 .error-message {
     background: rgba(227, 6, 19, 0.1);
-    color: var(--itscare-red);
+    color: var(--brand-red);
     padding: 0.5rem;
     border-radius: 4px;
     margin-top: 0.5rem;
@@ -554,11 +554,11 @@ body {
 }
 
 .no-systems h3 {
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
 }
 
 .no-systems a {
-    color: var(--itscare-red);
+    color: var(--brand-red);
     text-decoration: none;
     font-weight: 600;
 }
@@ -584,7 +584,7 @@ body.table-view .systems-table {
     font-weight: 500;
 }
 
-/* ITscare Branding */
+/* Dashboard Footer */
 .dashboard-footer {
     text-align: center;
     padding: 1rem;
@@ -594,13 +594,13 @@ body.table-view .systems-table {
 }
 
 .dashboard-footer a {
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
     text-decoration: none;
     font-weight: 600;
 }
 
 .dashboard-footer a:hover {
-    color: var(--itscare-red);
+    color: var(--brand-red);
 }
 
 /* Filter Section within Overview Card */
@@ -631,12 +631,12 @@ body.table-view .systems-table {
     border-radius: 6px;
     margin-bottom: 1rem;
     box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
-    border-bottom: 3px solid var(--itscare-green);  /* Solid green line */
+    border-bottom: 3px solid var(--brand-green);  /* Solid green line */
 }
 
 .filter-bar h3 {
     font-size: 1rem;
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
     margin: 0 0 0.75rem 0;
     font-weight: 600;
 }
@@ -675,7 +675,7 @@ body.table-view .systems-table {
 .filter-group select:focus,
 .filter-group input:focus {
     outline: none;
-    border-color: var(--itscare-blue);
+    border-color: var(--brand-blue);
     box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
 }
 
@@ -703,7 +703,7 @@ body.table-view .systems-table {
 
 .tag-dropdown-btn:focus {
     outline: none;
-    border-color: var(--itscare-blue);
+    border-color: var(--brand-blue);
     box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
 }
 
@@ -805,7 +805,7 @@ body.table-view .systems-table {
 }
 
 .btn-collect-now {
-    background: var(--itscare-blue);
+    background: var(--brand-blue);
     color: white;
     border: none;
     padding: 0.4rem 0.8rem;
@@ -818,7 +818,7 @@ body.table-view .systems-table {
 }
 
 .btn-collect-now:hover {
-    background: var(--itscare-blue-dark);
+    background: var(--brand-blue-dark);
 }
 
 .btn-collect-now:disabled {
@@ -837,7 +837,7 @@ body.table-view .systems-table {
 }
 
 .webui-link:hover {
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
     text-shadow: 0 0 10px rgba(0, 102, 204, 0.3);
 }
 
@@ -847,7 +847,7 @@ body.table-view .systems-table {
 }
 
 .detail-btn {
-    background: var(--itscare-blue);
+    background: var(--brand-blue);
     color: white;
     border: none;
     padding: 0.4rem 0.8rem;
@@ -861,7 +861,7 @@ body.table-view .systems-table {
 }
 
 .detail-btn:hover {
-    background: var(--itscare-blue-dark);
+    background: var(--brand-blue-dark);
     transform: translateY(-1px);
     box-shadow: 0 2px 6px rgba(0, 102, 204, 0.3);
 }
@@ -909,7 +909,7 @@ body.table-view .systems-table {
 
 .spinner {
     border: 4px solid rgba(0, 152, 219, 0.2);
-    border-top: 4px solid var(--itscare-blue);
+    border-top: 4px solid var(--brand-blue);
     border-radius: 50%;
     width: 50px;
     height: 50px;
@@ -922,7 +922,7 @@ body.table-view .systems-table {
 }
 
 .loading-text {
-    color: var(--itscare-blue);
+    color: var(--brand-blue);
     font-size: 1.1rem;
     font-weight: 500;
 }
@@ -1249,7 +1249,7 @@ body.table-view .systems-table {
                             {% else %}-{% endif %}
                         </td>
                         <td><small style="font-family: 'Courier New', monospace;">{{ system.ip_address }}</small></td>
-                        <td><small style="color: var(--itscare-blue); font-weight: 500;">{{ system.os_version or '-' }}</small></td>
+                        <td><small style="color: var(--brand-blue); font-weight: 500;">{{ system.os_version or '-' }}</small></td>
                         <td class="status-cell">
                             <span class="status-badge status-{{ status.status if status else 'loading' }}">
                                 {% if not status %}⏳
@@ -1308,7 +1308,7 @@ body.table-view .systems-table {
 {% endif %}
 
 <div class="dashboard-footer">
-    Powered by <a href="https://www.itscare.de" target="_blank">ITscare</a> | Storage Dashboard v1.0
+    Storage Dashboard v1.0 &ndash; Created by <a href="mailto:github@timobraun.de">Timo Braun</a>
 </div>
 </div>
 

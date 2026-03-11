@@ -262,12 +262,12 @@ def seed_initial_tags():
         {
             'name': 'Themenzugehörigkeit',
             'description': 'Thematische Zuordnung',
-            'tags': ['ERZ', 'EGK', 'OGS', 'EH', 'KNG', 'ITS', 'TSY'],
+            'tags': ['Mandant-1', 'Mandant-2', 'Mandant-3', 'Apps', 'DBS', 'Ops', 'Extern'],
         },
         {
             'name': 'DataCenter',
             'description': 'Standort des Rechenzentrums',
-            'tags': ['DC1 ( NTT )', 'DC2 ( Equinix )'],
+            'tags': ['DC1', 'DC2'],
         },
     ]
 

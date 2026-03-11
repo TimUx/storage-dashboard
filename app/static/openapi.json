@@ -5,8 +5,9 @@
     "description": "REST API des Storage Dashboards – liefert Statusinformationen und Verwaltungsfunktionen für alle angebundenen Storage-Systeme.",
     "version": "1.0.0",
     "contact": {
-      "name": "ITscare",
-      "url": "https://www.itscare.de"
+      "name": "Timo Braun",
+      "url": "https://github.com/TimUx/storage-dashboard",
+      "email": "github@timobraun.de"
     }
   },
   "servers": [

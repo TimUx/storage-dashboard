@@ -4,8 +4,8 @@ Verifies that only the cluster management IP DNS name ends up in
 ``discovery_data['dns_names']``, not individual node management IP DNS names.
 
 This prevents WebUI links from pointing to per-node hostnames (e.g.
-``fasmc1d.itscare.prod.dom``) instead of the cluster hostname
-(``fasmc1.itscare.prod.dom``).
+``fasmc1d.storage.example.com``) instead of the cluster hostname
+(``fasmc1.storage.example.com``).
 """
 
 import json
@@ -102,45 +102,45 @@ class TestONTAPClusterDnsNames:
         """Node management IP DNS names must NOT appear in dns_names."""
         result = self._run_discovery(
             cluster_ip='10.0.0.1',
-            cluster_dns='fasmc1.itscare.prod.dom',
+            cluster_dns='fasmc1.storage.example.com',
             node_ips=['10.0.0.11', '10.0.0.12'],
             node_dns_map={
-                '10.0.0.11': 'fasmc1d.itscare.prod.dom',
-                '10.0.0.12': 'fasmc1a.itscare.prod.dom',
+                '10.0.0.11': 'fasmc1d.storage.example.com',
+                '10.0.0.12': 'fasmc1a.storage.example.com',
             }
         )
 
-        assert 'fasmc1.itscare.prod.dom' in result['dns_names'], \
+        assert 'fasmc1.storage.example.com' in result['dns_names'], \
             "Cluster DNS name must be present"
-        assert 'fasmc1d.itscare.prod.dom' not in result['dns_names'], \
+        assert 'fasmc1d.storage.example.com' not in result['dns_names'], \
             "Node DNS name fasmc1d must not be in dns_names"
-        assert 'fasmc1a.itscare.prod.dom' not in result['dns_names'], \
+        assert 'fasmc1a.storage.example.com' not in result['dns_names'], \
             "Node DNS name fasmc1a must not be in dns_names"
 
     def test_cluster_dns_name_is_first(self):
         """The cluster DNS name must be the first entry so WebUI links work."""
         result = self._run_discovery(
             cluster_ip='10.0.0.1',
-            cluster_dns='fasmc1.itscare.prod.dom',
+            cluster_dns='fasmc1.storage.example.com',
             node_ips=['10.0.0.11', '10.0.0.12'],
             node_dns_map={
-                '10.0.0.11': 'fasmc1d.itscare.prod.dom',
-                '10.0.0.12': 'fasmc1a.itscare.prod.dom',
+                '10.0.0.11': 'fasmc1d.storage.example.com',
+                '10.0.0.12': 'fasmc1a.storage.example.com',
             }
         )
 
-        assert result['dns_names'][0] == 'fasmc1.itscare.prod.dom', \
+        assert result['dns_names'][0] == 'fasmc1.storage.example.com', \
             "Cluster DNS name must be the first entry in dns_names"
 
     def test_node_ips_still_in_all_ips(self):
         """Node management IPs must still appear in all_ips for other purposes."""
         result = self._run_discovery(
             cluster_ip='10.0.0.1',
-            cluster_dns='fasmc1.itscare.prod.dom',
+            cluster_dns='fasmc1.storage.example.com',
             node_ips=['10.0.0.11', '10.0.0.12'],
             node_dns_map={
-                '10.0.0.11': 'fasmc1d.itscare.prod.dom',
-                '10.0.0.12': 'fasmc1a.itscare.prod.dom',
+                '10.0.0.11': 'fasmc1d.storage.example.com',
+                '10.0.0.12': 'fasmc1a.storage.example.com',
             }
         )
 
@@ -169,18 +169,18 @@ class TestReverseDnsLookupForwardVerification:
         # PTR record for 10.112.230.169 returns a node hostname first, then
         # the real cluster name as an alias.
         with patch('socket.gethostbyaddr',
-                   return_value=('fascl1d.itscare.prod.dom',
-                                 ['fascl1.itscare.prod.dom', 'fascl1c.itscare.prod.dom'],
+                   return_value=('fascl1d.storage.example.com',
+                                 ['fascl1.storage.example.com', 'fascl1c.storage.example.com'],
                                  ['10.112.230.169'])), \
              patch('socket.gethostbyname',
                    side_effect=lambda name: {
-                       'fascl1d.itscare.prod.dom': '10.112.230.221',   # node IP
-                       'fascl1.itscare.prod.dom': '10.112.230.169',    # cluster IP ✓
-                       'fascl1c.itscare.prod.dom': '10.112.230.223',   # node IP
+                       'fascl1d.storage.example.com': '10.112.230.221',   # node IP
+                       'fascl1.storage.example.com': '10.112.230.169',    # cluster IP ✓
+                       'fascl1c.storage.example.com': '10.112.230.223',   # node IP
                    }[name]):
             result = reverse_dns_lookup('10.112.230.169')
 
-        assert result == ['fascl1.itscare.prod.dom'], (
+        assert result == ['fascl1.storage.example.com'], (
             "Only the DNS name that resolves back to the cluster IP should be returned"
         )
 
@@ -189,19 +189,19 @@ class TestReverseDnsLookupForwardVerification:
         from app.discovery import reverse_dns_lookup
 
         with patch('socket.gethostbyaddr',
-                   return_value=('fascl1d.itscare.prod.dom',
-                                 ['fascl1.itscare.prod.dom', 'fascl1c.itscare.prod.dom'],
+                   return_value=('fascl1d.storage.example.com',
+                                 ['fascl1.storage.example.com', 'fascl1c.storage.example.com'],
                                  ['10.112.230.169'])), \
              patch('socket.gethostbyname',
                    side_effect=lambda name: {
-                       'fascl1d.itscare.prod.dom': '10.112.230.221',
-                       'fascl1.itscare.prod.dom': '10.112.230.169',
-                       'fascl1c.itscare.prod.dom': '10.112.230.223',
+                       'fascl1d.storage.example.com': '10.112.230.221',
+                       'fascl1.storage.example.com': '10.112.230.169',
+                       'fascl1c.storage.example.com': '10.112.230.223',
                    }[name]):
             result = reverse_dns_lookup('10.112.230.169')
 
-        assert 'fascl1d.itscare.prod.dom' not in result, "Node hostname must be excluded"
-        assert 'fascl1c.itscare.prod.dom' not in result, "Other node alias must be excluded"
+        assert 'fascl1d.storage.example.com' not in result, "Node hostname must be excluded"
+        assert 'fascl1c.storage.example.com' not in result, "Other node alias must be excluded"
 
     def test_fallback_when_forward_resolution_fails(self):
         """
