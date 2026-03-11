@@ -957,14 +957,10 @@
     {% for node in system.get_node_details() %}
     <div class="detail-card">
         <h2>🖥️
-            {% if node.ips and node.ips|length > 0 %}
-            <a href="https://{{ node.ips[0] }}" target="_blank" rel="noopener noreferrer"
-               class="webui-link" title="Zur WebUI des Nodes">
+            <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer"
+               class="webui-link" title="Zur WebUI des Clusters">
                 {{ node.name }} <span class="webui-link-icon">↗</span>
             </a>
-            {% else %}
-            {{ node.name }}
-            {% endif %}
         </h2>
         {% if node.status %}
         <div class="detail-row">
