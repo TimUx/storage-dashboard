@@ -366,10 +366,6 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
                                 if address:
                                     node_ips.append(address)
                                     discovery_data['all_ips'].append(address)
-                                    
-                                    # DNS lookup for each IP
-                                    dns_names = reverse_dns_lookup(address)
-                                    discovery_data['dns_names'].extend(dns_names)
                     except Exception as detail_error:
                         logger.debug(f"Could not get detailed node info: {detail_error}")
                     
@@ -401,9 +397,10 @@ def discover_netapp_ontap(ip_address, username, password, ssl_verify=False):
         else:
             discovery_data['cluster_type'] = 'local'
         
-        # Deduplicate DNS names and IPs
-        discovery_data['dns_names'] = list(set(discovery_data['dns_names']))
-        discovery_data['all_ips'] = list(set(discovery_data['all_ips']))
+        # Deduplicate DNS names and IPs while preserving insertion order
+        # (cluster DNS name from ip_address lookup stays first)
+        discovery_data['dns_names'] = list(dict.fromkeys(discovery_data['dns_names']))
+        discovery_data['all_ips'] = list(dict.fromkeys(discovery_data['all_ips']))
         
         return discovery_data
         
