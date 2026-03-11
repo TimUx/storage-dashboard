@@ -2,6 +2,7 @@
 import logging
 import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, date, timedelta
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,12 @@ def _art_sort_key(art: str):
 # How often (seconds) the background thread refreshes capacity data
 REFRESH_INTERVAL_SECONDS = 60 * 60  # 1 hour
 
+# Maximum number of parallel workers for capacity data collection.
+# Each worker fetches one storage system at a time; the pool is capped at
+# this value so that up to 32 systems are queried concurrently.  Environments
+# with 16-32 systems will therefore have all systems polled in parallel.
+_MAX_CAPACITY_WORKERS = 32
+
 # Module-level flag so that only one background thread is started per process
 _background_thread_started = False
 _thread_lock = threading.Lock()
@@ -30,14 +37,120 @@ _thread_lock = threading.Lock()
 # Background refresh
 # ---------------------------------------------------------------------------
 
+def _fetch_system_capacity(system, pure1_app_id, pure1_private_key, pure1_passphrase,
+                           proxies, pure1_configured):
+    """Fetch capacity data for a single storage system via API calls (no DB access).
+
+    Returns a dict with keys:
+        system_id    – system.id
+        use_existing – True when caller should fall back to last-known-good DB values
+        total_tb, used_tb, free_tb, percent_used, percent_free – capacity values
+        error_msg    – error string or None
+    """
+    from app.api import get_client
+
+    try:
+        client = get_client(
+            vendor=system.vendor,
+            ip_address=system.ip_address,
+            port=system.port,
+            username=system.api_username,
+            password=system.api_password,
+            token=system.api_token,
+        )
+        status = client.get_health_status()
+        error_msg = status.get('error')
+
+        if error_msg:
+            # API returned an error – caller will preserve last-known-good values.
+            return {'system_id': system.id, 'use_existing': True, 'error_msg': error_msg}
+
+        total_tb = status.get('capacity_total_tb', 0.0) or 0.0
+        used_tb = status.get('capacity_used_tb', 0.0) or 0.0
+        free_tb = round(total_tb - used_tb, 2)
+        percent_used = status.get('capacity_percent', 0.0) or 0.0
+        percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
+
+        # For Pure FlashArrays, detect whether the Evergreen/One Dashboard API
+        # is active on the local array.  When it is active, the local API returns
+        # total_physical = 0 (physical used space is not reported) and may also
+        # report an incorrect total capacity.  In that case Pure1's
+        # subscription-assets API is the authoritative source.
+        # When the Standard Dashboard API is active, the local API returns valid
+        # physical capacity values and Pure1 should NOT be used.
+        if system.vendor == 'pure' and status.get('evergreen_one_dashboard_active'):
+            if pure1_configured:
+                pure1_name = system.pure1_array_name or system.name
+                try:
+                    from app.api.pure1_client import fetch_subscription_asset_physical_used
+                    pure1_space = fetch_subscription_asset_physical_used(
+                        pure1_app_id,
+                        pure1_private_key,
+                        pure1_name,
+                        passphrase=pure1_passphrase,
+                        proxies=proxies,
+                    )
+                    if pure1_space is not None:
+                        pure1_used_tb = pure1_space["used_bytes"] / (1024 ** 4)
+                        pure1_capacity_bytes = pure1_space["capacity_bytes"]
+                        if pure1_capacity_bytes is not None:
+                            pure1_total_tb = pure1_capacity_bytes / (1024 ** 4)
+                            logger.info(
+                                "Pure1 capacity for %s (%s): %.2f TB "
+                                "(local reported: %.2f TB)",
+                                system.name, pure1_name, pure1_total_tb, total_tb,
+                            )
+                            total_tb = round(pure1_total_tb, 2)
+                        logger.info(
+                            "Pure1 physical used for %s (%s): %.2f TB "
+                            "(local reported: %.2f TB)",
+                            system.name, pure1_name, pure1_used_tb, used_tb,
+                        )
+                        used_tb = round(pure1_used_tb, 2)
+                        free_tb = round(total_tb - used_tb, 2)
+                        percent_used = round(used_tb / total_tb * 100, 1) if total_tb > 0 else 0.0
+                        percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
+                except Exception as p1_exc:
+                    logger.warning(
+                        "Pure1 physical-used fetch failed for %s (%s): %s – "
+                        "falling back to local value",
+                        system.name, pure1_name, p1_exc,
+                    )
+            else:
+                logger.warning(
+                    "Evergreen/One Dashboard API detected for Pure array %s "
+                    "but Pure1 API credentials are not configured – "
+                    "capacity values from local API may be inaccurate",
+                    system.name,
+                )
+
+        return {
+            'system_id': system.id,
+            'use_existing': False,
+            'total_tb': total_tb,
+            'used_tb': used_tb,
+            'free_tb': free_tb,
+            'percent_used': percent_used,
+            'percent_free': percent_free,
+            'error_msg': None,
+        }
+
+    except Exception as exc:
+        logger.warning("Capacity refresh failed for %s: %s", system.name, exc)
+        return {'system_id': system.id, 'use_existing': True, 'error_msg': str(exc)}
+
+
 def _do_refresh(app):
-    """Fetch capacity for all enabled systems and persist snapshots."""
+    """Fetch capacity for all enabled systems in parallel and persist snapshots."""
     from app import db
     from app.models import StorageSystem, CapacitySnapshot, CapacityHistory, AppSettings
-    from app.api import get_client
 
     with app.app_context():
         systems = StorageSystem.query.filter_by(enabled=True).all()
+        if not systems:
+            logger.info("Capacity refresh: no enabled systems found, skipping.")
+            return
+
         today = date.today()
 
         # Load Pure1 credentials once for the whole refresh cycle.
@@ -60,102 +173,75 @@ def _do_refresh(app):
                 if proxy_https:
                     proxies['https'] = proxy_https
 
+        # Pre-load existing snapshots so they are available for fall-back values
+        # when an API call fails (avoids N individual DB queries inside threads).
+        existing_by_id = {
+            snap.system_id: snap
+            for snap in CapacitySnapshot.query.filter(
+                CapacitySnapshot.system_id.in_([s.id for s in systems])
+            ).all()
+        }
+
+        # Fetch capacity from all systems in parallel.
+        # Each worker makes exactly one API call (plus an optional Pure1 call for
+        # Evergreen/One Dashboard arrays).  At most _MAX_CAPACITY_WORKERS systems
+        # are queried concurrently; the actual worker count equals len(systems)
+        # when there are fewer than _MAX_CAPACITY_WORKERS enabled systems.
+        max_workers = min(len(systems), _MAX_CAPACITY_WORKERS)
+        fetch_results = {}  # system_id -> result dict
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _fetch_system_capacity,
+                    system, pure1_app_id, pure1_private_key,
+                    pure1_passphrase, proxies, pure1_configured,
+                ): system
+                for system in systems
+            }
+            for future in as_completed(futures):
+                system = futures[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    logger.warning("Capacity fetch raised for %s: %s", system.name, exc)
+                    result = {'system_id': system.id, 'use_existing': True, 'error_msg': str(exc)}
+                fetch_results[system.id] = result
+
+        logger.info(
+            "Capacity parallel fetch complete: %d system(s) queried with %d worker(s).",
+            len(systems), max_workers,
+        )
+
+        # Persist results (sequential DB operations after all API calls have finished).
+        now = datetime.utcnow()
         for system in systems:
-            # Fetch existing snapshot once; used both to preserve values on failure
-            # and to upsert the snapshot after the API call.
-            existing = CapacitySnapshot.query.filter_by(system_id=system.id).first()
+            result = fetch_results.get(
+                system.id,
+                {'system_id': system.id, 'use_existing': True, 'error_msg': 'no result'},
+            )
+            existing = existing_by_id.get(system.id)
+            error_msg = result.get('error_msg')
 
-            def _values_from_snapshot(snap):
-                """Extract capacity fields from an existing snapshot (or return zeros)."""
-                if snap is None:
-                    return 0.0, 0.0, 0.0, 0.0, 0.0
-                return snap.total_tb, snap.used_tb, snap.free_tb, snap.percent_used, snap.percent_free
-
-            try:
-                client = get_client(
-                    vendor=system.vendor,
-                    ip_address=system.ip_address,
-                    port=system.port,
-                    username=system.api_username,
-                    password=system.api_password,
-                    token=system.api_token
-                )
-                status = client.get_health_status()
-                error_msg = status.get('error')
-
-                if error_msg:
-                    # API returned an error dict (e.g. missing credentials, unreachable).
-                    # Preserve last known good capacity values from the existing snapshot.
-                    total_tb, used_tb, free_tb, percent_used, percent_free = _values_from_snapshot(existing)
+            if result.get('use_existing'):
+                # Preserve last-known-good values from existing snapshot.
+                if existing:
+                    total_tb = existing.total_tb
+                    used_tb = existing.used_tb
+                    free_tb = existing.free_tb
+                    percent_used = existing.percent_used
+                    percent_free = existing.percent_free
                 else:
-                    total_tb = status.get('capacity_total_tb', 0.0) or 0.0
-                    used_tb = status.get('capacity_used_tb', 0.0) or 0.0
-                    free_tb = round(total_tb - used_tb, 2)
-                    percent_used = status.get('capacity_percent', 0.0) or 0.0
-                    percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
-
-                    # For Pure FlashArrays, detect whether the Evergreen/One Dashboard API
-                    # is active on the local array.  When it is active, the local API returns
-                    # total_physical = 0 (physical used space is not reported) and may also
-                    # report an incorrect total capacity.  In that case Pure1's
-                    # subscription-assets API is the authoritative source.
-                    # When the Standard Dashboard API is active, the local API returns valid
-                    # physical capacity values and Pure1 should NOT be used.
-                    if system.vendor == 'pure' and status.get('evergreen_one_dashboard_active'):
-                        if pure1_configured:
-                            pure1_name = system.pure1_array_name or system.name
-                            try:
-                                from app.api.pure1_client import fetch_subscription_asset_physical_used
-                                pure1_space = fetch_subscription_asset_physical_used(
-                                    pure1_app_id,
-                                    pure1_private_key,
-                                    pure1_name,
-                                    passphrase=pure1_passphrase,
-                                    proxies=proxies,
-                                )
-                                if pure1_space is not None:
-                                    pure1_used_tb = pure1_space["used_bytes"] / (1024 ** 4)
-                                    pure1_capacity_bytes = pure1_space["capacity_bytes"]
-                                    if pure1_capacity_bytes is not None:
-                                        pure1_total_tb = pure1_capacity_bytes / (1024 ** 4)
-                                        logger.info(
-                                            "Pure1 capacity for %s (%s): %.2f TB "
-                                            "(local reported: %.2f TB)",
-                                            system.name, pure1_name, pure1_total_tb, total_tb,
-                                        )
-                                        total_tb = round(pure1_total_tb, 2)
-                                    logger.info(
-                                        "Pure1 physical used for %s (%s): %.2f TB "
-                                        "(local reported: %.2f TB)",
-                                        system.name, pure1_name, pure1_used_tb, used_tb,
-                                    )
-                                    used_tb = round(pure1_used_tb, 2)
-                                    free_tb = round(total_tb - used_tb, 2)
-                                    percent_used = round(used_tb / total_tb * 100, 1) if total_tb > 0 else 0.0
-                                    percent_free = round(100.0 - percent_used, 1) if total_tb > 0 else 0.0
-                            except Exception as p1_exc:
-                                logger.warning(
-                                    "Pure1 physical-used fetch failed for %s (%s): %s – "
-                                    "falling back to local value",
-                                    system.name, pure1_name, p1_exc,
-                                )
-                        else:
-                            logger.warning(
-                                "Evergreen/One Dashboard API detected for Pure array %s "
-                                "but Pure1 API credentials are not configured – "
-                                "capacity values from local API may be inaccurate",
-                                system.name,
-                            )
-
-            except Exception as exc:
-                logger.warning(f"Capacity refresh failed for {system.name}: {exc}")
-                # Preserve capacity values from existing snapshot (last known good data)
-                total_tb, used_tb, free_tb, percent_used, percent_free = _values_from_snapshot(existing)
-                error_msg = str(exc)
+                    total_tb = used_tb = free_tb = percent_used = percent_free = 0.0
+            else:
+                total_tb = result['total_tb']
+                used_tb = result['used_tb']
+                free_tb = result['free_tb']
+                percent_used = result['percent_used']
+                percent_free = result['percent_free']
 
             # Upsert latest snapshot (one row per system – replace old one)
             if existing:
-                existing.fetched_at = datetime.utcnow()
+                existing.fetched_at = now
                 existing.total_tb = total_tb
                 existing.used_tb = used_tb
                 existing.free_tb = free_tb
@@ -170,7 +256,7 @@ def _do_refresh(app):
                     free_tb=free_tb,
                     percent_used=percent_used,
                     percent_free=percent_free,
-                    error=error_msg
+                    error=error_msg,
                 )
                 db.session.add(snap)
 
