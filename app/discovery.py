@@ -27,27 +27,33 @@ UNKNOWN_SITE = 'Unknown Site'
 
 def reverse_dns_lookup(ip_address):
     """
-    Perform reverse DNS lookup for an IP address
-    
-    Returns list of DNS names (PTR records, hostnames, aliases)
+    Perform reverse DNS lookup for an IP address.
+
+    Returns a list of DNS names whose forward (A-record) lookup resolves back
+    to *ip_address*.  This filters out per-node hostnames that sometimes appear
+    as PTR-record hostname or aliases for a shared cluster management IP, so
+    that callers always receive the authoritative cluster-level DNS name first.
+
+    Falls back to the raw reverse-lookup result when forward verification is
+    unavailable (e.g. no forward DNS records exist).
     """
     dns_names = []
-    
+
     try:
         # Get hostname and aliases via gethostbyaddr
         hostname, aliases, _ = socket.gethostbyaddr(ip_address)
-        
+
         if hostname:
             dns_names.append(hostname)
-        
+
         if aliases:
             dns_names.extend(aliases)
-            
+
     except socket.herror as e:
         logger.debug(f"Reverse DNS lookup failed for {ip_address}: {e}")
     except Exception as e:
         logger.warning(f"Error during reverse DNS lookup for {ip_address}: {e}")
-    
+
     # Remove duplicates while preserving order
     seen = set()
     unique_names = []
@@ -55,8 +61,24 @@ def reverse_dns_lookup(ip_address):
         if name not in seen:
             seen.add(name)
             unique_names.append(name)
-    
-    return unique_names
+
+    # Forward-verify each name: keep only those whose A-record resolves back to
+    # ip_address.  This ensures that node-specific hostnames that appear as
+    # aliases in PTR records for a cluster management IP are excluded, leaving
+    # only the true cluster-level DNS name (e.g. "fascl1.domain" rather than
+    # the node alias "fascl1d.domain").
+    verified_names = []
+    for name in unique_names:
+        try:
+            resolved_ip = socket.gethostbyname(name)
+            if resolved_ip == ip_address:
+                verified_names.append(name)
+        except (socket.gaierror, socket.herror):
+            pass  # Cannot resolve forward – skip this candidate
+
+    # Fall back to the unverified list when no name could be confirmed (e.g.
+    # forward DNS records are absent or DNS is unavailable).
+    return verified_names if verified_names else unique_names
 
 
 def discover_pure_storage(ip_address, api_token, ssl_verify=False):
