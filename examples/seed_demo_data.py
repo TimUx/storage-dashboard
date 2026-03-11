@@ -33,168 +33,168 @@ from app.models import StorageSystem, TagGroup, Tag, CapacitySnapshot, CapacityH
 DEMO_SYSTEMS = [
     # ── Block ──────────────────────────────────────────────────────────────
     {
-        'name': 'Pure-Block-PROD-ITS-01',
+        'name': 'Pure-Block-PROD-Mandant1-01',
         'vendor': 'pure',
         'ip': '10.10.1.11',
         'port': 443,
-        'tags': {'Storage Art': 'Block', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ITS'},
+        'tags': {'Storage Art': 'Block', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-1'},
         'total_tb': 800.0,
         'used_tb': 568.0,       # 71 %
         'provisioned_tb': 1600.0,  # 200 % – typical overprovisioning for block
     },
     {
-        'name': 'Pure-Block-PROD-ERZ-01',
+        'name': 'Pure-Block-PROD-Mandant2-01',
         'vendor': 'pure',
         'ip': '10.10.1.12',
         'port': 443,
-        'tags': {'Storage Art': 'Block', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ERZ'},
+        'tags': {'Storage Art': 'Block', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-2'},
         'total_tb': 600.0,
         'used_tb': 378.0,       # 63 %
         'provisioned_tb': 900.0,   # 150 %
     },
     {
-        'name': 'Pure-Block-PROD-EH-01',
+        'name': 'Pure-Block-PROD-Apps-01',
         'vendor': 'pure',
         'ip': '10.10.1.13',
         'port': 443,
-        'tags': {'Storage Art': 'Block', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'EH'},
+        'tags': {'Storage Art': 'Block', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Apps'},
         'total_tb': 455.0,
         'used_tb': 41.0,        # 9 %
         'provisioned_tb': 500.0,   # 110 %
     },
     {
-        'name': 'Pure-Block-TEST-ITS-01',
+        'name': 'Pure-Block-Test-Mandant1-01',
         'vendor': 'pure',
         'ip': '10.10.1.21',
         'port': 443,
-        'tags': {'Storage Art': 'Block', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ITS'},
+        'tags': {'Storage Art': 'Block', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'Mandant-1'},
         'total_tb': 350.0,
         'used_tb': 245.0,       # 70 %
         'provisioned_tb': 600.0,   # 171 %
     },
     {
-        'name': 'Pure-Block-TEST-ERZ-01',
+        'name': 'Pure-Block-Test-Mandant2-01',
         'vendor': 'pure',
         'ip': '10.10.1.22',
         'port': 443,
-        'tags': {'Storage Art': 'Block', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ERZ'},
+        'tags': {'Storage Art': 'Block', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'Mandant-2'},
         'total_tb': 250.0,
         'used_tb': 178.0,       # 71 %
         'provisioned_tb': 380.0,   # 152 %
     },
     # ── File ───────────────────────────────────────────────────────────────
     {
-        'name': 'NetApp-File-PROD-ITS-01',
+        'name': 'NetApp-File-PROD-Mandant1-01',
         'vendor': 'netapp-ontap',
         'ip': '10.10.2.11',
         'port': 443,
-        'tags': {'Storage Art': 'File', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ITS'},
+        'tags': {'Storage Art': 'File', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-1'},
         'total_tb': 1200.0,
         'used_tb': 756.0,       # 63 %
         'provisioned_tb': 3600.0,  # 300 % – NFS/CIFS thin provisioning typical
     },
     {
-        'name': 'NetApp-File-PROD-ERZ-01',
+        'name': 'NetApp-File-PROD-Mandant2-01',
         'vendor': 'netapp-ontap',
         'ip': '10.10.2.12',
         'port': 443,
-        'tags': {'Storage Art': 'File', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ERZ'},
+        'tags': {'Storage Art': 'File', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-2'},
         'total_tb': 800.0,
         'used_tb': 432.0,       # 54 %
         'provisioned_tb': 2000.0,  # 250 %
     },
     {
-        'name': 'NetApp-File-TEST-ITS-01',
+        'name': 'NetApp-File-Test-Mandant1-01',
         'vendor': 'netapp-ontap',
         'ip': '10.10.2.21',
         'port': 443,
-        'tags': {'Storage Art': 'File', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ITS'},
+        'tags': {'Storage Art': 'File', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'Mandant-1'},
         'total_tb': 300.0,
         'used_tb': 132.0,       # 44 %
         'provisioned_tb': 600.0,   # 200 %
     },
     {
-        'name': 'NetApp-File-TEST-ERZ-01',
+        'name': 'NetApp-File-Test-Mandant2-01',
         'vendor': 'netapp-ontap',
         'ip': '10.10.2.22',
         'port': 443,
-        'tags': {'Storage Art': 'File', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ERZ'},
+        'tags': {'Storage Art': 'File', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'Mandant-2'},
         'total_tb': 200.0,
         'used_tb': 82.0,        # 41 %
         'provisioned_tb': 350.0,   # 175 %
     },
     # ── Archiv ─────────────────────────────────────────────────────────────
     {
-        'name': 'NetApp-Archiv-PROD-ITS-WORM',
+        'name': 'NetApp-Archiv-PROD-Mandant1-WORM',
         'vendor': 'netapp-ontap',
         'ip': '10.10.3.11',
         'port': 443,
-        'tags': {'Storage Art': 'Archiv', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ITS'},
+        'tags': {'Storage Art': 'Archiv', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-1'},
         'total_tb': 1148.0,
         'used_tb': 986.0,   # 86 %
     },
     {
-        'name': 'NetApp-Archiv-PROD-ERZ-MAIL',
+        'name': 'NetApp-Archiv-PROD-Mandant2-MAIL',
         'vendor': 'netapp-ontap',
         'ip': '10.10.3.12',
         'port': 443,
-        'tags': {'Storage Art': 'Archiv', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ERZ'},
+        'tags': {'Storage Art': 'Archiv', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-2'},
         'total_tb': 1176.0,
         'used_tb': 652.0,   # 55 %
     },
     # ── Object ─────────────────────────────────────────────────────────────
     {
-        'name': 'StorageGRID-Object-PROD-ITS',
+        'name': 'StorageGRID-Object-PROD-Mandant1',
         'vendor': 'netapp-storagegrid',
         'ip': '10.10.4.11',
         'port': 443,
-        'tags': {'Storage Art': 'Object', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ITS'},
+        'tags': {'Storage Art': 'Object', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-1'},
         'total_tb': 2500.0,
         'used_tb': 835.0,   # 33 %
     },
     {
-        'name': 'StorageGRID-Object-PROD-ERZ',
+        'name': 'StorageGRID-Object-PROD-Mandant2',
         'vendor': 'netapp-storagegrid',
         'ip': '10.10.4.12',
         'port': 443,
-        'tags': {'Storage Art': 'Object', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ERZ'},
+        'tags': {'Storage Art': 'Object', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-2'},
         'total_tb': 1041.0,
         'used_tb': 103.0,   # 10 %
     },
     {
-        'name': 'StorageGRID-Object-TEST-ITS',
+        'name': 'StorageGRID-Object-Test-Mandant1',
         'vendor': 'netapp-storagegrid',
         'ip': '10.10.4.21',
         'port': 443,
-        'tags': {'Storage Art': 'Object', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ITS'},
+        'tags': {'Storage Art': 'Object', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'Mandant-1'},
         'total_tb': 400.0,
         'used_tb': 160.0,   # 40 %
     },
     # ── Backup ─────────────────────────────────────────────────────────────
     {
-        'name': 'DataDomain-Backup-PROD-ITS',
+        'name': 'DataDomain-Backup-PROD-Mandant1',
         'vendor': 'dell-datadomain',
         'ip': '10.10.5.11',
         'port': 3009,
-        'tags': {'Storage Art': 'Backup', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ITS'},
+        'tags': {'Storage Art': 'Backup', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-1'},
         'total_tb': 1434.0,
         'used_tb': 1060.0,  # 74 %
     },
     {
-        'name': 'DataDomain-Backup-TEST-ITS',
+        'name': 'DataDomain-Backup-Test-Mandant1',
         'vendor': 'dell-datadomain',
         'ip': '10.10.5.21',
         'port': 3009,
-        'tags': {'Storage Art': 'Backup', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'ITS'},
+        'tags': {'Storage Art': 'Backup', 'Landschaft': 'Test/Dev', 'Themenzugehörigkeit': 'Mandant-1'},
         'total_tb': 1441.0,
         'used_tb': 1007.0,  # 70 %
     },
     {
-        'name': 'DataDomain-Backup-PROD-ERZ',
+        'name': 'DataDomain-Backup-PROD-Mandant2',
         'vendor': 'dell-datadomain',
         'ip': '10.10.5.12',
         'port': 3009,
-        'tags': {'Storage Art': 'Backup', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'ERZ'},
+        'tags': {'Storage Art': 'Backup', 'Landschaft': 'Produktion', 'Themenzugehörigkeit': 'Mandant-2'},
         'total_tb': 1408.0,
         'used_tb': 798.0,   # 57 %
     },
@@ -353,10 +353,10 @@ def seed(reset=False):
 # Demo SoD contracts: (subscription_name, license_name, service_tier,
 #                       reserved_end_tb, effective_used_end_tb, on_demand_end_tb)
 _SOD_DEMO_LICENSES = [
-    ('EO-ITS-2023', 'Pure-EO-Block-ITS-Gold',   '//GOLD',   500.0, 380.0, 15.0),
-    ('EO-ITS-2023', 'Pure-EO-Block-ITS-Silver',  '//SILVER', 300.0, 210.0,  8.0),
-    ('EO-ERZ-2022', 'Pure-EO-Block-ERZ-Gold',    '//GOLD',   400.0, 290.0, 12.0),
-    ('EO-EH-2024',  'Pure-EO-Block-EH-Platinum', '//PLATINUM', 200.0, 45.0,  2.0),
+    ('Contract-Mandant1-2023', 'Pure-EO-Block-Mandant1-Gold',   '//GOLD',   500.0, 380.0, 15.0),
+    ('Contract-Mandant1-2023', 'Pure-EO-Block-Mandant1-Silver',  '//SILVER', 300.0, 210.0,  8.0),
+    ('Contract-Mandant2-2022', 'Pure-EO-Block-Mandant2-Gold',    '//GOLD',   400.0, 290.0, 12.0),
+    ('Contract-Apps-2024',     'Pure-EO-Block-Apps-Platinum',    '//PLATINUM', 200.0, 45.0,  2.0),
 ]
 
 

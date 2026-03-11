@@ -441,7 +441,7 @@ Tags sind in Gruppen organisiert. Empfohlene Gruppen:
 |--------|--------------|
 | Storage Art | Block, File, Object, Archiv, Backup |
 | Landschaft | Produktion, Test/Dev, Labor |
-| Tätigkeitsfeld | ITS, ERZ, EH, Extern |
+| Tätigkeitsfeld | Mandant-1, Mandant-2, Apps, DBS, Extern |
 
 ### 8.2 Tag-Gruppe anlegen
 
@@ -745,7 +745,7 @@ Kapazitäten gruppiert nach Betriebsumgebung (Produktion / Test/Dev).
 
 ### 16.3 Tab: Nach Tätigkeitsfeld
 
-Kapazitäten gruppiert nach Themenzugehörigkeit (ITS, ERZ, EH, …).
+Kapazitäten gruppiert nach Themenzugehörigkeit (Mandant-1, Mandant-2, Apps, …).
 
 ![Kapazitätsreport – Nach Tätigkeitsfeld](screenshots/capacity-by-department.png)
 

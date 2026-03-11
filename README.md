@@ -67,11 +67,17 @@ Alle Systeme werden über standardmäßige REST API Calls angebunden:
 
 Das Haupt-Dashboard zeigt alle Storage-Systeme gruppiert nach Hersteller in zwei wählbaren Ansichten.
 
-### Card-Ansicht
+### Card-Ansicht – Light & Dark Mode
 
-Jede Systemkarte zeigt: Name, IP, Status-Badge (Online/Offline/Fehler), Hardware-Status, Cluster-Status, Alerts-Zähler, Kapazitätsbalken und zugewiesene Tags.
+Das Dashboard unterstützt einen hellen (Standard) und einen dunklen Modus, umschaltbar über den 🌙/☀️-Button in der Navbar.
 
-![Dashboard – Card-Ansicht](screenshots/dashboard-card-view.png)
+**Light Mode (Standard):**
+
+![Dashboard – Card-Ansicht (Light)](screenshots/dashboard-card-view.png)
+
+**Dark Mode:**
+
+![Dashboard – Card-Ansicht (Dark)](screenshots/dashboard-card-view-dark.png)
 
 ### Table-Ansicht
 
@@ -147,7 +153,7 @@ Kapazitäten gruppiert nach Betriebsumgebung (Produktion / Test/Dev), jeweils mi
 
 ### Tab: Nach Tätigkeitsfeld
 
-Kapazitäten gruppiert nach Themenzugehörigkeit (ITS, ERZ, EH, …), jeweils mit Aufschlüsselung nach Umgebung und Storage Art.
+Kapazitäten gruppiert nach Themenzugehörigkeit (Mandant-1, Mandant-2, Apps, …), jeweils mit Aufschlüsselung nach Umgebung und Storage Art.
 
 ![Kapazitätsreport – Nach Tätigkeitsfeld](screenshots/capacity-by-department.png)
 
@@ -464,4 +470,4 @@ python cli.py migrate
 
 ---
 
-*Powered by [ITscare](https://www.itscare.de/) | Storage Dashboard v1.0*
+*Storage Dashboard v1.0 – Created by [Timo Braun](mailto:github@timobraun.de)*
