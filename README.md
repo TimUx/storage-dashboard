@@ -19,8 +19,7 @@ Ein Python/Flask-basiertes Dashboard zur Überwachung von Storage-Systemen versc
 11. [Installation](#11-installation)
 12. [Admin-Benutzer erstellen](#12-admin-benutzer-erstellen)
 13. [CLI-Interface](#13-cli-interface)
-14. [Datenbankmigrationen](#14-datenbankmigrationen)
-15. [Deployment](#15-deployment)
+14. [Deployment](#14-deployment)
 
 ---
 
@@ -222,6 +221,18 @@ Firmenname, Logo und Farbschema (Primär-, Sekundär- und Akzentfarbe).
 
 ![Einstellungen – Design](screenshots/settings-design.png)
 
+### Tab: Logs
+
+Maximale Anzahl Logs pro System, Aufbewahrungsdauer und minimales Log-Level.
+
+![Einstellungen – Logs](screenshots/settings-logs.png)
+
+### Tab: Zertifikate
+
+Upload eigener CA- und Root-Zertifikate für Storage-Systeme mit selbst-signierten Zertifikaten.
+
+![Einstellungen – Zertifikate](screenshots/settings-certificates.png)
+
 ### Tab: API-Zugänge (Pure1)
 
 Konfiguration der Pure1 REST API für Storage on Demand Daten. App-ID, Private Key (PEM), Passphrase und Public Key werden **verschlüsselt** gespeichert.
@@ -239,12 +250,6 @@ HTTP/HTTPS-Proxy für ausgehende Internet-Verbindungen (z.B. für Pure1). Proxy-
 Zeitzone und Hintergrund-Aktualisierungsintervall (1–60 Minuten).
 
 ![Einstellungen – System](screenshots/settings-system.png)
-
-### Tab: Logs
-
-Maximale Anzahl Logs pro System, Aufbewahrungsdauer und minimales Log-Level.
-
-![Einstellungen – Logs](screenshots/settings-logs.png)
 
 ---
 
@@ -288,7 +293,7 @@ Unter `/admin/docs` finden Sie eine detaillierte Einrichtungsanleitung für jede
 - **Datenbank**: PostgreSQL (empfohlen) oder SQLite
 - **Netzwerk**: HTTPS-Zugriff zu den Storage-Systemen (Port 443)
 
-> **Empfehlung**: PostgreSQL für Produktivumgebungen – SQLite kann bei vielen parallelen Zugriffen zu Sperrkonflikten führen. Siehe [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md).
+> **Empfehlung**: PostgreSQL für Produktivumgebungen – SQLite kann bei vielen parallelen Zugriffen zu Sperrkonflikten führen. Für Container-Deployments wird PostgreSQL automatisch über `docker-compose.yml` mitgestartet.
 
 ---
 
@@ -317,8 +322,7 @@ nerdctl compose up -d
 
 Das Dashboard ist dann verfügbar unter: `http://localhost:5000`
 
-📖 **Container-Dokumentation**: [CONTAINER.md](CONTAINER.md)  
-📖 **Datenbank-Migration**: [DATABASE_MIGRATION.md](DATABASE_MIGRATION.md)
+📖 **Container-Dokumentation**: [CONTAINER.md](CONTAINER.md)
 
 ### Option 2: Manuelle Installation
 
@@ -417,51 +421,7 @@ python remote-cli.py export --format table
 
 ---
 
-## 14. Datenbankmigrationen
-
-Das Dashboard verfügt über ein eingebautes Migrationssystem (`app/migrations.py`), das bei jedem Start automatisch ausgeführt wird und fehlende Spalten ergänzt.
-
-### Automatische Migration (Standard)
-
-Beim Start der Anwendung oder beim Ausführen von `python cli.py migrate` werden automatisch alle erforderlichen Spalten geprüft und ergänzt.
-
-### Manuelle Migration
-
-```bash
-python cli.py migrate
-```
-
-### Migrationshistorie
-
-| Version | Änderungen |
-|---------|-----------|
-| 1.0 | Basisschemata: StorageSystem, StatusCache, CapacitySnapshot, CapacityHistory |
-| 1.1 | `cluster_type`, `node_count`, `dns_names`, `all_ips`, `node_details`, `partner_cluster_id` |
-| 1.2 | `os_version`, `api_version`, `peer_connections`, `metrocluster_*` |
-| 1.3 | `pure1_array_name`, Pure1-Einstellungen, Proxy-Einstellungen |
-| 1.4 | `dashboard_refresh_interval`, `on_demand_tb` (SodHistory) |
-| 1.5 | `alert_details` in `StatusCache.status_json` (JSON-Blob, kein Schema-Change) – ONTAP EMS Events |
-
-> **Hinweis zur Version 1.5**: Die ONTAP EMS Alert-Daten werden im bestehenden `status_json`-JSON-Blob der `StatusCache`-Tabelle gespeichert. Es ist **keine Datenbankänderung** erforderlich – bestehende Installationen profitieren nach einem einfachen Update-Deployment automatisch von der EMS-Alert-Abfrage.
-
-### Migration für bestehende Installationen (v1.4 → v1.5)
-
-```bash
-# Container-Deployment: einfach neues Image pullen und neu starten
-podman-compose pull && podman-compose up -d
-
-# Oder manuelle Installation: Code aktualisieren und Dienst neu starten
-git pull
-systemctl restart storage-dashboard
-# oder:
-python run.py
-```
-
-Es sind keine weiteren Migrationsschritte notwendig, da Version 1.5 nur JSON-Blob-Daten ergänzt.
-
----
-
-## 15. Deployment
+## 14. Deployment
 
 ### Produktivumgebung mit Gunicorn
 
@@ -476,6 +436,14 @@ sudo cp storage-dashboard.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable storage-dashboard
 sudo systemctl start storage-dashboard
+```
+
+### Datenbankmigrationen
+
+Das Dashboard verfügt über ein eingebautes Migrationssystem (`app/migrations.py`), das bei jedem Start automatisch ausgeführt wird und fehlende Spalten ergänzt. Bei Bedarf kann die Migration auch manuell ausgeführt werden:
+
+```bash
+python cli.py migrate
 ```
 
 ### Umgebungsvariablen
