@@ -227,6 +227,14 @@ tbody tr:hover {
     font-size: 3rem;
     margin-bottom: 1rem;
 }
+
+[data-theme="dark"] .admin-header h2 { color: var(--text-color); }
+[data-theme="dark"] .log-table-container { background: var(--card-bg); }
+[data-theme="dark"] .log-filter { background: var(--card-bg); }
+[data-theme="dark"] .log-filter label { color: var(--text-color); }
+[data-theme="dark"] table { background: var(--card-bg); }
+[data-theme="dark"] td { border-bottom-color: var(--card-border); color: var(--text-color); }
+[data-theme="dark"] tbody tr:hover { background: var(--table-row-hover); }
 {% endblock %}
 
 {% block content %}

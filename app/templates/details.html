@@ -12,6 +12,38 @@
         --itscare-red-dark: #8a0235;  /* Darker shade of admin red */
         --itscare-green: var(--secondary-color);  /* Admin Green: #BED600 */
         --itscare-green-dark: #a8ba00;  /* Darker shade of admin green */
+
+        --det-white:    #ffffff;
+        --det-bg:       #f8f9fa;
+        --det-border:   #ecf0f1;
+        --det-text:     #333;
+        --det-label:    #7f8c8d;
+        --det-value:    #2c3e50;
+        --det-info-bg:  #e8f4fd;
+        --det-err-bg:   #ffe8e8;
+        --det-err-text: #721c24;
+        --det-cache-bg: #fff3cd;
+        --det-cache-border: #ffc107;
+        --det-cache-text: #856404;
+        --det-dns-bg:   #34495e;
+        --det-overlay:  rgba(255, 255, 255, 0.9);
+    }
+
+    [data-theme="dark"] {
+        --det-white:    #1a1d27;
+        --det-bg:       #252836;
+        --det-border:   #2e3347;
+        --det-text:     #e2e8f0;
+        --det-label:    #78909c;
+        --det-value:    #b0bec5;
+        --det-info-bg:  #1a2840;
+        --det-err-bg:   #2e1a1a;
+        --det-err-text: #ff8a80;
+        --det-cache-bg: #2a2410;
+        --det-cache-border: #806020;
+        --det-cache-text: #ffc840;
+        --det-dns-bg:   #1e2f3e;
+        --det-overlay:  rgba(15, 17, 23, 0.9);
     }
 
     .detail-container {
@@ -21,8 +53,8 @@
     }
 
     .detail-header {
-        background: white;
-        color: #333;
+        background: var(--det-white);
+        color: var(--det-text);
         padding: 1.5rem;
         border-radius: 8px;
         margin-bottom: 1.5rem;
@@ -63,14 +95,14 @@
         gap: 2rem;
         flex-wrap: wrap;
         font-size: 0.95rem;
-        color: #333;
+        color: var(--det-text);
     }
 
     .detail-meta-item {
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        color: var(--text-medium);
+        color: var(--det-label);
     }
 
     .detail-tags {
@@ -129,7 +161,7 @@
     }
 
     .detail-card {
-        background: white;
+        background: var(--det-white);
         border-radius: 8px;
         padding: 1.5rem;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -147,7 +179,7 @@
         display: flex;
         justify-content: space-between;
         padding: 0.5rem 0;
-        border-bottom: 1px solid #ecf0f1;
+        border-bottom: 1px solid var(--det-border);
     }
 
     .detail-row:last-child {
@@ -156,11 +188,11 @@
 
     .detail-label {
         font-weight: 600;
-        color: #7f8c8d;
+        color: var(--det-label);
     }
 
     .detail-value {
-        color: #2c3e50;
+        color: var(--det-value);
         text-align: right;
     }
 
@@ -216,7 +248,7 @@
     .capacity-bar-container {
         width: 100%;
         height: 24px;
-        background: #ecf0f1;
+        background: var(--det-border);
         border-radius: 12px;
         overflow: hidden;
         position: relative;
@@ -244,7 +276,7 @@
     }
 
     .node-item {
-        background: #f8f9fa;
+        background: var(--det-bg);
         padding: 1rem;
         margin-bottom: 0.75rem;
         border-radius: 6px;
@@ -283,11 +315,11 @@
     }
 
     .node-detail {
-        color: #7f8c8d;
+        color: var(--det-label);
     }
 
     .node-detail strong {
-        color: #2c3e50;
+        color: var(--det-value);
     }
 
     .ip-list {
@@ -313,7 +345,7 @@
     }
 
     .dns-badge {
-        background: #34495e;
+        background: var(--det-dns-bg);
         color: white;
         padding: 0.25rem 0.75rem;
         border-radius: 4px;
@@ -371,20 +403,20 @@
     }
 
     .info-message {
-        background: #e8f4fd;
+        background: var(--det-info-bg);
         border-left: 4px solid var(--itscare-blue);
         padding: 1rem;
         border-radius: 4px;
-        color: #2c3e50;
+        color: var(--det-value);
         margin: 1rem 0;
     }
 
     .error-message {
-        background: #ffe8e8;
+        background: var(--det-err-bg);
         border-left: 4px solid var(--itscare-red);
         padding: 1rem;
         border-radius: 4px;
-        color: #721c24;
+        color: var(--det-err-text);
         margin: 1rem 0;
     }
 
@@ -407,7 +439,7 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background: rgba(255, 255, 255, 0.9);
+        background: var(--det-overlay);
         display: flex;
         justify-content: center;
         align-items: center;
@@ -534,7 +566,7 @@
     </div>
     {% endif %}
     {% if status_from_cache %}
-    <div class="error-message" style="background:#fff3cd;border-color:#ffc107;color:#856404;">
+    <div class="error-message" style="background:var(--det-cache-bg);border-left-color:var(--det-cache-border);color:var(--det-cache-text);">
         <strong>ℹ️ Gecachte Daten:</strong> Live-Abfrage fehlgeschlagen – es werden die zuletzt gecachten Status-Daten angezeigt.
     </div>
     {% endif %}
@@ -1143,11 +1175,11 @@
         <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
             <thead>
                 <tr>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Name</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Typ</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Status</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Temperatur</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Details</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Name</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Typ</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Status</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Temperatur</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Details</th>
                 </tr>
             </thead>
             <tbody>
@@ -1173,10 +1205,10 @@
         <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
             <thead>
                 <tr>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Name</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Typ</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Status</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Details</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Name</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Typ</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Status</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Details</th>
                 </tr>
             </thead>
             <tbody>
@@ -1201,10 +1233,10 @@
         <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
             <thead>
                 <tr>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Node</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">PSU Fehler</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Lüfter Fehler</th>
-                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid #ccc;">Übertemperatur</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Node</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">PSU Fehler</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Lüfter Fehler</th>
+                    <th style="text-align:left; padding:0.3rem 0.5rem; border-bottom:1px solid var(--det-border);">Übertemperatur</th>
                 </tr>
             </thead>
             <tbody>

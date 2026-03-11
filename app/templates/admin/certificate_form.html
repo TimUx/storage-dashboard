@@ -111,6 +111,14 @@
 .required {
     color: #e74c3c;
 }
+
+[data-theme="dark"] .form-container { background: var(--card-bg); }
+[data-theme="dark"] .form-container h2 { color: var(--text-color); }
+[data-theme="dark"] .form-group label { color: var(--text-color); }
+[data-theme="dark"] .form-group input,
+[data-theme="dark"] .form-group select,
+[data-theme="dark"] .form-group textarea { background: var(--input-bg); color: var(--input-text); border-color: var(--input-border); }
+[data-theme="dark"] .info-box { background: var(--table-header-bg); color: var(--text-color); }
 {% endblock %}
 
 {% block content %}

@@ -58,6 +58,11 @@
 .btn-primary:hover { background: #2980b9; }
 .btn-secondary { background: #95a5a6; color: white; }
 .btn-secondary:hover { background: #7f8c8d; }
+
+[data-theme="dark"] .form-container { background: var(--card-bg); }
+[data-theme="dark"] .form-group label { color: var(--text-color); }
+[data-theme="dark"] .form-group input,
+[data-theme="dark"] .form-group select { background: var(--input-bg); color: var(--input-text); border-color: var(--input-border); }
 {% endblock %}
 
 {% block content %}

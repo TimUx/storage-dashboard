@@ -7,11 +7,56 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>{% block title %}Storage Dashboard{% endblock %}</title>
+    <script>
+        (function() {
+            var saved = localStorage.getItem('theme');
+            if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
     <style>
         :root {
             --primary-color: {{ settings.primary_color if settings else '#A70240' }};
             --secondary-color: {{ settings.secondary_color if settings else '#BED600' }};
             --accent-color: {{ settings.accent_color if settings else '#0098DB' }};
+
+            --bg-color: #f5f7fa;
+            --text-color: #333;
+            --navbar-bg: #ffffff;
+            --navbar-text: #333;
+            --nav-link-bg: #f5f7fa;
+            --nav-link-border: #e1e8ed;
+            --nav-link-hover-bg: #e8eef3;
+            --card-bg: #ffffff;
+            --card-border: #e1e8ed;
+            --input-bg: #ffffff;
+            --input-border: #d1d9e0;
+            --input-text: #333;
+            --table-header-bg: #f5f7fa;
+            --table-row-hover: #f0f4f8;
+            --table-border: #e1e8ed;
+            --shadow-color: rgba(0, 0, 0, 0.1);
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #0f1117;
+            --text-color: #e2e8f0;
+            --navbar-bg: #1a1d27;
+            --navbar-text: #e2e8f0;
+            --nav-link-bg: #252836;
+            --nav-link-border: #3a3f52;
+            --nav-link-hover-bg: #2e3347;
+            --card-bg: #1a1d27;
+            --card-border: #2e3347;
+            --input-bg: #252836;
+            --input-border: #3a3f52;
+            --input-text: #e2e8f0;
+            --table-header-bg: #252836;
+            --table-row-hover: #252836;
+            --table-border: #2e3347;
+            --shadow-color: rgba(0, 0, 0, 0.4);
+            color-scheme: dark;
         }
         
         * {
@@ -22,19 +67,21 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #f5f7fa;
-            color: #333;
+            background: var(--bg-color);
+            color: var(--text-color);
+            transition: background 0.3s ease, color 0.3s ease;
         }
         
         .navbar {
-            background: white;
-            color: #333;
+            background: var(--navbar-bg);
+            color: var(--navbar-text);
             padding: 1rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 8px var(--shadow-color);
             position: relative;
+            transition: background 0.3s ease;
         }
         
         .navbar::after {
@@ -53,7 +100,7 @@
             display: flex;
             align-items: center;
             gap: 1rem;
-            color: #333;
+            color: var(--navbar-text);
         }
         
         .navbar h1::before {
@@ -77,27 +124,28 @@
         .navbar-links {
             display: flex;
             gap: 0.5rem;
+            align-items: center;
         }
         
         .navbar a {
-            color: #333;
+            color: var(--navbar-text);
             text-decoration: none;
             padding: 0.6rem 1.2rem;
             border-radius: 6px;
             transition: all 0.3s ease;
             font-weight: 500;
             font-size: 0.95rem;
-            background: #f5f7fa;
-            border: 1px solid #e1e8ed;
+            background: var(--nav-link-bg);
+            border: 1px solid var(--nav-link-border);
             display: inline-flex;
             align-items: center;
             gap: 0.4rem;
         }
         
         .navbar a:hover {
-            background: #e8eef3;
+            background: var(--nav-link-hover-bg);
             transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 8px var(--shadow-color);
         }
         
         .navbar a.active {
@@ -132,6 +180,33 @@
             padding: 0 0.3rem;
             line-height: 1;
         }
+
+        .theme-toggle {
+            background: var(--nav-link-bg);
+            border: 1px solid var(--nav-link-border);
+            color: var(--navbar-text);
+            cursor: pointer;
+            padding: 0.6rem 1rem;
+            border-radius: 6px;
+            font-size: 1rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            font-weight: 500;
+        }
+
+        .theme-toggle:hover {
+            background: var(--nav-link-hover-bg);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px var(--shadow-color);
+        }
+
+        .theme-toggle .theme-icon {
+            font-size: 1.1rem;
+            line-height: 1;
+        }
         
         .container {
             width: 100%;
@@ -144,7 +219,7 @@
             margin: 1rem 0;
             border-radius: 6px;
             border-left: 4px solid;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 4px var(--shadow-color);
         }
         
         .alert-success {
@@ -152,11 +227,34 @@
             border-color: var(--secondary-color);
             color: #6a7700;
         }
+
+        [data-theme="dark"] .alert-success {
+            background: rgba(190, 214, 0, 0.15);
+            color: #c8dc50;
+        }
         
         .alert-error {
             background: rgba(167, 2, 64, 0.1);
             border-color: var(--primary-color);
             color: #8a0235;
+        }
+
+        [data-theme="dark"] .alert-error {
+            background: rgba(167, 2, 64, 0.2);
+            color: #f06292;
+        }
+
+        /* Global dark mode overrides for common patterns across all templates */
+        [data-theme="dark"] input,
+        [data-theme="dark"] select,
+        [data-theme="dark"] textarea {
+            background: var(--input-bg);
+            color: var(--input-text);
+            border-color: var(--input-border);
+        }
+        [data-theme="dark"] input::placeholder,
+        [data-theme="dark"] textarea::placeholder {
+            color: #546e7a;
         }
         
         {% block styles %}{% endblock %}
@@ -173,8 +271,50 @@
             {% if current_user.is_authenticated %}
             <a href="{{ url_for('admin.logout') }}">🚪 Abmelden</a>
             {% endif %}
+            <button class="theme-toggle" id="themeToggle" aria-label="Design wechseln" title="Hell/Dunkel wechseln">
+                <span class="theme-icon" id="themeIcon">🌙</span>
+            </button>
         </div>
     </nav>
+    <script>
+        (function() {
+            var btn = document.getElementById('themeToggle');
+            var icon = document.getElementById('themeIcon');
+
+            function getTheme() {
+                var saved = localStorage.getItem('theme');
+                if (saved) return saved;
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+
+            function applyTheme(theme) {
+                if (theme === 'dark') {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                    icon.textContent = '☀️';
+                    btn.title = 'Zum hellen Design wechseln';
+                } else {
+                    document.documentElement.removeAttribute('data-theme');
+                    icon.textContent = '🌙';
+                    btn.title = 'Zum dunklen Design wechseln';
+                }
+            }
+
+            applyTheme(getTheme());
+
+            btn.addEventListener('click', function() {
+                var current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+                var next = current === 'dark' ? 'light' : 'dark';
+                localStorage.setItem('theme', next);
+                applyTheme(next);
+            });
+
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+                if (!localStorage.getItem('theme')) {
+                    applyTheme(e.matches ? 'dark' : 'light');
+                }
+            });
+        })();
+    </script>
     
     <div class="container">
         {% with messages = get_flashed_messages(with_categories=true) %}

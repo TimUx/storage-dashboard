@@ -271,6 +271,20 @@
     padding: 0.4rem 0.8rem;
     font-size: 0.85rem;
 }
+
+[data-theme="dark"] .settings-header h1 { color: var(--text-color); }
+[data-theme="dark"] .tabs-nav { background: var(--card-bg); border-bottom-color: var(--card-border); }
+[data-theme="dark"] .tab-button { color: var(--text-color); opacity: .7; }
+[data-theme="dark"] .tab-button:hover { color: var(--text-color); opacity: 1; background: var(--table-row-hover); }
+[data-theme="dark"] .tab-button.active { background: var(--card-bg); opacity: 1; }
+[data-theme="dark"] .tabs-content { background: var(--card-bg); }
+[data-theme="dark"] .settings-section { background: var(--table-header-bg); }
+[data-theme="dark"] .settings-section h2,
+[data-theme="dark"] .settings-section label,
+[data-theme="dark"] .settings-section p { color: var(--text-color); }
+[data-theme="dark"] .cert-item { background: var(--table-header-bg); }
+[data-theme="dark"] .cert-item h4 { color: var(--text-color); }
+[data-theme="dark"] .cert-meta { color: var(--text-color); opacity: .7; }
 {% endblock %}
 
 {% block content %}
