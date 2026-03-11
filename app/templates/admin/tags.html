@@ -89,6 +89,11 @@
 }
 
 .actions { display: flex; gap: 0.5rem; align-items: center; }
+
+[data-theme="dark"] table { background: var(--card-bg); }
+[data-theme="dark"] td { border-bottom-color: var(--card-border); color: var(--text-color); }
+[data-theme="dark"] tbody tr:hover { background: var(--table-row-hover); }
+[data-theme="dark"] .tag-badge { background: rgba(0,152,219,.15); color: #40c4ff; }
 {% endblock %}
 
 {% block content %}

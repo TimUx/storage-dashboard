@@ -155,6 +155,22 @@
     margin-top: 0;
     color: #2c3e50;
 }
+
+[data-theme="dark"] .docs-container { color: var(--text-color); }
+[data-theme="dark"] .docs-container h1,
+[data-theme="dark"] .docs-container h2,
+[data-theme="dark"] .docs-container h3 { color: var(--text-color); }
+[data-theme="dark"] .docs-container p,
+[data-theme="dark"] .docs-container li { color: var(--text-color); opacity: .85; }
+[data-theme="dark"] .tab-nav { background: var(--card-bg); border-bottom-color: var(--card-border); }
+[data-theme="dark"] .tab-btn { color: var(--text-color); opacity: .7; }
+[data-theme="dark"] .tab-btn.active { background: var(--card-bg); opacity: 1; }
+[data-theme="dark"] .tab-content { background: var(--card-bg); }
+[data-theme="dark"] .step-card { background: var(--table-header-bg); }
+[data-theme="dark"] .code-block { background: #1e2130; color: #e2e8f0; }
+[data-theme="dark"] .note { background: #2a2410; border-color: #806020; }
+[data-theme="dark"] .info-card { background: var(--table-header-bg); }
+[data-theme="dark"] .info-card h3 { color: var(--text-color); }
 {% endblock %}
 
 {% block content %}

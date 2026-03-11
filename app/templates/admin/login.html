@@ -4,7 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Login - Storage Dashboard</title>
+    <script>
+        (function() {
+            var saved = localStorage.getItem('theme');
+            if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
     <style>
+        :root {
+            --login-bg: #f5f7fa;
+            --login-card-bg: #ffffff;
+            --login-text: #333;
+            --login-muted: #666;
+            --login-border: #e0e0e0;
+            --login-shadow: rgba(0, 0, 0, 0.1);
+        }
+
+        [data-theme="dark"] {
+            --login-bg: #0f1117;
+            --login-card-bg: #1a1d27;
+            --login-text: #e2e8f0;
+            --login-muted: #78909c;
+            --login-border: #3a3f52;
+            --login-shadow: rgba(0, 0, 0, 0.5);
+            color-scheme: dark;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -13,18 +40,20 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #f5f7fa;
+            background: var(--login-bg);
+            color: var(--login-text);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
+            transition: background 0.3s ease, color 0.3s ease;
         }
         
         .login-container {
-            background: white;
+            background: var(--login-card-bg);
             padding: 2.5rem;
             border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 10px 40px var(--login-shadow);
             width: 100%;
             max-width: 400px;
             border-bottom: 6px solid #A70240;
@@ -42,7 +71,7 @@
         }
         
         .login-header p {
-            color: #666;
+            color: var(--login-muted);
             font-size: 0.95rem;
         }
         
@@ -53,17 +82,19 @@
         .form-group label {
             display: block;
             margin-bottom: 0.5rem;
-            color: #333;
+            color: var(--login-text);
             font-weight: 500;
         }
         
         .form-group input {
             width: 100%;
             padding: 0.75rem;
-            border: 2px solid #e0e0e0;
+            border: 2px solid var(--login-border);
             border-radius: 6px;
             font-size: 1rem;
             transition: border-color 0.3s;
+            background: var(--login-card-bg);
+            color: var(--login-text);
         }
         
         .form-group input:focus {
@@ -102,11 +133,21 @@
             border-color: #A70240;
             color: #8a0235;
         }
+
+        [data-theme="dark"] .alert-error {
+            background: rgba(167, 2, 64, 0.2);
+            color: #f06292;
+        }
         
         .alert-success {
             background: rgba(190, 214, 0, 0.1);
             border-color: #BED600;
             color: #6a7700;
+        }
+
+        [data-theme="dark"] .alert-success {
+            background: rgba(190, 214, 0, 0.15);
+            color: #c8dc50;
         }
     </style>
 </head>

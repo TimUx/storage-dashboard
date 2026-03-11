@@ -121,6 +121,14 @@
     color: #666;
     margin-top: 0.5rem;
 }
+
+[data-theme="dark"] .settings-container { color: var(--text-color); }
+[data-theme="dark"] .form-group label { color: var(--text-color); }
+[data-theme="dark"] .form-group input,
+[data-theme="dark"] .form-group select,
+[data-theme="dark"] .form-group textarea { background: var(--input-bg); color: var(--input-text); border-color: var(--input-border); }
+[data-theme="dark"] .info-text { color: var(--text-color); opacity: .6; }
+[data-theme="dark"] .color-preview { border-color: var(--card-border); }
 {% endblock %}
 
 {% block content %}

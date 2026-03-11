@@ -155,6 +155,13 @@
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     gap: 1rem;
 }
+
+[data-theme="dark"] .log-detail-card { background: var(--card-bg); color: var(--text-color); }
+[data-theme="dark"] .log-detail-card h3 { color: var(--text-color); }
+[data-theme="dark"] .log-meta { color: var(--text-color); opacity: .7; }
+[data-theme="dark"] .log-message { background: var(--table-header-bg); color: var(--text-color); }
+[data-theme="dark"] table { background: var(--card-bg); }
+[data-theme="dark"] td { border-bottom-color: var(--card-border); color: var(--text-color); }
 {% endblock %}
 
 {% block content %}

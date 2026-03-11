@@ -171,6 +171,16 @@ tbody tr:hover {
     margin-bottom: 0.5rem;
     line-height: 1.6;
 }
+
+[data-theme="dark"] .cert-list-container { background: var(--card-bg); }
+[data-theme="dark"] .cert-item-row { background: var(--card-bg); color: var(--text-color); border-bottom-color: var(--card-border); }
+[data-theme="dark"] .cert-item-row:hover { background: var(--table-row-hover); }
+[data-theme="dark"] .cert-name { color: var(--text-color); }
+[data-theme="dark"] .info-box { background: var(--table-header-bg); }
+[data-theme="dark"] .info-box h3 { color: var(--text-color); }
+[data-theme="dark"] table { background: var(--card-bg); }
+[data-theme="dark"] td { border-bottom-color: var(--card-border); color: var(--text-color); }
+[data-theme="dark"] tbody tr:hover { background: var(--table-row-hover); }
 {% endblock %}
 
 {% block content %}

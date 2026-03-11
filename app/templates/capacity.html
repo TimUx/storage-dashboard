@@ -17,6 +17,15 @@
     --cap-warn:   #FFA500;
 }
 
+[data-theme="dark"] {
+    --cap-border: #2e3347;
+    --cap-bg:     #0f1117;
+    --cap-white:  #1a1d27;
+    --cap-text:   #e2e8f0;
+    --cap-muted:  #78909c;
+    --cap-total-bg: #252836;
+}
+
 /* ── Header ── */
 .cap-header {
     display: flex;
@@ -537,6 +546,13 @@
     color: var(--cap-muted);
 }
 .sod-not-configured a { color: var(--cap-blue); }
+
+[data-theme="dark"] .cap-table th { background: #252836; }
+[data-theme="dark"] .modal-box { background: var(--cap-white); }
+[data-theme="dark"] .pure1-import-panel { background: #1e2130; }
+[data-theme="dark"] .pure1-date-row input[type="date"] { background: var(--cap-white); color: var(--cap-text); }
+[data-theme="dark"] .csv-format-box { background: #1e2130; color: var(--cap-text); }
+[data-theme="dark"] .chart-fs-box { background: var(--cap-white); }
 {% endblock %}
 
 {% block content %}
