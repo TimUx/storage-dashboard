@@ -458,7 +458,9 @@ python cli.py migrate
 
 📖 **Deployment-Dokumentation**: [DEPLOYMENT.md](DEPLOYMENT.md)  
 📖 **Sicherheits-Dokumentation**: [SECURITY.md](SECURITY.md)  
-📖 **Container-Dokumentation**: [CONTAINER.md](CONTAINER.md)
+📖 **Container-Dokumentation**: [CONTAINER.md](CONTAINER.md)  
+📖 **Administrator-Handbuch**: [ADMIN_GUIDE.md](ADMIN_GUIDE.md)  
+📖 **Developer Guide**: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
 
 ---
 
