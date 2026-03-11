@@ -9,6 +9,7 @@ This prevents WebUI links from pointing to per-node hostnames (e.g.
 """
 
 import json
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -145,3 +146,86 @@ class TestONTAPClusterDnsNames:
 
         assert '10.0.0.11' in result['all_ips'], "Node IP 10.0.0.11 must be in all_ips"
         assert '10.0.0.12' in result['all_ips'], "Node IP 10.0.0.12 must be in all_ips"
+
+
+# ---------------------------------------------------------------------------
+# Tests for reverse_dns_lookup forward-verification
+# ---------------------------------------------------------------------------
+
+class TestReverseDnsLookupForwardVerification:
+    """
+    reverse_dns_lookup must return only the DNS name(s) that forward-resolve
+    back to the queried IP, so that node hostnames appearing as aliases in
+    PTR records do not become WebUI link targets.
+    """
+
+    def test_only_matching_name_returned(self):
+        """
+        When PTR lookup returns a hostname + aliases and only one of them
+        forward-resolves to the queried IP, only that name is returned.
+        """
+        from app.discovery import reverse_dns_lookup
+
+        # PTR record for 10.112.230.169 returns a node hostname first, then
+        # the real cluster name as an alias.
+        with patch('socket.gethostbyaddr',
+                   return_value=('fascl1d.itscare.prod.dom',
+                                 ['fascl1.itscare.prod.dom', 'fascl1c.itscare.prod.dom'],
+                                 ['10.112.230.169'])), \
+             patch('socket.gethostbyname',
+                   side_effect=lambda name: {
+                       'fascl1d.itscare.prod.dom': '10.112.230.221',   # node IP
+                       'fascl1.itscare.prod.dom': '10.112.230.169',    # cluster IP ✓
+                       'fascl1c.itscare.prod.dom': '10.112.230.223',   # node IP
+                   }[name]):
+            result = reverse_dns_lookup('10.112.230.169')
+
+        assert result == ['fascl1.itscare.prod.dom'], (
+            "Only the DNS name that resolves back to the cluster IP should be returned"
+        )
+
+    def test_node_specific_names_excluded(self):
+        """Node hostname and other-node alias must not appear in the result."""
+        from app.discovery import reverse_dns_lookup
+
+        with patch('socket.gethostbyaddr',
+                   return_value=('fascl1d.itscare.prod.dom',
+                                 ['fascl1.itscare.prod.dom', 'fascl1c.itscare.prod.dom'],
+                                 ['10.112.230.169'])), \
+             patch('socket.gethostbyname',
+                   side_effect=lambda name: {
+                       'fascl1d.itscare.prod.dom': '10.112.230.221',
+                       'fascl1.itscare.prod.dom': '10.112.230.169',
+                       'fascl1c.itscare.prod.dom': '10.112.230.223',
+                   }[name]):
+            result = reverse_dns_lookup('10.112.230.169')
+
+        assert 'fascl1d.itscare.prod.dom' not in result, "Node hostname must be excluded"
+        assert 'fascl1c.itscare.prod.dom' not in result, "Other node alias must be excluded"
+
+    def test_fallback_when_forward_resolution_fails(self):
+        """
+        When forward resolution raises for every name, the function falls back
+        to returning the raw reverse-lookup names rather than an empty list.
+        """
+        from app.discovery import reverse_dns_lookup
+
+        with patch('socket.gethostbyaddr',
+                   return_value=('cluster.example.com', [], ['10.0.0.1'])), \
+             patch('socket.gethostbyname', side_effect=socket.gaierror("no DNS")):
+            result = reverse_dns_lookup('10.0.0.1')
+
+        assert result == ['cluster.example.com'], (
+            "Should fall back to the reverse-lookup name when forward DNS is unavailable"
+        )
+
+    def test_single_name_that_matches_returned_directly(self):
+        """Single PTR result that forward-resolves correctly is kept as-is."""
+        from app.discovery import reverse_dns_lookup
+
+        with patch('socket.gethostbyaddr',
+                   return_value=('cluster.example.com', [], ['10.0.0.1'])), \
+             patch('socket.gethostbyname', return_value='10.0.0.1'):
+            result = reverse_dns_lookup('10.0.0.1')
+
+        assert result == ['cluster.example.com']
