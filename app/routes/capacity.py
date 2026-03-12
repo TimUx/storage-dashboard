@@ -235,6 +235,103 @@ def api_export_excel():
     )
 
 
+@bp.route('/api/export/current/csv')
+def api_export_current_csv():
+    """Export current capacity snapshot (per system) as CSV file."""
+    from app.models import StorageSystem
+    from app.capacity_service import get_latest_snapshots, build_details
+
+    systems = StorageSystem.query.filter_by(enabled=True).all()
+    snapshots = get_latest_snapshots()
+    details = build_details(systems, snapshots)
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=[
+        'storage_art', 'system_name', 'environment', 'department',
+        'total_tb', 'used_tb', 'free_tb', 'percent_used',
+        'provisioned_tb', 'percent_provisioned',
+    ])
+    writer.writeheader()
+    for group in details:
+        for sys_row in group['systems']:
+            writer.writerow({
+                'storage_art': group['storage_art'],
+                'system_name': sys_row['system_name'],
+                'environment': sys_row.get('environment', ''),
+                'department': sys_row.get('department', ''),
+                'total_tb': sys_row.get('total_tb'),
+                'used_tb': sys_row.get('used_tb'),
+                'free_tb': sys_row.get('free_tb'),
+                'percent_used': sys_row.get('percent_used'),
+                'provisioned_tb': sys_row.get('provisioned_tb'),
+                'percent_provisioned': sys_row.get('percent_provisioned'),
+            })
+
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="kapazitaet_aktuell.csv"'},
+    )
+
+
+@bp.route('/api/export/current/excel')
+def api_export_current_excel():
+    """Export current capacity snapshot (per system) as Excel (.xlsx) file."""
+    from app.models import StorageSystem
+    from app.capacity_service import get_latest_snapshots, build_details
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    systems = StorageSystem.query.filter_by(enabled=True).all()
+    snapshots = get_latest_snapshots()
+    details = build_details(systems, snapshots)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Kapazität aktuell'
+
+    headers = ['Storage Art', 'System', 'Umgebung', 'Tätigkeitsfeld',
+               'Gesamt [TiB]', 'Genutzt [TiB]', 'Frei [TiB]', 'Genutzt [%]',
+               'Provisioniert [TiB]', 'Provisioniert [%]']
+    header_fill = PatternFill(fill_type='solid', fgColor='0098DB')
+    header_font = Font(bold=True, color='FFFFFF')
+
+    for col, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    for group in details:
+        for sys_row in group['systems']:
+            ws.append([
+                group['storage_art'],
+                sys_row['system_name'],
+                sys_row.get('environment', ''),
+                sys_row.get('department', ''),
+                sys_row.get('total_tb'),
+                sys_row.get('used_tb'),
+                sys_row.get('free_tb'),
+                sys_row.get('percent_used'),
+                sys_row.get('provisioned_tb'),
+                sys_row.get('percent_provisioned'),
+            ])
+
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return Response(
+        output.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': 'attachment; filename="kapazitaet_aktuell.xlsx"'},
+    )
+
+
 @bp.route('/api/import/history', methods=['POST'])
 def api_import_history():
     """Import historical capacity data from a CSV file."""
