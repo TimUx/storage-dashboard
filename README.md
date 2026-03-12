@@ -466,7 +466,8 @@ python cli.py migrate
 📖 **Sicherheits-Dokumentation**: [SECURITY.md](SECURITY.md)  
 📖 **Container-Dokumentation**: [CONTAINER.md](CONTAINER.md)  
 📖 **Administrator-Handbuch**: [ADMIN_GUIDE.md](ADMIN_GUIDE.md)  
-📖 **Developer Guide**: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
+📖 **Developer Guide**: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)  
+📖 **REST API Schnittstellendokumentation**: [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
 
 ---
 
