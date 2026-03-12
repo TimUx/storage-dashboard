@@ -240,6 +240,15 @@
 .range-btn:hover  { background: rgba(0,152,219,.1); }
 .range-btn.active { background: var(--cap-blue); color: white; border-color: var(--cap-blue); }
 
+/* ── Table view action bar ── */
+.table-actions {
+    display: flex;
+    gap: .4rem;
+    justify-content: flex-end;
+    padding: .5rem 0 .6rem;
+    flex-wrap: wrap;
+}
+
 /* ── Export / Import buttons ── */
 .history-actions { display: flex; gap: .4rem; margin-left: auto; flex-wrap: wrap; }
 .export-btn {
@@ -575,21 +584,37 @@
 
 <!-- ── View: By Storage Art ── -->
 <div class="cap-view active" id="view-by-storage-art">
+    <div class="table-actions">
+        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
+        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
+    </div>
     <div id="byStorageArtContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- ── View: By Environment ── -->
 <div class="cap-view" id="view-by-environment">
+    <div class="table-actions">
+        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
+        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
+    </div>
     <div id="byEnvironmentContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- ── View: By Department ── -->
 <div class="cap-view" id="view-by-department">
+    <div class="table-actions">
+        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
+        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
+    </div>
     <div id="byDepartmentContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- ── View: Details ── -->
 <div class="cap-view" id="view-details">
+    <div class="table-actions">
+        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
+        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
+    </div>
     <div id="detailsContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
@@ -617,6 +642,7 @@
             <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV</button>
             <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
             <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF</button>
+            <button class="export-btn" onclick="exportImage()" title="Verlaufsdiagramme als PNG-Bild exportieren">📥 PNG</button>
             <button class="import-btn" onclick="openImportModal()" title="Historische Daten aus CSV importieren">📤 Importieren</button>
         </div>
     </div>
@@ -1840,6 +1866,31 @@ function exportPdf() {
         </button>
     </body></html>`);
     win.document.close();
+}
+
+function exportImage() {
+    const arts = Object.keys(chartInstances);
+    if (arts.length === 0) {
+        alert('Keine Verlaufsdaten vorhanden. Bitte erst einen Zeitraum laden.');
+        return;
+    }
+    arts.forEach(art => {
+        const chart = chartInstances[art];
+        if (!chart) return;
+        const dataUrl = chart.toBase64Image('image/png', 1.0);
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = `kapazitaet_${art.toLowerCase().replace(/\s+/g, '_')}.png`;
+        a.click();
+    });
+}
+
+function exportCurrentCsv() {
+    window.location.href = '/capacity/api/export/current/csv';
+}
+
+function exportCurrentExcel() {
+    window.location.href = '/capacity/api/export/current/excel';
 }
 
 // ── Import helpers ────────────────────────────────────────────────────────
