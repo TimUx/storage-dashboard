@@ -642,8 +642,7 @@
             <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV</button>
             <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
             <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF</button>
-            <button class="export-btn" onclick="exportImage('png')" title="Verlaufsdiagramme als PNG-Bild exportieren">📥 PNG</button>
-            <button class="export-btn" onclick="exportImage('jpg')" title="Verlaufsdiagramme als JPG-Bild exportieren">📥 JPG</button>
+            <button class="export-btn" onclick="exportImage()" title="Verlaufsdiagramme als PNG-Bild exportieren">📥 PNG</button>
             <button class="import-btn" onclick="openImportModal()" title="Historische Daten aus CSV importieren">📤 Importieren</button>
         </div>
     </div>
@@ -1869,21 +1868,19 @@ function exportPdf() {
     win.document.close();
 }
 
-function exportImage(format) {
+function exportImage() {
     const arts = Object.keys(chartInstances);
     if (arts.length === 0) {
         alert('Keine Verlaufsdaten vorhanden. Bitte erst einen Zeitraum laden.');
         return;
     }
-    const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
-    const ext = format === 'jpg' ? 'jpg' : 'png';
     arts.forEach(art => {
         const chart = chartInstances[art];
         if (!chart) return;
-        const dataUrl = chart.toBase64Image(mimeType, 0.95);
+        const dataUrl = chart.toBase64Image('image/png', 1.0);
         const a = document.createElement('a');
         a.href = dataUrl;
-        a.download = `kapazitaet_${art.toLowerCase().replace(/\s+/g, '_')}.${ext}`;
+        a.download = `kapazitaet_${art.toLowerCase().replace(/\s+/g, '_')}.png`;
         a.click();
     });
 }
