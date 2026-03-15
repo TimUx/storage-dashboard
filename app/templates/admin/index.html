@@ -58,6 +58,75 @@
     font-size: 0.85rem;
 }
 
+.btn-secondary {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #7f8c8d;
+}
+
+/* More-menu / burger dropdown */
+.admin-actions {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.admin-more-menu {
+    position: relative;
+}
+
+.admin-more-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 0.4rem);
+    right: 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    min-width: 210px;
+    z-index: 1000;
+    padding: 0.4rem 0;
+}
+
+.admin-more-dropdown.open {
+    display: block;
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1.1rem;
+    text-decoration: none;
+    color: #333;
+    font-size: 0.95rem;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+
+.dropdown-item:hover {
+    background: #f0f4f8;
+    color: #111;
+}
+
+.dropdown-item-warning {
+    color: #5a6900;
+}
+
+.dropdown-item-primary {
+    color: var(--accent-color);
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: #e5e9ec;
+    margin: 0.3rem 0;
+}
+
 .cluster-info {
     font-size: 0.85rem;
     color: #7f8c8d;
@@ -245,6 +314,12 @@ tbody tr:hover {
 [data-theme="dark"] .filter-tag-label { background: var(--nav-link-bg); border-color: var(--card-border); color: var(--text-color); }
 [data-theme="dark"] .filter-tag-label.active { background: rgba(52,152,219,.2); border-color: #3498db; color: #40c4ff; }
 [data-theme="dark"] .loading-overlay { background: rgba(15,17,23,0.9); }
+[data-theme="dark"] .admin-more-dropdown { background: var(--card-bg); border-color: var(--card-border); }
+[data-theme="dark"] .dropdown-item { color: var(--text-color); }
+[data-theme="dark"] .dropdown-item:hover { background: var(--table-row-hover); color: var(--text-color); }
+[data-theme="dark"] .dropdown-item-warning { color: #c8d600; }
+[data-theme="dark"] .dropdown-item-primary { color: #40c4ff; }
+[data-theme="dark"] .dropdown-divider { background: var(--card-border); }
 {% endblock %}
 
 {% block content %}
@@ -258,21 +333,32 @@ tbody tr:hover {
 
 <div class="admin-header">
     <h2>Storage Systeme verwalten</h2>
-    <div style="display: flex; gap: 1rem;">
+    <div class="admin-actions">
+        <!-- Primary actions for this view -->
         <form method="POST" action="{{ url_for('admin.rediscover_all_systems') }}" style="display: inline;">
             <button type="submit" class="btn btn-warning">
                 🔄 Discover All
             </button>
         </form>
-        <a href="/admin/logs" class="btn btn-warning">📋 System Logs</a>
-        <a href="/admin/settings" class="btn btn-warning">⚙️ Einstellungen</a>
-        <a href="{{ url_for('admin.tags') }}" class="btn btn-warning">🏷️ Tags</a>
-        <a href="/admin/docs" class="btn btn-warning">📖 Dokumentation</a>
-        <a href="/admin/swagger" class="btn btn-warning">🔌 Swagger UI</a>
-        <a href="/admin/import" class="btn btn-primary">📥 Importieren</a>
-        <a href="/admin/export" class="btn btn-primary">📤 Exportieren</a>
-        <a href="{{ url_for('admin.export_backup') }}" class="btn btn-primary">🗃️ Full-Backup</a>
         <a href="/admin/systems/new" class="btn btn-primary">+ Neues System</a>
+
+        <!-- Collapsible more-menu for secondary functions -->
+        <div class="admin-more-menu">
+            <button class="btn btn-secondary admin-more-toggle" id="adminMoreToggle" type="button" title="Weitere Funktionen">
+                ☰ Mehr
+            </button>
+            <div class="admin-more-dropdown" id="adminMoreDropdown">
+                <a href="/admin/logs" class="dropdown-item dropdown-item-warning">📋 System Logs</a>
+                <a href="/admin/settings" class="dropdown-item dropdown-item-warning">⚙️ Einstellungen</a>
+                <a href="{{ url_for('admin.tags') }}" class="dropdown-item dropdown-item-warning">🏷️ Tags</a>
+                <a href="/admin/docs" class="dropdown-item dropdown-item-warning">📖 Dokumentation</a>
+                <a href="/admin/swagger" class="dropdown-item dropdown-item-warning">🔌 Swagger UI</a>
+                <div class="dropdown-divider"></div>
+                <a href="/admin/import" class="dropdown-item dropdown-item-primary">📥 Importieren</a>
+                <a href="/admin/export" class="dropdown-item dropdown-item-primary">📤 Exportieren</a>
+                <a href="{{ url_for('admin.export_backup') }}" class="dropdown-item dropdown-item-primary">🗃️ Full-Backup</a>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -416,6 +502,22 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Toggle "Mehr" dropdown
+    const moreToggle = document.getElementById('adminMoreToggle');
+    const moreDropdown = document.getElementById('adminMoreDropdown');
+    if (moreToggle && moreDropdown) {
+        moreToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            moreDropdown.classList.toggle('open');
+        });
+        document.addEventListener('click', function() {
+            moreDropdown.classList.remove('open');
+        });
+        moreDropdown.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    }
 });
 </script>
 {% endblock %}
