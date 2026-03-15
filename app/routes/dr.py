@@ -73,9 +73,12 @@ def api_systems():
     relationships = get_dr_relationships(build_id=build.id)
     stale = _is_stale(build)
 
-    # Collect environment classification from StorageSystem tags
+    # Collect environment classification from StorageSystem tags,
+    # and build a set of systems excluded from DR failover.
     sys_env_map: dict[str, str] = {}
+    excluded_systems: set[str] = set()
     try:
+        from app.dr_service import _is_dr_excluded
         for ss in StorageSystem.query.all():
             tag_names = {t.name.lower() for t in (ss.tags or [])}
             if tag_names & {'prod', 'production'}:
@@ -84,6 +87,8 @@ def api_systems():
                 sys_env_map[ss.name] = 'test'
             else:
                 sys_env_map[ss.name] = 'unknown'
+            if _is_dr_excluded(ss):
+                excluded_systems.add(ss.name)
     except Exception as exc:
         logger.warning("Could not load system tags: %s", exc)
 
@@ -109,6 +114,10 @@ def api_systems():
         new_pri = _STATE_PRIORITY.get(rel_dict.get('replication_state') or 'unknown', 2)
         if new_pri < cur_pri:
             systems_map[sname]['status'] = rel_dict.get('replication_state') or 'unknown'
+
+    # Remove systems that are outside the DR scope (Landschaft=File, Storage Art=Backup)
+    if excluded_systems:
+        systems_map = {k: v for k, v in systems_map.items() if k not in excluded_systems}
 
     # Apply environment filter
     if env_filter in ('production', 'test'):
