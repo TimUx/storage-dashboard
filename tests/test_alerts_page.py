@@ -246,7 +246,7 @@ class TestOpenAlertsCountContextVar:
         _make_cache(db_session, system, {'alerts': 5, 'status': 'online'})
         db_session.session.commit()
         # Any page should include the badge – use the dashboard
-        html = client.get('/').data.decode()
+        html = client.get('/', follow_redirects=True).data.decode()
         assert 'alert-badge' in html
         assert '5' in html
 
@@ -255,7 +255,7 @@ class TestOpenAlertsCountContextVar:
         system = _make_system(db_session, 'pure-clean')
         _make_cache(db_session, system, {'alerts': 0, 'status': 'online'})
         db_session.session.commit()
-        html = client.get('/').data.decode()
+        html = client.get('/', follow_redirects=True).data.decode()
         # The badge span is only rendered when alerts > 0; the CSS class definition
         # in the <style> block is always present, so we check for the element tag.
         assert '<span class="alert-badge">' not in html
@@ -265,7 +265,7 @@ class TestOpenAlertsCountContextVar:
         system = _make_system(db_session, 'pure-active')
         _make_cache(db_session, system, {'alerts': 2, 'status': 'online'})
         db_session.session.commit()
-        html = client.get('/').data.decode()
+        html = client.get('/', follow_redirects=True).data.decode()
         assert 'alerts-active' in html
 
 
@@ -532,6 +532,6 @@ class TestAlertStateInApiResponse:
         client.post('/api/alerts/state', json={'alert_keys': [key1], 'acknowledged': True})
 
         # The navbar page should show count=1 (only the unacknowledged alert)
-        html = client.get('/').data.decode()
+        html = client.get('/', follow_redirects=True).data.decode()
         assert '<span class="alert-badge">1</span>' in html
 

@@ -1,0 +1,400 @@
+"""Disaster Recovery (DR) build service.
+
+Architecture mirrors ``sod_service`` and ``capacity_service``:
+- A single daemon thread runs ``_background_loop`` and calls ``_do_build``
+  once on startup, then sleeps for ``DR_BUILD_INTERVAL_SECONDS``.
+- ``trigger_build`` spawns a one-shot thread for on-demand rebuilds.
+- Stored artifacts are retrieved via helper functions; the UI never
+  calls storage APIs directly.
+
+DR Build Pipeline:
+  1. Discover DR relationships via DRDiscoveryEngine
+  2. Retrieve system configuration via existing API clients
+  3. Build DR topology models
+  4. Generate DR workflows
+  5. Generate Mermaid diagrams
+  6. Generate CLI command sets
+  7. Generate DR runbook structures
+  8. Store all generated artifacts in PostgreSQL
+"""
+import json
+import logging
+import threading
+import time
+import traceback
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+# Default: run once per week (Sunday 02:00 approximated as 7 days)
+DR_BUILD_INTERVAL_SECONDS = 7 * 24 * 60 * 60
+
+_background_thread_started = False
+_thread_lock = threading.Lock()
+_build_lock = threading.Lock()
+
+# Event for manual rebuild trigger
+_rebuild_event = threading.Event()
+
+
+# ---------------------------------------------------------------------------
+# Build pipeline
+# ---------------------------------------------------------------------------
+
+def _do_build(app):
+    """Run the full DR build pipeline within the given app context."""
+    from app import db
+    from app.models import (
+        StorageSystem,
+        DRBuildMetadata, DRRelationship, DRTopologyModel,
+        DRWorkflow, DRRunbook, DRCommandSet, DRMermaidDiagram,
+    )
+    from app.dr_generators import (
+        DRDiscoveryEngine, DRTopologyBuilder,
+        DRWorkflowGenerator, DRRunbookGenerator,
+        DRCommandGenerator, DRDiagramGenerator,
+    )
+
+    with _build_lock:
+        with app.app_context():
+            start_time = datetime.utcnow()
+            build = DRBuildMetadata(
+                build_timestamp=start_time,
+                build_status='running',
+                systems_processed=0,
+                dr_relationships_detected=0,
+            )
+            db.session.add(build)
+            try:
+                db.session.commit()
+            except Exception as exc:
+                logger.error("Failed to create DR build record: %s", exc)
+                db.session.rollback()
+                return
+
+            build_id = build.id
+            systems_processed = 0
+            total_relationships = 0
+            error_message = None
+
+            try:
+                systems = StorageSystem.query.filter_by(enabled=True).all()
+                discovery_engine = DRDiscoveryEngine()
+                topology_builder = DRTopologyBuilder()
+                workflow_gen = DRWorkflowGenerator()
+                runbook_gen = DRRunbookGenerator()
+                command_gen = DRCommandGenerator()
+                diagram_gen = DRDiagramGenerator()
+
+                for system in systems:
+                    systems_processed += 1
+                    try:
+                        # The DR build pipeline calls storage APIs directly to get full
+                        # system configuration including DR-specific fields (activecluster,
+                        # metrocluster, snapmirror, etc.) that are not preserved in the
+                        # normalized StatusCache. This is correct: API calls happen only
+                        # during the scheduled build pipeline, not on page rendering.
+                        health_data = _fetch_live_health(system)
+
+                        if not health_data:
+                            continue
+
+                        # Step 1: Discover DR relationships
+                        relationships = discovery_engine.discover(
+                            system.name, system.vendor, health_data
+                        )
+
+                        for rel_dict in relationships:
+                            total_relationships += 1
+                            rel_dict_copy = dict(rel_dict)
+
+                            # Store relationship
+                            dr_rel = DRRelationship(
+                                build_id=build_id,
+                                system_name=rel_dict_copy['system_name'],
+                                vendor=rel_dict_copy['vendor'],
+                                replication_type=rel_dict_copy['replication_type'],
+                                primary_site=rel_dict_copy.get('primary_site', ''),
+                                secondary_site=rel_dict_copy.get('secondary_site', ''),
+                                primary_cluster=rel_dict_copy.get('primary_cluster', ''),
+                                secondary_cluster=rel_dict_copy.get('secondary_cluster', ''),
+                                replication_state=rel_dict_copy.get('replication_state', 'unknown'),
+                                relationship_data=json.dumps(rel_dict_copy.get('relationship_data', {})),
+                            )
+                            db.session.add(dr_rel)
+                            db.session.flush()  # get dr_rel.id
+
+                            # Step 2: Build topology
+                            topo_data = topology_builder.build(rel_dict_copy)
+                            db.session.add(DRTopologyModel(
+                                build_id=build_id,
+                                relationship_id=dr_rel.id,
+                                system_name=rel_dict_copy['system_name'],
+                                vendor=rel_dict_copy['vendor'],
+                                topology_data=json.dumps(topo_data),
+                            ))
+
+                            for direction in ['planned_failover', 'failback']:
+                                # Step 3: Generate workflow
+                                workflow_steps = workflow_gen.generate(rel_dict_copy, direction)
+                                db.session.add(DRWorkflow(
+                                    build_id=build_id,
+                                    relationship_id=dr_rel.id,
+                                    system_name=rel_dict_copy['system_name'],
+                                    vendor=rel_dict_copy['vendor'],
+                                    failover_direction=direction,
+                                    workflow_data=json.dumps(workflow_steps),
+                                ))
+
+                                # Step 4: Generate CLI commands
+                                commands = command_gen.generate(rel_dict_copy, direction)
+                                db.session.add(DRCommandSet(
+                                    build_id=build_id,
+                                    relationship_id=dr_rel.id,
+                                    system_name=rel_dict_copy['system_name'],
+                                    vendor=rel_dict_copy['vendor'],
+                                    failover_direction=direction,
+                                    phase='all',
+                                    commands_data=json.dumps(commands),
+                                ))
+
+                                # Step 5: Generate runbook
+                                runbook_sections = runbook_gen.generate(rel_dict_copy, direction)
+                                db.session.add(DRRunbook(
+                                    build_id=build_id,
+                                    relationship_id=dr_rel.id,
+                                    system_name=rel_dict_copy['system_name'],
+                                    vendor=rel_dict_copy['vendor'],
+                                    failover_direction=direction,
+                                    runbook_data=json.dumps(runbook_sections),
+                                ))
+
+                                # Step 6: Generate Mermaid workflow diagram
+                                wf_diagram = diagram_gen.generate_workflow(rel_dict_copy, direction)
+                                db.session.add(DRMermaidDiagram(
+                                    build_id=build_id,
+                                    relationship_id=dr_rel.id,
+                                    system_name=rel_dict_copy['system_name'],
+                                    vendor=rel_dict_copy['vendor'],
+                                    diagram_type=f'workflow_{direction}',
+                                    diagram_definition=wf_diagram,
+                                ))
+
+                            # Step 7: Generate topology diagram (once per relationship)
+                            topo_diagram = diagram_gen.generate_topology(rel_dict_copy)
+                            db.session.add(DRMermaidDiagram(
+                                build_id=build_id,
+                                relationship_id=dr_rel.id,
+                                system_name=rel_dict_copy['system_name'],
+                                vendor=rel_dict_copy['vendor'],
+                                diagram_type='topology',
+                                diagram_definition=topo_diagram,
+                            ))
+
+                    except Exception as exc:
+                        logger.error(
+                            "DR build failed for system %s: %s\n%s",
+                            system.name, exc, traceback.format_exc()
+                        )
+
+                db.session.commit()
+                duration = (datetime.utcnow() - start_time).total_seconds()
+                build.build_status = 'success'
+                build.build_duration_seconds = duration
+                build.systems_processed = systems_processed
+                build.dr_relationships_detected = total_relationships
+                db.session.commit()
+
+                logger.info(
+                    "DR build #%d completed: %d systems, %d relationships, %.1fs",
+                    build_id, systems_processed, total_relationships, duration
+                )
+
+            except Exception as exc:
+                error_message = str(exc)
+                logger.error("DR build pipeline failed: %s\n%s", exc, traceback.format_exc())
+                try:
+                    db.session.rollback()
+                    duration = (datetime.utcnow() - start_time).total_seconds()
+                    build.build_status = 'error'
+                    build.build_duration_seconds = duration
+                    build.systems_processed = systems_processed
+                    build.dr_relationships_detected = total_relationships
+                    build.error_message = error_message
+                    db.session.commit()
+                except Exception:
+                    pass
+
+
+def _fetch_live_health(system):
+    """Fetch live health data from a storage system as fallback."""
+    try:
+        from app.api import get_client
+        client = get_client(
+            vendor=system.vendor,
+            ip_address=system.ip_address,
+            port=system.port,
+            username=system.api_username,
+            password=system.api_password,
+            token=system.api_token,
+        )
+        return client.get_health_status()
+    except Exception as exc:
+        logger.warning("Live health fetch failed for %s: %s", system.name, exc)
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Background loop
+# ---------------------------------------------------------------------------
+
+def _background_loop(app):
+    """Main background loop: run DR build on startup, then at configured interval."""
+    while True:
+        try:
+            _do_build(app)
+        except Exception as exc:
+            logger.error(
+                "Unhandled error in DR background build: %s\n%s",
+                exc, traceback.format_exc(),
+            )
+        # Wait for either the interval or a manual rebuild trigger
+        _rebuild_event.wait(timeout=DR_BUILD_INTERVAL_SECONDS)
+        _rebuild_event.clear()
+
+
+def start_background_refresh(app):
+    """Start the DR build background thread (idempotent).
+
+    Called once from create_app().  Subsequent calls are no-ops.
+    """
+    global _background_thread_started
+
+    with _thread_lock:
+        if _background_thread_started:
+            return
+        _background_thread_started = True
+
+    thread = threading.Thread(
+        target=_background_loop,
+        args=(app,),
+        name='dr-build',
+        daemon=True,
+    )
+    thread.start()
+    logger.info("DR build background thread started (interval=%ds).", DR_BUILD_INTERVAL_SECONDS)
+
+
+def trigger_rebuild(app):
+    """Trigger an immediate DR rebuild (one-shot thread for responsiveness)."""
+    def _run():
+        try:
+            _do_build(app)
+        except Exception as exc:
+            logger.error("Manual DR rebuild failed: %s\n%s", exc, traceback.format_exc())
+        finally:
+            _rebuild_event.set()
+
+    thread = threading.Thread(target=_run, name='dr-manual-build', daemon=True)
+    thread.start()
+    logger.info("Manual DR rebuild triggered.")
+
+
+# ---------------------------------------------------------------------------
+# Data access helpers (used by UI routes – no live API calls)
+# ---------------------------------------------------------------------------
+
+def get_latest_build():
+    """Return the most recent successful DRBuildMetadata or None."""
+    from app.models import DRBuildMetadata
+    return (
+        DRBuildMetadata.query
+        .order_by(DRBuildMetadata.build_timestamp.desc())
+        .first()
+    )
+
+
+def get_dr_relationships(build_id=None):
+    """Return DRRelationship rows for the given build (or latest build)."""
+    from app.models import DRBuildMetadata, DRRelationship
+    if build_id is None:
+        latest = get_latest_build()
+        if not latest:
+            return []
+        build_id = latest.id
+    return DRRelationship.query.filter_by(build_id=build_id).all()
+
+
+def get_topology(system_name, build_id=None):
+    """Return DRTopologyModel for the given system_name in the given build."""
+    from app.models import DRBuildMetadata, DRTopologyModel
+    if build_id is None:
+        latest = get_latest_build()
+        if not latest:
+            return None
+        build_id = latest.id
+    return (
+        DRTopologyModel.query
+        .filter_by(build_id=build_id, system_name=system_name)
+        .first()
+    )
+
+
+def get_workflow(system_name, failover_direction='planned_failover', build_id=None):
+    """Return DRWorkflow for the given system and direction."""
+    from app.models import DRBuildMetadata, DRWorkflow
+    if build_id is None:
+        latest = get_latest_build()
+        if not latest:
+            return None
+        build_id = latest.id
+    return (
+        DRWorkflow.query
+        .filter_by(build_id=build_id, system_name=system_name, failover_direction=failover_direction)
+        .first()
+    )
+
+
+def get_runbook(system_name, failover_direction='planned_failover', build_id=None):
+    """Return DRRunbook for the given system and direction."""
+    from app.models import DRBuildMetadata, DRRunbook
+    if build_id is None:
+        latest = get_latest_build()
+        if not latest:
+            return None
+        build_id = latest.id
+    return (
+        DRRunbook.query
+        .filter_by(build_id=build_id, system_name=system_name, failover_direction=failover_direction)
+        .first()
+    )
+
+
+def get_command_set(system_name, failover_direction='planned_failover', build_id=None):
+    """Return DRCommandSet for the given system and direction."""
+    from app.models import DRBuildMetadata, DRCommandSet
+    if build_id is None:
+        latest = get_latest_build()
+        if not latest:
+            return None
+        build_id = latest.id
+    return (
+        DRCommandSet.query
+        .filter_by(build_id=build_id, system_name=system_name, failover_direction=failover_direction)
+        .first()
+    )
+
+
+def get_diagram(system_name, diagram_type='topology', build_id=None):
+    """Return DRMermaidDiagram for the given system and diagram type."""
+    from app.models import DRBuildMetadata, DRMermaidDiagram
+    if build_id is None:
+        latest = get_latest_build()
+        if not latest:
+            return None
+        build_id = latest.id
+    return (
+        DRMermaidDiagram.query
+        .filter_by(build_id=build_id, system_name=system_name, diagram_type=diagram_type)
+        .first()
+    )

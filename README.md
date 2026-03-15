@@ -20,6 +20,7 @@ Ein Python/Flask-basiertes Dashboard zur Überwachung von Storage-Systemen versc
 12. [Admin-Benutzer erstellen](#12-admin-benutzer-erstellen)
 13. [CLI-Interface](#13-cli-interface)
 14. [Deployment](#14-deployment)
+15. [DR Planner – Disaster Recovery Operations](#15-dr-planner--disaster-recovery-operations)
 
 ---
 
@@ -471,4 +472,111 @@ python cli.py migrate
 
 ---
 
-*Storage Dashboard v1.0 – Created by [Timo Braun](mailto:github@timobraun.de)*
+## 15. DR Planner – Disaster Recovery Operations
+
+### Überblick
+
+Der DR Planner ist ein integriertes Modul für Disaster Recovery Operations, das unter `/dr/` erreichbar ist. Er ermöglicht Betreibern, DR-Beziehungen automatisch zu entdecken, Runbooks dynamisch zu generieren und CLI-Befehle für Failover-Szenarien bereitzustellen – alles basierend auf tatsächlichen Systemkonfigurationen.
+
+### DR-Beziehungen entdecken
+
+Der DR Planner erkennt automatisch DR-Beziehungen für folgende Technologien:
+
+| Technologie | Hersteller | Erkannte Beziehungstypen |
+|---|---|---|
+| Pure FlashArray | Pure Storage | ActiveCluster (Synchron) |
+| ONTAP MetroCluster | NetApp | MetroCluster (Synchron, Site-Level) |
+| ONTAP SnapMirror | NetApp | SnapMirror (Asynchron) |
+| StorageGRID | NetApp | Multi-Site Grid (ILM-Replikation) |
+| DataDomain | Dell | MTree-Replikation |
+
+Die Erkennung analysiert die zwischengespeicherten Statusdaten (`StatusCache`) der konfigurierten Systeme und identifiziert:
+- Cluster-Beziehungen
+- Replikationspaare
+- Multi-Site Grid-Mitgliedschaften
+- Replikationsstatus (healthy / degraded / unknown)
+
+### DR-Informationen generieren
+
+Der DR Planner generiert alle DR-Artefakte **dynamisch** auf Basis von:
+- Entdeckten DR-Beziehungen
+- Systemkonfiguration aus den APIs
+- Erkannter Storage-Technologie
+- Herstellerspezifischer Best-Practice-Logik
+
+Generierte Artefakte je DR-Beziehung:
+- **DR Workflows**: Strukturierte Failover-Schrittlisten
+- **DR Runbooks**: Phasenweise Anleitungen (Pre-Failover / Failover / Post-Failover)
+- **CLI-Befehlssätze**: Systemspezifische Befehle mit konkreten Systemwerten
+- **Mermaid-Diagramme**: Topologie- und Workflow-Diagramme
+
+### DR Build Pipeline (Hintergrundjob)
+
+Der DR Planner verwendet einen wöchentlichen Hintergrund-Build-Job (Standard: einmal pro Woche). Die Pipeline führt folgende Schritte aus:
+
+1. DR-Beziehungen entdecken
+2. Systemkonfiguration über bestehende API-Clients abrufen
+3. DR-Topologiemodelle erstellen
+4. DR-Workflows generieren
+5. Mermaid-Diagramme generieren
+6. CLI-Befehlssätze generieren
+7. DR-Runbook-Strukturen generieren
+8. Alle Artefakte in PostgreSQL speichern
+
+**Wichtig**: Die DR-Seite im Browser ruft zur Laufzeit keine Storage-APIs auf. Alle Daten stammen aus der PostgreSQL-Datenbank.
+
+### DR Planner bedienen
+
+1. **DR Planner öffnen**: `/dr/` im Browser aufrufen oder auf „🛡️ DR Planner" in der Navigation klicken.
+2. **Topologie-Übersicht**: Alle erkannten DR-Beziehungen werden in einer Tabelle angezeigt.
+3. **System auswählen**: Auf eine Zeile klicken oder das Dropdown „System auswählen" verwenden.
+4. **Failover-Richtung**: Zwischen „Planned Failover" und „Failback" umschalten.
+5. **Architektur-Diagramm**: Zeigt die Topologie des gewählten Systems (Mermaid-Diagramm).
+6. **Workflow-Diagramm**: Zeigt den Failover-Ablauf als Flussdiagramm.
+7. **Runbook**: Strukturierte Schritt-für-Schritt-Anleitung für den Failover.
+8. **CLI Console**: Herstellerspezifische Befehle für das gewählte System und die Richtung.
+9. **Manueller Rebuild**: „🔄 Rebuild DR Information"-Button mit Bestätigungsdialog.
+
+### DR-Build-Status
+
+Der Build-Status-Bereich oben auf der DR-Seite zeigt:
+- **Last Generated**: Zeitpunkt des letzten Builds
+- **Build Status**: success / running / error
+- **Systems Processed**: Anzahl verarbeiteter Systeme
+- **DR Relationships Detected**: Anzahl erkannter DR-Beziehungen
+- **Next Scheduled Build**: Geplanter nächster automatischer Build
+
+Bei veralteten Daten (älter als der konfigurierten Build-Intervall) wird eine Warnung angezeigt.
+
+### DR API-Endpunkte
+
+| Methode | Endpunkt | Beschreibung |
+|---|---|---|
+| GET | `/dr/api/topology` | Alle DR-Beziehungen im letzten Build |
+| GET | `/dr/api/system/<name>` | Alle DR-Artefakte für ein System |
+| GET | `/dr/api/architecture/<name>` | Topologiemodell und Architekturdiagramm |
+| GET | `/dr/api/workflow/<name>` | Workflow-Schritte und Diagramm |
+| GET | `/dr/api/runbook/<name>` | Runbook-Sektionen |
+| GET | `/dr/api/commands/<name>` | CLI-Befehlssatz |
+| GET | `/dr/api/build-status` | Metadaten des letzten Builds |
+| POST | `/dr/api/rebuild` | Manuellen Rebuild auslösen |
+
+Parameter `?direction=planned_failover` oder `?direction=failback` für alle systemspezifischen Endpunkte.
+
+### DR-Datenbank-Schema
+
+Der DR Planner nutzt dieselbe PostgreSQL-Datenbank wie das gesamte Dashboard. Neue Tabellen:
+
+| Tabelle | Inhalt |
+|---|---|
+| `dr_build_metadata` | Build-Metadaten (Timestamp, Status, Anzahl Systeme/Beziehungen) |
+| `dr_relationships` | Entdeckte DR-Beziehungen |
+| `dr_topology_models` | Topologiemodelle je System |
+| `dr_workflows` | Generierte Failover-Workflows |
+| `dr_runbooks` | Generierte Runbook-Strukturen |
+| `dr_command_sets` | Generierte CLI-Befehlssätze |
+| `dr_mermaid_diagrams` | Generierte Mermaid-Diagramme |
+
+---
+
+*Storage Dashboard v1.2 – Created by [Timo Braun](mailto:github@timobraun.de)*
