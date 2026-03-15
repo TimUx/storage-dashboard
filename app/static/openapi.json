@@ -3,7 +3,7 @@
   "info": {
     "title": "Storage Dashboard API",
     "description": "REST API des Storage Dashboards – liefert Statusinformationen und Verwaltungsfunktionen für alle angebundenen Storage-Systeme.",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "contact": {
       "name": "Timo Braun",
       "url": "https://github.com/TimUx/storage-dashboard",
@@ -26,12 +26,20 @@
       "description": "Storage-Systeme – Statusabfragen"
     },
     {
+      "name": "Alerts",
+      "description": "Alert-Verwaltung – Abfragen und Bestätigungen von Storage-Alerts"
+    },
+    {
       "name": "Capacity",
       "description": "Kapazitätsreport"
     },
     {
       "name": "Admin",
       "description": "Admin-Bereich (erfordert Anmeldung)"
+    },
+    {
+      "name": "Backup",
+      "description": "Backup & Restore – Export und Import aller Einstellungen, Systeme, Zertifikate und Tags"
     }
   ],
   "paths": {
@@ -176,6 +184,128 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/CachedStatusResult"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alerts": {
+      "get": {
+        "tags": ["Alerts"],
+        "summary": "Aktuelle Alerts aller Systeme",
+        "description": "Gibt alle offenen Alerts aus dem StatusCache als JSON zurück. Wird von der Alerts-Seite für Auto-Refresh verwendet.",
+        "responses": {
+          "200": {
+            "description": "Liste aller aktuellen Alerts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alerts/state": {
+      "post": {
+        "tags": ["Alerts"],
+        "summary": "Alert-Status aktualisieren (Acknowledge / Assignee / Kommentar)",
+        "description": "Aktualisiert den Bearbeitungsstatus eines oder mehrerer Alerts. Unterstützt Bulk-Updates über eine Liste von Alert-Keys.\n\nAlert-Keys haben das Format `system_name|alert_id|title`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertStateRequest"
+              },
+              "example": {
+                "alert_keys": ["mein-system|42|Drive Failure"],
+                "acknowledged": true,
+                "assignee": "Max Müller",
+                "comment": "Wird untersucht"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Anzahl der aktualisierten Alert-Einträge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "updated": {
+                      "type": "integer",
+                      "description": "Anzahl der aktualisierten Einträge"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ungültige Anfrage – alert_keys fehlt oder ist kein Array"
+          }
+        }
+      }
+    },
+    "/api/alerts/assignees": {
+      "get": {
+        "tags": ["Alerts"],
+        "summary": "Bearbeiter-Verlauf abrufen",
+        "description": "Gibt alle gespeicherten Bearbeiternamen für die Autocomplete-Funktion zurück, sortiert nach zuletzt verwendet.",
+        "responses": {
+          "200": {
+            "description": "Liste der Bearbeiternamen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "example": ["Max Müller", "Anna Schmidt"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alerts/assignees/{name}": {
+      "delete": {
+        "tags": ["Alerts"],
+        "summary": "Bearbeiter aus dem Verlauf entfernen",
+        "description": "Löscht einen Bearbeiternamen aus der Autocomplete-Historie.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name des zu löschenden Bearbeiters"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bestätigung der Löschung",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "string",
+                      "description": "Name des gelöschten Bearbeiters"
+                    }
                   }
                 }
               }
@@ -332,6 +462,199 @@
           }
         }
       }
+    },
+    "/admin/settings": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Einstellungsseite anzeigen",
+        "description": "Gibt die Einstellungsseite des Admin-Bereichs zurück (Design, Logs, Zertifikate, API-Zugänge, Proxy, System, Backup).",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML-Einstellungsseite"
+          },
+          "302": {
+            "description": "Weiterleitung zur Login-Seite wenn nicht angemeldet"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Einstellungen speichern",
+        "description": "Speichert die Einstellungen (Design, Logs, API-Zugänge, Proxy, System). Multipart-Form mit optionalem Logo-Upload.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "company_name": { "type": "string" },
+                  "primary_color": { "type": "string", "example": "#A70240" },
+                  "secondary_color": { "type": "string", "example": "#BED600" },
+                  "accent_color": { "type": "string", "example": "#0098DB" },
+                  "logo": { "type": "string", "format": "binary" },
+                  "max_logs_per_system": { "type": "integer" },
+                  "log_retention_days": { "type": "integer" },
+                  "min_log_level": { "type": "string", "enum": ["DEBUG","INFO","WARNING","ERROR","CRITICAL"] },
+                  "dashboard_refresh_interval": { "type": "integer", "enum": [1,5,15,30,60] },
+                  "timezone": { "type": "string", "example": "Europe/Berlin" },
+                  "pure1_display_name": { "type": "string" },
+                  "pure1_app_id": { "type": "string" },
+                  "pure1_private_key": { "type": "string" },
+                  "pure1_private_key_passphrase": { "type": "string" },
+                  "pure1_public_key": { "type": "string" },
+                  "proxy_http": { "type": "string" },
+                  "proxy_https": { "type": "string" },
+                  "proxy_no_proxy": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "302": {
+            "description": "Weiterleitung zurück zur Einstellungsseite nach dem Speichern"
+          }
+        }
+      }
+    },
+    "/admin/export": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Storage-Systeme exportieren",
+        "description": "Exportiert alle konfigurierten Storage-Systeme (ohne Zugangsdaten) als JSON-Datei.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON-Datei mit den exportierten Systemen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemsExport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/import": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Import-Seite anzeigen",
+        "description": "Gibt die Importseite für Storage-Systeme zurück.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML-Importseite"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Storage-Systeme importieren",
+        "description": "Importiert Storage-Systeme aus einer zuvor exportierten JSON-Datei. Bereits vorhandene Systeme (gleicher Name) werden übersprungen.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["import_file"],
+                "properties": {
+                  "import_file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "JSON-Exportdatei der Storage-Systeme"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "302": {
+            "description": "Weiterleitung zur Import-Seite mit Ergebnis-Flash-Meldung"
+          }
+        }
+      }
+    },
+    "/admin/backup/export": {
+      "get": {
+        "tags": ["Backup"],
+        "summary": "Full-Backup herunterladen",
+        "description": "Exportiert **alle** Dashboard-Daten in eine einzige JSON-Datei:\n- Allgemeine Einstellungen (Design, Logs, System)\n- Pure1-Zugangsdaten (im Klartext – Datei sicher aufbewahren!)\n- Proxy-Konfiguration\n- Alle Storage-Systeme inkl. Zugangsdaten\n- SSL-Zertifikate\n- Tag-Gruppen und Tags\n\nDie Backup-Datei kann über `POST /admin/backup/import` wieder eingespielt werden.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full-Backup als JSON-Datei (Download)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupPayload"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "schema": { "type": "string" },
+                "description": "attachment; filename=\"storage_dashboard_backup_YYYYMMDD_HHMMSS.json\""
+              }
+            }
+          },
+          "302": {
+            "description": "Weiterleitung bei Fehler (mit Flash-Meldung)"
+          }
+        }
+      }
+    },
+    "/admin/backup/import": {
+      "post": {
+        "tags": ["Backup"],
+        "summary": "Backup einspielen (Restore)",
+        "description": "Stellt Einstellungen, Systeme, Zertifikate und Tags aus einer zuvor erstellten Full-Backup-Datei wieder her.\n\n**Restore-Verhalten:**\n- **Einstellungen:** werden vollständig überschrieben\n- **Systeme / Zertifikate / Tags:** bereits vorhandene Einträge (gleicher Name) werden übersprungen (sicheres Zusammenführen)\n\nNach dem Einspielen wird auf die Einstellungsseite weitergeleitet.",
+        "security": [
+          { "sessionCookie": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["backup_file"],
+                "properties": {
+                  "backup_file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "JSON-Backup-Datei (.json), erstellt mit GET /admin/backup/export"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "302": {
+            "description": "Weiterleitung zur Einstellungsseite mit Erfolgs- oder Fehlermeldung (Flash)"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -477,6 +800,263 @@
             "format": "date-time",
             "nullable": true,
             "description": "Zeitpunkt der letzten Cache-Aktualisierung (UTC ISO 8601)"
+          }
+        }
+      },
+      "Alert": {
+        "type": "object",
+        "description": "Einzelner Alert eines Storage-Systems (normalisiertes Format)",
+        "properties": {
+          "system_name": {
+            "type": "string",
+            "description": "Name des betroffenen Storage-Systems"
+          },
+          "vendor": {
+            "type": "string",
+            "description": "Hersteller des Systems"
+          },
+          "alert_id": {
+            "type": "string",
+            "description": "System-interne Alert-ID"
+          },
+          "alert_key": {
+            "type": "string",
+            "description": "Eindeutiger Schlüssel: system_name|alert_id|title"
+          },
+          "title": {
+            "type": "string",
+            "description": "Kurztitel des Alerts"
+          },
+          "details": {
+            "type": "string",
+            "description": "Ausführliche Beschreibung"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warning", "error", "critical", "emergency", "unknown"],
+            "description": "Schweregrad"
+          },
+          "error_code": {
+            "type": "string",
+            "description": "Herstellerspezifischer Fehlercode"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Zeitstempel des Alerts (ISO 8601 oder herstellerspezifisch)"
+          },
+          "component": {
+            "type": "string",
+            "description": "Betroffene Komponente"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Zeitpunkt der letzten Cache-Abfrage"
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "description": "Ob der Alert bestätigt wurde"
+          },
+          "assignee": {
+            "type": "string",
+            "nullable": true,
+            "description": "Zugewiesener Bearbeiter"
+          },
+          "comment": {
+            "type": "string",
+            "nullable": true,
+            "description": "Bearbeiterkommentar"
+          }
+        }
+      },
+      "AlertsResponse": {
+        "type": "object",
+        "description": "Antwort des /api/alerts Endpoints",
+        "properties": {
+          "alerts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Alert"
+            },
+            "description": "Liste aller aktuellen Alerts"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Zeitstempel der jüngsten Cache-Aktualisierung (UTC ISO 8601)"
+          }
+        }
+      },
+      "AlertStateRequest": {
+        "type": "object",
+        "description": "Anfrage zum Aktualisieren des Bearbeitungsstatus eines oder mehrerer Alerts",
+        "required": ["alert_keys"],
+        "properties": {
+          "alert_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Liste der Alert-Schlüssel (system_name|alert_id|title)",
+            "example": ["mein-system|42|Drive Failure"]
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "description": "Bestätigungsstatus – weglassen um unverändert zu lassen"
+          },
+          "assignee": {
+            "type": "string",
+            "nullable": true,
+            "description": "Bearbeiter zuweisen – null zum Löschen, weglassen um unverändert zu lassen"
+          },
+          "comment": {
+            "type": "string",
+            "nullable": true,
+            "description": "Kommentar setzen – null zum Löschen, weglassen um unverändert zu lassen"
+          }
+        }
+      },
+      "BackupSettings": {
+        "type": "object",
+        "description": "Einstellungen-Abschnitt einer Backup-Datei",
+        "properties": {
+          "primary_color": { "type": "string", "example": "#A70240" },
+          "secondary_color": { "type": "string", "example": "#BED600" },
+          "accent_color": { "type": "string", "example": "#0098DB" },
+          "company_name": { "type": "string", "example": "Storage Dashboard" },
+          "timezone": { "type": "string", "example": "Europe/Berlin" },
+          "max_logs_per_system": { "type": "integer", "example": 1000 },
+          "log_retention_days": { "type": "integer", "example": 30 },
+          "min_log_level": { "type": "string", "enum": ["DEBUG","INFO","WARNING","ERROR","CRITICAL"] },
+          "dashboard_refresh_interval": { "type": "integer", "example": 5 },
+          "pure1_display_name": { "type": "string", "nullable": true },
+          "pure1_app_id": { "type": "string", "nullable": true },
+          "pure1_private_key": { "type": "string", "nullable": true },
+          "pure1_private_key_passphrase": { "type": "string", "nullable": true },
+          "pure1_public_key": { "type": "string", "nullable": true },
+          "proxy_http": { "type": "string", "nullable": true },
+          "proxy_https": { "type": "string", "nullable": true },
+          "proxy_no_proxy": { "type": "string", "nullable": true },
+          "logo_filename": { "type": "string", "nullable": true },
+          "logo_data": {
+            "type": "string",
+            "nullable": true,
+            "description": "Logo als Base64-kodierter String"
+          }
+        }
+      },
+      "BackupSystem": {
+        "type": "object",
+        "description": "Storage-System-Eintrag in einer Backup-Datei",
+        "properties": {
+          "name": { "type": "string" },
+          "vendor": { "type": "string", "enum": ["pure", "netapp-ontap", "netapp-storagegrid", "dell-datadomain"] },
+          "ip_address": { "type": "string" },
+          "port": { "type": "integer" },
+          "api_username": { "type": "string", "nullable": true },
+          "api_password": { "type": "string", "nullable": true },
+          "api_token": { "type": "string", "nullable": true },
+          "enabled": { "type": "boolean" },
+          "cluster_type": { "type": "string", "nullable": true },
+          "node_count": { "type": "integer", "nullable": true },
+          "site_count": { "type": "integer", "nullable": true },
+          "dns_names": { "type": "array", "items": { "type": "string" } },
+          "all_ips": { "type": "array", "items": { "type": "string" } },
+          "pure1_array_name": { "type": "string", "nullable": true },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "group": { "type": "string" },
+                "tag": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "BackupCertificate": {
+        "type": "object",
+        "description": "Zertifikat-Eintrag in einer Backup-Datei",
+        "properties": {
+          "name": { "type": "string" },
+          "certificate_type": { "type": "string" },
+          "certificate_pem": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "BackupTagGroup": {
+        "type": "object",
+        "description": "Tag-Gruppe mit zugehörigen Tags in einer Backup-Datei",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "BackupPayload": {
+        "type": "object",
+        "description": "Vollständige Backup-Datei des Storage Dashboards",
+        "required": ["backup_version", "backup_date", "backup_type"],
+        "properties": {
+          "backup_version": {
+            "type": "string",
+            "example": "1.0",
+            "description": "Version des Backup-Formats"
+          },
+          "backup_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Erstellungszeitpunkt des Backups (UTC ISO 8601)"
+          },
+          "backup_type": {
+            "type": "string",
+            "enum": ["full"],
+            "description": "Typ des Backups"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/BackupSettings"
+          },
+          "systems": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BackupSystem" },
+            "description": "Alle konfigurierten Storage-Systeme inkl. Zugangsdaten"
+          },
+          "certificates": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BackupCertificate" },
+            "description": "Alle SSL-Zertifikate"
+          },
+          "tag_groups": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BackupTagGroup" },
+            "description": "Alle Tag-Gruppen mit ihren Tags"
+          }
+        }
+      },
+      "SystemsExport": {
+        "type": "object",
+        "description": "Export-Datei für Storage-Systeme (ohne Zugangsdaten)",
+        "properties": {
+          "export_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Erstellungszeitpunkt des Exports"
+          },
+          "systems": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BackupSystem" }
           }
         }
       }
