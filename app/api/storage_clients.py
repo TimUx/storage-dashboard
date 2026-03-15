@@ -1139,11 +1139,26 @@ class NetAppONTAPClient(StorageClient):
             resp = _local_session.get(
                 f"{self.base_url}/api/network/ethernet/ports",
                 auth=auth, headers=headers,
-                params={'fields': 'name,node,state,type'},
+                params={'fields': 'name,node,state,type,broadcast_domain,lag'},
                 verify=ssl_verify, timeout=10,
             )
             if resp.status_code == 200:
-                for port in resp.json().get('records', []):
+                records = resp.json().get('records', [])
+
+                # Build a set of (node_name, port_name) tuples that are members
+                # of a LAG/ifgrp so we can detect configured physical members.
+                lag_members: set[tuple[str, str]] = set()
+                for _port in records:
+                    if _port.get('type') == 'lag':
+                        _node = _port.get('node', {})
+                        _node_name = _node.get('name', '') if isinstance(_node, dict) else ''
+                        for _member in _port.get('lag', {}).get('member_ports', []):
+                            if isinstance(_member, dict):
+                                _mname = _member.get('name', '')
+                                if _mname:
+                                    lag_members.add((_node_name, _mname))
+
+                for port in records:
                     port_name = port.get('name', 'unknown')
                     node_info = port.get('node', {})
                     node_name = node_info.get('name', '') if isinstance(node_info, dict) else ''
@@ -1154,6 +1169,14 @@ class NetAppONTAPClient(StorageClient):
                         continue
                     resource  = f'{node_name}:{port_name}' if node_name else port_name
                     if state and state != 'up':
+                        # Suppress false-positive alerts for unconfigured physical
+                        # ports: a port with no broadcast domain and no interface
+                        # group membership has no active configuration and a down
+                        # link is expected / harmless.
+                        has_broadcast_domain = bool(port.get('broadcast_domain'))
+                        is_lag_member = (node_name, port_name) in lag_members
+                        if not has_broadcast_domain and not is_lag_member:
+                            continue
                         alerts.append(_make_rest_alert(
                             category='network',
                             resource=resource,
