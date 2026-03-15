@@ -72,9 +72,54 @@ def discover_relationships(system_name, health_data):
                 'destination_mtree': None,
             })
 
+    # Fallback 3: derive relationships from replication_targets / replication_sources
+    # when neither mtree_replications nor replication_status.contexts are available.
+    # This covers DataDomain appliances where the MTree-level endpoint is unsupported
+    # but the targets/sources endpoints work.
+    if not mtree_repls:
+        for t in (health_data.get('replication_targets') or []):
+            if not isinstance(t, dict):
+                continue
+            dest = t.get('host')
+            if not dest:
+                continue
+            state_str = (t.get('state') or 'unknown').upper()
+            connected = state_str in ('REPLICATING', 'NORMAL', 'OK', 'ENABLED')
+            mtree_repls.append({
+                'mode': 'SOURCE',
+                'state': t.get('state', 'unknown'),
+                'connected': connected,
+                'source_host': system_name,
+                'destination_host': dest,
+                'source_mtree': None,
+                'destination_mtree': None,
+            })
+        for s in (health_data.get('replication_sources') or []):
+            if not isinstance(s, dict):
+                continue
+            src = s.get('host')
+            if not src:
+                continue
+            state_str = (s.get('state') or 'unknown').upper()
+            connected = state_str in ('REPLICATING', 'NORMAL', 'OK', 'ENABLED')
+            mtree_repls.append({
+                'mode': 'TARGET',
+                'state': s.get('state', 'unknown'),
+                'connected': connected,
+                'source_host': src,
+                'destination_host': system_name,
+                'source_mtree': None,
+                'destination_mtree': None,
+            })
+
     if not mtree_repls:
         return relationships
 
+    # Aggregate multiple MTree contexts by (source_host, destination_host) pair
+    # so each unique replication pair produces exactly one DR relationship entry.
+    # All individual MTree contexts are collected inside relationship_data.contexts
+    # for display in the detail view.
+    pair_map: dict = {}
     for repl in mtree_repls:
         if not isinstance(repl, dict):
             continue
@@ -87,31 +132,54 @@ def discover_relationships(system_name, health_data):
         source_host = repl.get('source_host') or system_name
         dest_host = repl.get('destination_host') or 'Secondary'
 
-        # The source is always the primary and the destination the secondary,
-        # regardless of whether the local system is the SOURCE or TARGET.
-        primary_site = source_host
-        secondary_site = dest_host
-        primary_cluster = source_host
-        secondary_cluster = dest_host
+        pair_key = (source_host, dest_host)
+        ctx_entry = {
+            'source_mtree': repl.get('source_mtree'),
+            'destination_mtree': repl.get('destination_mtree'),
+            'state': repl.get('state'),
+            'connected': connected,
+            'mode': mode,
+        }
 
-        relationships.append({
-            'system_name': system_name,
-            'vendor': 'dell-datadomain',
-            'replication_type': 'datadomain-replication',
-            'primary_site': primary_site,
-            'secondary_site': secondary_site,
-            'primary_cluster': primary_cluster,
-            'secondary_cluster': secondary_cluster,
-            'replication_state': replication_state,
-            'relationship_data': {
-                'source': {'host': source_host, 'mtree': repl.get('source_mtree')},
-                'destination': {'host': dest_host, 'mtree': repl.get('destination_mtree')},
-                'state': repl.get('state'),
-                'connected': connected,
-                'mode': mode,
-            },
-        })
+        if pair_key not in pair_map:
+            pair_map[pair_key] = {
+                'system_name': system_name,
+                'vendor': 'dell-datadomain',
+                'replication_type': 'datadomain-replication',
+                'primary_site': source_host,
+                'secondary_site': dest_host,
+                'primary_cluster': source_host,
+                'secondary_cluster': dest_host,
+                'replication_state': replication_state,
+                'relationship_data': {
+                    # source/destination carry the first-seen MTree path for
+                    # backward compatibility (generate_commands, test assertions).
+                    'source': {
+                        'host': source_host,
+                        'mtree': repl.get('source_mtree'),
+                    },
+                    'destination': {
+                        'host': dest_host,
+                        'mtree': repl.get('destination_mtree'),
+                    },
+                    'mode': mode,
+                    # contexts: list of individual MTree replication entries
+                    'contexts': [],
+                },
+            }
+        else:
+            # Promote to the worst observed state across all contexts.
+            existing = pair_map[pair_key]
+            state_rank = {'healthy': 0, 'degraded': 1, 'broken': 2, 'unknown': -1}
+            current_rank = state_rank.get(existing['replication_state'], -1)
+            new_rank = state_rank.get(replication_state, -1)
+            if new_rank > current_rank:
+                existing['replication_state'] = replication_state
 
+        if repl.get('source_mtree') or repl.get('destination_mtree'):
+            pair_map[pair_key]['relationship_data']['contexts'].append(ctx_entry)
+
+    relationships = list(pair_map.values())
     return relationships
 
 
@@ -174,33 +242,33 @@ def build_topology(relationship):
 
 _WORKFLOW_STEPS = {
     'planned_failover': [
-        {'phase': 'pre-failover', 'step': 1, 'title': 'Verify DataDomain replication health',
+        {'phase': 'pre-failover', 'step': 1, 'title': 'DataDomain Replikationsstatus prüfen',
          'description': 'Check replication status and ensure all MTree replications are in sync.'},
-        {'phase': 'pre-failover', 'step': 2, 'title': 'Force final replication sync',
+        {'phase': 'pre-failover', 'step': 2, 'title': 'Abschließende Replikationssynchronisierung erzwingen',
          'description': 'Trigger a manual sync for all MTrees to minimise data loss.'},
-        {'phase': 'pre-failover', 'step': 3, 'title': 'Stop backup jobs',
+        {'phase': 'pre-failover', 'step': 3, 'title': 'Backup-Jobs stoppen',
          'description': 'Suspend backup jobs targeting the primary DataDomain.'},
-        {'phase': 'failover', 'step': 4, 'title': 'Break replication on destination',
+        {'phase': 'failover', 'step': 4, 'title': 'Replikation am Ziel trennen',
          'description': 'On the destination DataDomain, break the replication context and promote MTree as read/write.'},
-        {'phase': 'failover', 'step': 5, 'title': 'Configure backup server to use destination',
+        {'phase': 'failover', 'step': 5, 'title': 'Backup-Server auf Ziel umstellen',
          'description': 'Reconfigure the backup server (NetBackup / Veeam / Commvault) to use the destination DataDomain.'},
-        {'phase': 'post-failover', 'step': 6, 'title': 'Resume backup jobs',
+        {'phase': 'post-failover', 'step': 6, 'title': 'Backup-Jobs fortsetzen',
          'description': 'Resume backup jobs now targeting the destination DataDomain.'},
-        {'phase': 'post-failover', 'step': 7, 'title': 'Validate data access',
+        {'phase': 'post-failover', 'step': 7, 'title': 'Datenzugriff prüfen',
          'description': 'Verify that backup catalogs and restore points are accessible on the destination.'},
     ],
     'failback': [
-        {'phase': 'pre-failback', 'step': 1, 'title': 'Restore primary DataDomain',
+        {'phase': 'pre-failback', 'step': 1, 'title': 'Primäres DataDomain wiederherstellen',
          'description': 'Confirm the primary DataDomain is online and reachable.'},
-        {'phase': 'pre-failback', 'step': 2, 'title': 'Re-establish replication to primary',
+        {'phase': 'pre-failback', 'step': 2, 'title': 'Replikation zur Primäranlage wiederherstellen',
          'description': 'Configure replication from the destination back to the primary DataDomain.'},
-        {'phase': 'failback', 'step': 3, 'title': 'Sync data back to primary',
+        {'phase': 'failback', 'step': 3, 'title': 'Daten zurück zu Primär synchronisieren',
          'description': 'Allow all MTrees to replicate back to the primary site.'},
-        {'phase': 'failback', 'step': 4, 'title': 'Redirect backup server to primary',
+        {'phase': 'failback', 'step': 4, 'title': 'Backup-Server auf Primär umstellen',
          'description': 'Reconfigure the backup server to use the primary DataDomain.'},
-        {'phase': 'post-failback', 'step': 5, 'title': 'Restore original replication direction',
+        {'phase': 'post-failback', 'step': 5, 'title': 'Ursprüngliche Replikationsrichtung wiederherstellen',
          'description': 'Re-establish original replication from primary to secondary.'},
-        {'phase': 'post-failback', 'step': 6, 'title': 'Verify replication health',
+        {'phase': 'post-failback', 'step': 6, 'title': 'Replikationsstatus prüfen',
          'description': 'Confirm all MTree replications are healthy and in sync.'},
     ],
     # Disaster recovery: unplanned failover from the surviving DR site after the
@@ -210,43 +278,43 @@ _WORKFLOW_STEPS = {
     #   data-domain-best-practices-for-data-migration-on-powerprotect-
     #   data-domain-systems-using-mtree-replication
     'disaster_recovery': [
-        {'phase': 'detection', 'step': 1, 'title': 'Disaster detected',
+        {'phase': 'detection', 'step': 1, 'title': 'Katastrophe erkannt',
          'description': (
              'Confirm the primary DataDomain system is unreachable.  Verify that the '
              'source system and its replication contexts cannot be reached before '
              'proceeding with the unplanned failover.'
          )},
-        {'phase': 'validation', 'step': 2, 'title': 'Validate replication state on DR system',
+        {'phase': 'validation', 'step': 2, 'title': 'Replikationsstatus auf DR-System prüfen',
          'description': (
              'On the DR (destination) DataDomain run replication status, '
              'replication show config, filesys status, and alerts show to assess '
              'the last known replication state, filesystem health, and any active alerts.'
          )},
-        {'phase': 'break-replication', 'step': 3, 'title': 'Break replication context',
+        {'phase': 'break-replication', 'step': 3, 'title': 'Replikationskontext trennen',
          'description': (
              'Break the MTree replication context on the DR DataDomain to sever the '
              'relationship and allow the destination MTree to become read/write.  '
              'Because the source is down, no sync step is performed first: '
              'replication break ctx://remote/<mtree>'
          )},
-        {'phase': 'promote-mtree', 'step': 4, 'title': 'Promote DR MTree to read/write',
+        {'phase': 'promote-mtree', 'step': 4, 'title': 'DR-MTree auf Lesen/Schreiben umstellen',
          'description': (
              'Verify that the destination MTree is now writable.  Confirm with '
              'mtree show and filesys show space that the data is intact and the '
              'MTree is in a healthy state.'
          )},
-        {'phase': 'validate-filesystem', 'step': 5, 'title': 'Validate filesystem state',
+        {'phase': 'validate-filesystem', 'step': 5, 'title': 'Dateisystemzustand prüfen',
          'description': (
              'Check the DataDomain filesystem status to confirm it is fully operational.  '
              'Review active alerts and confirm no filesystem errors are present.'
          )},
-        {'phase': 'switch-backup', 'step': 6, 'title': 'Switch backup infrastructure to DR system',
+        {'phase': 'switch-backup', 'step': 6, 'title': 'Backup-Infrastruktur auf DR-System umschalten',
          'description': (
              'Reconfigure the backup server (NetBackup, Veeam, Commvault) to target '
              'the DR DataDomain.  Update device paths and re-import backup catalogs '
              'from the promoted MTree.  Resume backup and restore operations.'
          )},
-        {'phase': 'recreate-replication', 'step': 7, 'title': 'Recreate replication after primary recovery',
+        {'phase': 'recreate-replication', 'step': 7, 'title': 'Replikation nach Wiederherstellung neu einrichten',
          'description': (
              'When the primary DataDomain returns, re-establish MTree replication in the '
              'original direction to resync data accumulated at the DR site: '

@@ -727,9 +727,10 @@ class TestPureFlashArrayActiveClusterDisasterRecovery:
         rel = self._make_rel()
         steps = pure_flasharray_logic.generate_workflow(rel, 'disaster_recovery')
         titles = ' '.join(s['title'].lower() for s in steps)
-        assert 'detection' in titles or 'failure' in titles
-        assert 'health' in titles or 'surviving' in titles
-        assert 'pod' in titles or 'replication' in titles
+        # Accept both English and German keywords (titles are localised to German)
+        assert 'detection' in titles or 'failure' in titles or 'ausfall' in titles or 'erkannt' in titles
+        assert 'health' in titles or 'surviving' in titles or 'status' in titles or 'verbleibenden' in titles
+        assert 'pod' in titles or 'replication' in titles or 'replikation' in titles
         assert 'volume' in titles
         assert 'host' in titles
         assert 'remote' in titles or 'support' in titles

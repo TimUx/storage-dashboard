@@ -104,12 +104,26 @@ def api_systems():
         sname = rel_dict['system_name']
         if sname not in systems_map:
             # Resolve DataCenter tags for primary and secondary sites.
-            # Primary site = DataCenter tag of this system.
-            # Secondary site = DataCenter tag of the secondary cluster system (if found),
-            # falling back to the raw secondary_site value from the relationship.
+            # Primary site = DataCenter tag of this system (sname).
+            # Partner system = the OTHER cluster (not sname).  If sname is
+            # the secondary_cluster, the partner is primary_cluster and vice-versa.
+            # Secondary site = DataCenter tag of the partner cluster.
             primary_dc = sys_dc_map.get(sname) or rel_dict.get('primary_site') or ''
+            primary_cl = rel_dict.get('primary_cluster') or ''
             sec_cluster = rel_dict.get('secondary_cluster') or ''
-            secondary_dc = (sys_dc_map.get(sec_cluster) if sec_cluster else '') \
+            # Identify the partner cluster (the one that is NOT this system).
+            # For most vendors sname == primary_cluster (source side). For DataDomain
+            # TARGET systems sname == secondary_cluster, so the partner is primary_cluster.
+            # If both clusters equal sname (e.g. StorageGRID same-grid entry), fall back
+            # to sec_cluster and let the secondary_dc resolution use the raw site value.
+            if sec_cluster and sec_cluster != sname:
+                partner_cl = sec_cluster
+            elif primary_cl and primary_cl != sname:
+                partner_cl = primary_cl
+            else:
+                # No distinct partner found (e.g. StorageGRID single-grid setup)
+                partner_cl = ''
+            secondary_dc = (sys_dc_map.get(partner_cl) if partner_cl else '') \
                 or rel_dict.get('secondary_site') or ''
             systems_map[sname] = {
                 'system_name': sname,
@@ -117,6 +131,7 @@ def api_systems():
                 'replication_type': rel_dict['replication_type'],
                 'primary_site': primary_dc,
                 'secondary_site': secondary_dc,
+                'partner_system': partner_cl,
                 'status': rel_dict.get('replication_state') or 'unknown',
                 'environment': sys_env_map.get(sname, 'unknown'),
                 'relationships': [],
@@ -199,6 +214,40 @@ def api_system(system_name):
         build_id=build.id, system_name=system_name
     ).all()
 
+    # Resolve DataCenter tags so that detail view shows DC names, not cluster names
+    sys_dc_map: dict[str, str] = {}
+    try:
+        from app.models import StorageSystem
+        for ss in StorageSystem.query.all():
+            for tag in (ss.tags or []):
+                group_name = (tag.group.name if tag.group else '').strip()
+                if group_name == 'DataCenter':
+                    sys_dc_map[ss.name] = tag.name.strip()
+    except Exception as exc:
+        logger.warning("Could not load DataCenter tags for detail view: %s", exc)
+
+    def _enrich_rel(rd):
+        """Add DataCenter-resolved site names to a relationship dict."""
+        if not rd:
+            return rd
+        sname = rd.get('system_name', '')
+        primary_cl = rd.get('primary_cluster') or ''
+        sec_cl = rd.get('secondary_cluster') or ''
+        if sec_cl and sec_cl != sname:
+            partner_cl = sec_cl
+        elif primary_cl and primary_cl != sname:
+            partner_cl = primary_cl
+        else:
+            partner_cl = ''
+        primary_dc = sys_dc_map.get(sname) or rd.get('primary_site') or ''
+        secondary_dc = (sys_dc_map.get(partner_cl) if partner_cl else '') \
+            or rd.get('secondary_site') or ''
+        enriched = dict(rd)
+        enriched['primary_site'] = primary_dc
+        enriched['secondary_site'] = secondary_dc
+        enriched['partner_system'] = partner_cl
+        return enriched
+
     topology = get_topology(system_name, build_id=build.id)
     workflow = get_workflow(system_name, direction, build_id=build.id)
     runbook = get_runbook(system_name, direction, build_id=build.id)
@@ -208,13 +257,14 @@ def api_system(system_name):
 
     # For backwards compatibility keep the single ``relationship`` key as well
     first_rel = all_rels[0] if all_rels else None
+    enriched_rels = [_enrich_rel(r.to_dict()) for r in all_rels]
 
     return jsonify({
         'build': build.to_dict(),
         'system_name': system_name,
         'direction': direction,
-        'relationship': first_rel.to_dict() if first_rel else None,
-        'relationships': [r.to_dict() for r in all_rels],
+        'relationship': _enrich_rel(first_rel.to_dict()) if first_rel else None,
+        'relationships': enriched_rels,
         'topology': topology.to_dict() if topology else None,
         'workflow': workflow.to_dict() if workflow else None,
         'runbook': runbook.to_dict() if runbook else None,
