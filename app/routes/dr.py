@@ -9,6 +9,18 @@ logger = logging.getLogger(__name__)
 # Age threshold after which the UI shows a "may be outdated" warning
 DR_STALE_THRESHOLD_SECONDS = 7 * 24 * 60 * 60  # 1 week (matches default build interval)
 
+# Mapping from internal replication_type to human-readable storage technology tab label
+_REPLICATION_TYPE_LABELS = {
+    'activecluster': 'FlashArray ActiveCluster',
+    'metrocluster': 'ONTAP MetroCluster',
+    'snapmirror': 'ONTAP SnapMirror',
+    'storagegrid-multisite': 'StorageGRID',
+    'datadomain-replication': 'DataDomain',
+}
+
+# State priority for aggregation (lower = worse)
+_STATE_PRIORITY = {'broken': 0, 'degraded': 1, 'unknown': 2, 'healthy': 3}
+
 
 @bp.route('/')
 def index():
@@ -40,12 +52,106 @@ def api_topology():
 
 
 # ---------------------------------------------------------------------------
+# System-centric DR overview (new: one entry per system, grouped by type)
+# ---------------------------------------------------------------------------
+
+@bp.route('/api/systems')
+def api_systems():
+    """Return DR systems grouped by storage technology, with relationships aggregated.
+
+    Query parameters:
+        environment: all | production | test  (default: all)
+    """
+    from app.dr_service import get_latest_build, get_dr_relationships
+    from app.models import StorageSystem
+
+    build = get_latest_build()
+    if not build:
+        return jsonify({'build': None, 'groups': {}, 'systems': [], 'sites': [], 'stale': False})
+
+    env_filter = request.args.get('environment', 'all').lower()
+    relationships = get_dr_relationships(build_id=build.id)
+    stale = _is_stale(build)
+
+    # Collect environment classification from StorageSystem tags
+    sys_env_map: dict[str, str] = {}
+    try:
+        for ss in StorageSystem.query.all():
+            tag_names = {t.name.lower() for t in (ss.tags or [])}
+            if tag_names & {'prod', 'production'}:
+                sys_env_map[ss.name] = 'production'
+            elif tag_names & {'test', 'lab', 'dev'}:
+                sys_env_map[ss.name] = 'test'
+            else:
+                sys_env_map[ss.name] = 'unknown'
+    except Exception as exc:
+        logger.warning("Could not load system tags: %s", exc)
+
+    # Aggregate relationships per system_name
+    systems_map: dict[str, dict] = {}
+    for rel in relationships:
+        rel_dict = rel.to_dict()
+        sname = rel_dict['system_name']
+        if sname not in systems_map:
+            systems_map[sname] = {
+                'system_name': sname,
+                'vendor': rel_dict['vendor'],
+                'replication_type': rel_dict['replication_type'],
+                'primary_site': rel_dict.get('primary_site') or '',
+                'secondary_site': rel_dict.get('secondary_site') or '',
+                'status': rel_dict.get('replication_state') or 'unknown',
+                'environment': sys_env_map.get(sname, 'unknown'),
+                'relationships': [],
+            }
+        systems_map[sname]['relationships'].append(rel_dict)
+        # Promote status to worst observed state
+        cur_pri = _STATE_PRIORITY.get(systems_map[sname]['status'], 2)
+        new_pri = _STATE_PRIORITY.get(rel_dict.get('replication_state') or 'unknown', 2)
+        if new_pri < cur_pri:
+            systems_map[sname]['status'] = rel_dict.get('replication_state') or 'unknown'
+
+    # Apply environment filter
+    if env_filter in ('production', 'test'):
+        systems_map = {k: v for k, v in systems_map.items() if v['environment'] == env_filter}
+
+    # Group by storage technology tab
+    groups: dict[str, list] = {}
+    for sys_dict in systems_map.values():
+        rep_type = sys_dict['replication_type']
+        group_label = _REPLICATION_TYPE_LABELS.get(rep_type, rep_type)
+        groups.setdefault(group_label, []).append(sys_dict)
+
+    # Collect unique sites for direction selector
+    sites: set[str] = set()
+    for sys_dict in systems_map.values():
+        if sys_dict['primary_site']:
+            sites.add(sys_dict['primary_site'])
+        if sys_dict['secondary_site']:
+            sites.add(sys_dict['secondary_site'])
+
+    return jsonify({
+        'build': build.to_dict(),
+        'groups': groups,
+        'systems': list(systems_map.values()),
+        'sites': sorted(sites),
+        'stale': stale,
+    })
+
+
+# ---------------------------------------------------------------------------
 # DR system details
 # ---------------------------------------------------------------------------
 
 @bp.route('/api/system/<path:system_name>')
 def api_system(system_name):
-    """Return all DR artifacts for a specific system from the latest build."""
+    """Return all DR artifacts for a specific system from the latest build.
+
+    Returns all relationships for the system plus the topology, workflow,
+    runbook, command set and diagrams for the requested failover direction.
+    Multiple replication relationship rows for the same system (e.g. a system
+    with both MetroCluster and SnapMirror configurations) are returned in the
+    ``relationships`` list so the UI can show them in the details pane.
+    """
     from app.dr_service import (
         get_latest_build, get_topology, get_workflow,
         get_runbook, get_command_set, get_diagram,
@@ -58,10 +164,10 @@ def api_system(system_name):
 
     direction = request.args.get('direction', 'planned_failover')
 
-    # Fetch relationship
-    rel = DRRelationship.query.filter_by(
+    # Fetch ALL relationships for this system (may be > 1 for SnapMirror/DD)
+    all_rels = DRRelationship.query.filter_by(
         build_id=build.id, system_name=system_name
-    ).first()
+    ).all()
 
     topology = get_topology(system_name, build_id=build.id)
     workflow = get_workflow(system_name, direction, build_id=build.id)
@@ -70,11 +176,15 @@ def api_system(system_name):
     topo_diagram = get_diagram(system_name, 'topology', build_id=build.id)
     wf_diagram = get_diagram(system_name, f'workflow_{direction}', build_id=build.id)
 
+    # For backwards compatibility keep the single ``relationship`` key as well
+    first_rel = all_rels[0] if all_rels else None
+
     return jsonify({
         'build': build.to_dict(),
         'system_name': system_name,
         'direction': direction,
-        'relationship': rel.to_dict() if rel else None,
+        'relationship': first_rel.to_dict() if first_rel else None,
+        'relationships': [r.to_dict() for r in all_rels],
         'topology': topology.to_dict() if topology else None,
         'workflow': workflow.to_dict() if workflow else None,
         'runbook': runbook.to_dict() if runbook else None,
