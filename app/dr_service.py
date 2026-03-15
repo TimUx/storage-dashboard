@@ -137,11 +137,11 @@ def _do_build(app):
                             ))
 
                             from app.dr_generators import _FAILOVER_DIRECTIONS
-                            # For MetroCluster: include disaster_recovery in addition to
-                            # planned_failover and failback.  Other replication types only
-                            # use the base two directions.
+                            # MetroCluster and SnapMirror both support disaster_recovery
+                            # in addition to planned_failover and failback.
+                            # Other replication types only use the base two directions.
                             replication_type = rel_dict_copy.get('replication_type', '')
-                            if replication_type == 'metrocluster':
+                            if replication_type in ('metrocluster', 'snapmirror'):
                                 directions = _FAILOVER_DIRECTIONS
                             else:
                                 directions = ['planned_failover', 'failback']

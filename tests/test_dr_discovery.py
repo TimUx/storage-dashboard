@@ -791,3 +791,197 @@ class TestONTAPSnapMirrorDiscovery:
         clusters = {r['secondary_cluster'] for r in result}
         assert 'CL2' in clusters
         assert 'CL3' in clusters
+
+
+# ---------------------------------------------------------------------------
+# ONTAP SnapMirror – disaster_recovery workflow (new tests)
+# ---------------------------------------------------------------------------
+
+class TestSnapMirrorDisasterRecovery:
+    """Tests for the disaster_recovery direction added to ontap_snapmirror_logic."""
+
+    def _make_rel(self, primary='CL1', secondary='CL2',
+                  src_svm='svm1', dst_svm='svm1-dr',
+                  src_path='svm1:', dst_path='svm1-dr:'):
+        return {
+            'system_name': primary,
+            'vendor': 'netapp-ontap',
+            'replication_type': 'snapmirror',
+            'primary_site': src_svm,
+            'secondary_site': dst_svm,
+            'primary_cluster': primary,
+            'secondary_cluster': secondary,
+            'replication_state': 'healthy',
+            'relationship_data': {
+                'state': 'snapmirrored',
+                'sm_type': 'svm_dr',
+                'source': {'svm': {'name': src_svm}, 'path': src_path, 'cluster': {'name': primary}},
+                'destination': {'svm': {'name': dst_svm}, 'path': dst_path, 'cluster': {'name': secondary}},
+            },
+        }
+
+    # ---- sm_type detection in discovery ----
+
+    def test_svm_dr_type_detected_from_trailing_colon(self):
+        health = {
+            'snapmirror_relationships': [{
+                'state': 'snapmirrored',
+                'source': {'svm': {'name': 'svm1'}, 'path': 'svm1:'},
+                'destination': {'svm': {'name': 'svm1-dr'}, 'path': 'svm1-dr:', 'cluster': {'name': 'CL2'}},
+            }]
+        }
+        result = ontap_snapmirror_logic.discover_relationships('CL1', health)
+        assert len(result) == 1
+        assert result[0]['relationship_data']['sm_type'] == 'svm_dr'
+
+    def test_volume_type_detected_from_path(self):
+        health = {
+            'snapmirror_relationships': [{
+                'state': 'snapmirrored',
+                'source': {'svm': {'name': 'svm1'}, 'path': 'svm1:vol1'},
+                'destination': {'svm': {'name': 'svm1-dr'}, 'path': 'svm1-dr:vol1_dp', 'cluster': {'name': 'CL2'}},
+            }]
+        }
+        result = ontap_snapmirror_logic.discover_relationships('CL1', health)
+        assert len(result) == 1
+        assert result[0]['relationship_data']['sm_type'] == 'volume'
+
+    # ---- workflow steps ----
+
+    def test_disaster_recovery_has_8_steps(self):
+        rel = self._make_rel()
+        steps = ontap_snapmirror_logic.generate_workflow(rel, 'disaster_recovery')
+        assert len(steps) == 8
+
+    def test_disaster_recovery_phases_in_order(self):
+        rel = self._make_rel()
+        steps = ontap_snapmirror_logic.generate_workflow(rel, 'disaster_recovery')
+        phases = [s['phase'] for s in steps]
+        assert phases[0] == 'detection'
+        assert phases[1] == 'pre-checks'
+        assert phases[2] == 'snapmirror-break'
+        assert phases[3] == 'activate-dr'
+        assert 'verify-storage' in phases
+        assert 'verify-network' in phases
+        assert 'serve-clients' in phases
+        assert phases[-1] == 'reprotect'
+
+    def test_disaster_recovery_step_numbers_sequential(self):
+        rel = self._make_rel()
+        steps = ontap_snapmirror_logic.generate_workflow(rel, 'disaster_recovery')
+        assert [s['step'] for s in steps] == list(range(1, 9))
+
+    def test_unknown_direction_falls_back_to_planned_failover(self):
+        rel = self._make_rel()
+        steps = ontap_snapmirror_logic.generate_workflow(rel, 'nonexistent')
+        planned = ontap_snapmirror_logic.generate_workflow(rel, 'planned_failover')
+        assert steps == planned
+
+    # ---- command generation ----
+
+    def test_snapmirror_break_command_present(self):
+        rel = self._make_rel(dst_path='svm1-dr:')
+        cmds = ontap_snapmirror_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert any('snapmirror break' in cli for cli in cli_commands)
+
+    def test_snapmirror_break_no_quiesce_in_disaster_recovery(self):
+        """Quiesce must NOT appear in disaster_recovery (source is down)."""
+        rel = self._make_rel()
+        cmds = ontap_snapmirror_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert not any('quiesce' in cli for cli in cli_commands), (
+            'snapmirror quiesce must not appear in disaster_recovery commands'
+        )
+
+    def test_planned_failover_has_quiesce(self):
+        """planned_failover should still quiesce before breaking."""
+        rel = self._make_rel()
+        cmds = ontap_snapmirror_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        assert any('quiesce' in cli for cli in cli_commands)
+
+    def test_lag_time_precheck_in_disaster_recovery(self):
+        """lag-time check must be in disaster_recovery pre-checks."""
+        rel = self._make_rel()
+        cmds = ontap_snapmirror_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'snapmirror show -fields status,health,lag-time' in cli_commands
+
+    def test_lag_time_precheck_in_planned_failover(self):
+        """planned_failover should also include the lag-time check."""
+        rel = self._make_rel()
+        cmds = ontap_snapmirror_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'snapmirror show -fields status,health,lag-time' in cli_commands
+
+    def test_reprotect_resync_command_present(self):
+        rel = self._make_rel(src_path='svm1:', dst_path='svm1-dr:')
+        cmds = ontap_snapmirror_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert any('snapmirror resync' in cli for cli in cli_commands)
+
+    def test_vserver_start_in_disaster_recovery(self):
+        rel = self._make_rel(dst_svm='svm1-dr')
+        cmds = ontap_snapmirror_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert any('vserver start' in cli for cli in cli_commands)
+
+    def test_disaster_recovery_commands_target_dr_cluster(self):
+        """All disaster_recovery commands must target the surviving (secondary/DR) cluster."""
+        rel = self._make_rel(primary='CL1', secondary='CL2')
+        cmds = ontap_snapmirror_logic.generate_commands(rel, 'disaster_recovery')
+        for cmd in cmds:
+            assert cmd['target'] == 'CL2', (
+                f"Command {cmd['cli']!r} targets {cmd['target']!r} instead of DR cluster CL2"
+            )
+
+    def test_planned_failover_commands_target_primary(self):
+        """planned_failover commands must target the primary cluster."""
+        rel = self._make_rel(primary='CL1', secondary='CL2')
+        cmds = ontap_snapmirror_logic.generate_commands(rel, 'planned_failover')
+        for cmd in cmds:
+            assert cmd['target'] == 'CL1'
+
+    # ---- runbook ----
+
+    def test_runbook_phases_match_workflow(self):
+        rel = self._make_rel()
+        runbook = ontap_snapmirror_logic.generate_runbook(rel, 'disaster_recovery')
+        runbook_phases = {section['phase'] for section in runbook}
+        workflow_phases = {s['phase'] for s in ontap_snapmirror_logic.generate_workflow(rel, 'disaster_recovery')}
+        assert runbook_phases == workflow_phases
+
+    def test_runbook_snapmirror_break_section_has_command(self):
+        rel = self._make_rel()
+        runbook = ontap_snapmirror_logic.generate_runbook(rel, 'disaster_recovery')
+        break_section = next(s for s in runbook if s['phase'] == 'snapmirror-break')
+        cli_commands = [c['cli'] for c in break_section['commands']]
+        assert any('snapmirror break' in cli for cli in cli_commands)
+
+    def test_runbook_reprotect_section_has_resync(self):
+        rel = self._make_rel()
+        runbook = ontap_snapmirror_logic.generate_runbook(rel, 'disaster_recovery')
+        reprotect = next((s for s in runbook if s['phase'] == 'reprotect'), None)
+        assert reprotect is not None, 'reprotect section missing from SnapMirror DR runbook'
+        cli_commands = [c['cli'] for c in reprotect['commands']]
+        assert any('snapmirror resync' in cli for cli in cli_commands)
+
+    # ---- workflow diagram ----
+
+    def test_workflow_diagram_is_flowchart(self):
+        rel = self._make_rel()
+        diagram = ontap_snapmirror_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        assert diagram.startswith('flowchart TD')
+
+    def test_workflow_diagram_contains_all_8_steps(self):
+        rel = self._make_rel()
+        diagram = ontap_snapmirror_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        for i in range(1, 9):
+            assert f'S{i}[' in diagram, f'Step node S{i} missing from disaster_recovery diagram'
+
+    def test_workflow_diagram_steps_connected(self):
+        rel = self._make_rel()
+        diagram = ontap_snapmirror_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        for i in range(1, 8):
+            assert f'S{i} --> S{i+1}' in diagram
