@@ -890,7 +890,30 @@ class PureStorageClient(StorageClient):
             except Exception as pods_error:
                 # Pods endpoint might not be available on all arrays
                 logger.debug(f"Could not check pods for {self.ip_address}: {pods_error}")
-            
+
+            # Collect pod-replica-links for pod-level async replication discovery
+            # REST API v2: GET /api/2.x/pod-replica-links
+            # Per pure_swagger.json schema: each entry has local_pod, remote_pod,
+            # direction (outbound/inbound), lag time, and link status. Outbound entries
+            # represent pods that this array replicates to a remote array asynchronously.
+            pod_replica_links = []
+            try:
+                prl_response = _local_session.get(
+                    f"{self.base_url}/api/{api_version}/pod-replica-links",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                if prl_response.status_code == 200:
+                    pod_replica_links = prl_response.json().get('items', [])
+                    if pod_replica_links:
+                        logger.info(
+                            f"Found {len(pod_replica_links)} pod replica links "
+                            f"for {self.ip_address}"
+                        )
+            except Exception as prl_error:
+                logger.debug(f"Could not get pod-replica-links for {self.ip_address}: {prl_error}")
+
             # Additional ActiveCluster detection via array connections
             # If there's a sync-replication type connection, it indicates ActiveCluster
             if not is_active_cluster and array_connections:
@@ -921,7 +944,7 @@ class PureStorageClient(StorageClient):
                 # Logout errors are not critical, but log for debugging
                 logger.debug(f"Logout failed for {self.ip_address}: {logout_error}")
             
-            return self._format_response(
+            result = self._format_response(
                 status='online',
                 hardware=hardware_status,
                 cluster='ok',
@@ -940,6 +963,9 @@ class PureStorageClient(StorageClient):
                 alert_details=alert_details if alert_details else None,
                 evergreen_one_dashboard_active=evergreen_one_dashboard_active,
             )
+            if pod_replica_links:
+                result['pod_replica_links'] = pod_replica_links
+            return result
                 
         except Exception as e:
             logger.error(f"Error getting Pure Storage health status for {self.ip_address}: {e}")
@@ -1630,7 +1656,80 @@ class NetAppONTAPClient(StorageClient):
             except Exception as aggr_error:
                 # Log the error but continue with 0 capacity
                 logger.warning(f"Could not get aggregate space info for {self.ip_address}: {aggr_error}")
-            
+
+            # Collect SnapMirror relationships for DR discovery
+            # REST API: GET /api/snapmirror/relationships
+            # Fields: source/destination endpoints, state, lag_time, healthy, policy type
+            # Required to populate 'snapmirror_relationships' in health_data so that
+            # ontap_snapmirror_logic.discover_relationships() can detect DR pairs.
+            snapmirror_relationships = []
+            try:
+                sm_resp = _local_session.get(
+                    f"{self.base_url}/api/snapmirror/relationships",
+                    auth=auth,
+                    headers=headers,
+                    params={
+                        'fields': 'source,destination,state,lag_time,healthy,policy,transfer',
+                        'max_records': 500,
+                    },
+                    verify=ssl_verify,
+                    timeout=15,
+                )
+                if sm_resp.status_code == 200:
+                    snapmirror_relationships = sm_resp.json().get('records', [])
+                    logger.info(
+                        f"Found {len(snapmirror_relationships)} SnapMirror relationships "
+                        f"for {self.ip_address}"
+                    )
+            except Exception as sm_err:
+                logger.debug(
+                    f"Could not get SnapMirror relationships for {self.ip_address}: {sm_err}"
+                )
+
+            # Collect SVM peer relationships for cross-cluster SnapMirror mapping
+            # REST API: GET /api/svm/peers
+            # Identifies which local SVMs have peers on remote clusters, enabling
+            # accurate secondary_cluster population in SnapMirror DR relationships.
+            svm_peers = []
+            try:
+                svm_peers_resp = _local_session.get(
+                    f"{self.base_url}/api/svm/peers",
+                    auth=auth,
+                    headers=headers,
+                    params={'fields': 'svm,peer.svm,peer.cluster,state'},
+                    verify=ssl_verify,
+                    timeout=10,
+                )
+                if svm_peers_resp.status_code == 200:
+                    svm_peers = svm_peers_resp.json().get('records', [])
+            except Exception as svm_peer_err:
+                logger.debug(f"Could not get SVM peers for {self.ip_address}: {svm_peer_err}")
+
+            # Collect MetroCluster interconnect status (only when MetroCluster is configured)
+            # REST API: GET /api/cluster/metrocluster/interconnects
+            # Provides per-port mirror and state info for the ISL links between sites.
+            metrocluster_interconnects = []
+            if is_metrocluster:
+                try:
+                    interconnects_resp = _local_session.get(
+                        f"{self.base_url}/api/cluster/metrocluster/interconnects",
+                        auth=auth,
+                        headers=headers,
+                        params={'fields': 'node,partner_type,type,state,mirror'},
+                        verify=ssl_verify,
+                        timeout=10,
+                    )
+                    if interconnects_resp.status_code == 200:
+                        metrocluster_interconnects = interconnects_resp.json().get('records', [])
+                        logger.info(
+                            f"Found {len(metrocluster_interconnects)} MetroCluster "
+                            f"interconnects for {self.ip_address}"
+                        )
+                except Exception as ic_err:
+                    logger.debug(
+                        f"Could not get MetroCluster interconnects for {self.ip_address}: {ic_err}"
+                    )
+
             # Get hardware status from node controller info
             # REST API: GET /api/cluster/nodes?fields=controller.failed_power_supply.count,controller.failed_fan.count,controller.over_temperature
             hardware_status = 'ok'
@@ -1823,7 +1922,7 @@ class NetAppONTAPClient(StorageClient):
             except Exception as rest_err:
                 logger.warning(f"Could not collect REST status alerts for {self.ip_address}: {rest_err}")
 
-            return self._format_response(
+            result = self._format_response(
                 status='online',
                 hardware=hardware_status,
                 cluster='ok',
@@ -1840,6 +1939,14 @@ class NetAppONTAPClient(StorageClient):
                 hardware_details=hardware_details if hardware_details else None,
                 alert_details=alert_details if alert_details else None
             )
+            # Attach DR-discovery data that goes beyond the standard _format_response params
+            if snapmirror_relationships:
+                result['snapmirror_relationships'] = snapmirror_relationships
+            if svm_peers:
+                result['svm_peers'] = svm_peers
+            if metrocluster_interconnects:
+                result['metrocluster_interconnects'] = metrocluster_interconnects
+            return result
         except Exception as e:
             logger.error(f"Error getting NetApp ONTAP health status for {self.ip_address}: {e}")
             logger.error(traceback.format_exc())
@@ -2148,11 +2255,12 @@ class NetAppStorageGRIDClient(StorageClient):
                 logger.warning(f"Could not get StorageGRID node health for {self.ip_address}: {node_health_error}")
             
             # Determine site count from node siteNames
-            # Note: /api/v4/grid/sites does not exist in StorageGRID API
-            # Multi-site detection: if nodes have different siteNames, it's multi-site
+            # Multi-site detection: if nodes have different siteNames, it's multi-site.
+            # This is the fallback path; the expansion/sites API (below) provides the
+            # authoritative site list when available.
             site_count = len(site_names) if site_names else 1
             sites_info = []
-            
+
             if len(site_names) > 1:
                 logger.info(f"Multi-site detected from node siteNames: {site_count} unique sites ({', '.join(site_names)})")
                 # Create sites_info from unique site names
@@ -2162,6 +2270,40 @@ class NetAppStorageGRIDClient(StorageClient):
                 logger.info(f"Single-site installation: {list(site_names)[0]}")
             else:
                 logger.debug(f"No site information available from nodes")
+
+            # Try the explicit site list from the expansion/sites API.
+            # GET /api/v4/grid/expansion/sites provides the authoritative list of grid
+            # sites with their names and IDs, as defined in grid-combined-schema.yml.
+            # When available this supersedes the siteNames derived from node-health
+            # because it correctly enumerates sites even if no nodes are currently online.
+            try:
+                sites_api_resp = _local_session.get(
+                    f"{self.base_url}/api/v4/grid/expansion/sites",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10
+                )
+                if sites_api_resp.status_code == 200:
+                    sites_api_data = sites_api_resp.json().get('data', []) or []
+                    if isinstance(sites_api_data, list) and sites_api_data:
+                        explicit_sites = [
+                            {'name': s.get('name'), 'id': s.get('id')}
+                            for s in sites_api_data
+                            if isinstance(s, dict) and s.get('name')
+                        ]
+                        if explicit_sites:
+                            sites_info = explicit_sites
+                            site_count = len(explicit_sites)
+                            logger.info(
+                                f"StorageGRID {self.ip_address}: {site_count} site(s) "
+                                f"from expansion/sites API: "
+                                f"{', '.join(s['name'] for s in explicit_sites)}"
+                            )
+            except Exception as sites_api_err:
+                logger.debug(
+                    f"Could not get StorageGRID expansion/sites for {self.ip_address}: "
+                    f"{sites_api_err}"
+                )
             
             # Get capacity info using metric-query API
             # StorageGRID uses Prometheus-style metrics
@@ -2764,6 +2906,78 @@ class DellDataDomainClient(StorageClient):
         except Exception as e:
             logger.debug(f"Could not get MTree replications for DataDomain {self.ip_address}: {e}")
             return []
+
+    def _get_replication_targets(self, headers, ssl_verify):
+        """Get the list of replication target systems for this DataDomain.
+
+        Uses GET /api/v1/dd-systems/0/replication/targets as specified in
+        the dd_api.json schema. Each target entry identifies a remote system
+        that this DD replicates data TO, providing hostname and connectivity state.
+
+        Returns:
+            list: List of target host/state dicts, or empty list on failure.
+        """
+        try:
+            data = self._make_api_request(
+                '/api/v1/dd-systems/0/replication/targets', headers, ssl_verify
+            )
+            if not data:
+                return []
+            targets_raw = data.get('targets', []) or data.get('replication_target', []) or []
+            result = []
+            for t in targets_raw:
+                if not isinstance(t, dict):
+                    continue
+                result.append({
+                    'host': t.get('hostname') or t.get('host') or t.get('name'),
+                    'state': t.get('state', 'unknown'),
+                    'port': t.get('port'),
+                })
+            logger.debug(
+                f"DataDomain {self.ip_address} - Found {len(result)} replication targets"
+            )
+            return result
+        except Exception as e:
+            logger.debug(
+                f"Could not get replication targets for DataDomain {self.ip_address}: {e}"
+            )
+            return []
+
+    def _get_replication_sources(self, headers, ssl_verify):
+        """Get the list of replication source systems for this DataDomain.
+
+        Uses GET /api/v1/dd-systems/0/replication/sources as specified in
+        the dd_api.json schema. Each source entry identifies a remote system
+        that replicates data TO this DD.
+
+        Returns:
+            list: List of source host/state dicts, or empty list on failure.
+        """
+        try:
+            data = self._make_api_request(
+                '/api/v1/dd-systems/0/replication/sources', headers, ssl_verify
+            )
+            if not data:
+                return []
+            sources_raw = data.get('sources', []) or data.get('replication_source', []) or []
+            result = []
+            for s in sources_raw:
+                if not isinstance(s, dict):
+                    continue
+                result.append({
+                    'host': s.get('hostname') or s.get('host') or s.get('name'),
+                    'state': s.get('state', 'unknown'),
+                    'port': s.get('port'),
+                })
+            logger.debug(
+                f"DataDomain {self.ip_address} - Found {len(result)} replication sources"
+            )
+            return result
+        except Exception as e:
+            logger.debug(
+                f"Could not get replication sources for DataDomain {self.ip_address}: {e}"
+            )
+            return []
     
     def _get_hardware_status(self, headers, ssl_verify):
         """Get hardware component health status
@@ -2986,6 +3200,12 @@ class DellDataDomainClient(StorageClient):
             # Get MTree replications using the schema-defined endpoint
             # GET /api/v1/dd-systems/0/mtree-replications (per dd_api.json)
             mtree_replications = self._get_mtree_replications(headers, ssl_verify)
+
+            # Get replication partner information via targets/sources endpoints
+            # GET /api/v1/dd-systems/0/replication/targets  – systems this DD replicates TO
+            # GET /api/v1/dd-systems/0/replication/sources  – systems replicating TO this DD
+            replication_targets = self._get_replication_targets(headers, ssl_verify)
+            replication_sources = self._get_replication_sources(headers, ssl_verify)
             
             # Get hardware health status
             hardware_status = self._get_hardware_status(headers, ssl_verify)
@@ -3044,6 +3264,12 @@ class DellDataDomainClient(StorageClient):
 
             if mtree_replications:
                 result['mtree_replications'] = mtree_replications
+
+            if replication_targets:
+                result['replication_targets'] = replication_targets
+
+            if replication_sources:
+                result['replication_sources'] = replication_sources
             
             if hardware_status:
                 result['hardware_details'] = hardware_status

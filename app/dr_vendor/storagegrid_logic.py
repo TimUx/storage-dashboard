@@ -12,9 +12,13 @@ def discover_relationships(system_name, health_data):
     """Analyse health_data and return normalised StorageGRID DR relationship dicts.
 
     Uses ``sites_info`` and ``site_count`` keys as returned by
-    NetAppStorageGRIDClient.get_health_status().  Site information is derived
-    from node siteNames collected via GET /api/v4/grid/node-health (per the
-    grid-combined-schema.yml schema).
+    NetAppStorageGRIDClient.get_health_status().
+
+    ``sites_info`` is populated in priority order:
+    1. Explicit site list from GET /api/v4/grid/expansion/sites (authoritative,
+       lists all sites even if their nodes are offline).
+    2. Unique siteNames derived from GET /api/v4/grid/node-health (fallback when
+       the expansion/sites endpoint is unavailable).
     """
     relationships = []
 

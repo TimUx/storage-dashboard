@@ -1,7 +1,8 @@
 """Pure Storage FlashArray ActiveCluster DR logic.
 
 Provides generation rules and command templates for Pure FlashArray
-ActiveCluster (synchronous replication) environments.
+ActiveCluster (synchronous replication) and pod-replica-link (asynchronous
+pod replication) environments.
 """
 
 # ---------------------------------------------------------------------------
@@ -12,9 +13,12 @@ def discover_relationships(system_name, health_data):
     """Analyse health_data returned by PureStorageClient.get_health_status()
     and return a list of normalised DR relationship dicts.
 
-    Uses ``is_active_cluster`` / ``array_connections`` / ``pods_info`` keys as
-    returned by the Pure Storage REST API (GET /api/<ver>/array-connections and
-    GET /api/<ver>/pods per the pure_swagger.json schema).
+    Detects two replication mechanisms:
+    1. **ActiveCluster (sync)** – identified by ``is_active_cluster`` /
+       ``array_connections`` with ``type == 'sync-replication'``.
+    2. **Pod replica links (async)** – identified by ``pod_replica_links``
+       from GET /api/<ver>/pod-replica-links (pure_swagger.json schema).
+       Each outbound entry represents an async pod-level DR relationship.
 
     Each dict contains:
         system_name, vendor, replication_type,
@@ -30,20 +34,18 @@ def discover_relationships(system_name, health_data):
     is_active_cluster = health_data.get('is_active_cluster')
     array_connections = health_data.get('array_connections') or []
     pods_info = health_data.get('pods_info') or []
+    pod_replica_links = health_data.get('pod_replica_links') or []
 
     # Filter for sync-replication connections (ActiveCluster)
     sync_connections = [c for c in array_connections if isinstance(c, dict) and c.get('type') == 'sync-replication']
 
-    if not is_active_cluster and not sync_connections:
-        return relationships
-
-    # Build a relationship per sync-replication peer
+    # ---- ActiveCluster (synchronous) relationships -------------------------
     for conn in sync_connections:
         partner_name = conn.get('name') or conn.get('management_address') or 'peer-array'
         state = conn.get('status', 'unknown')
         replication_state = 'healthy' if state == 'connected' else 'degraded'
 
-        rel = {
+        relationships.append({
             'system_name': system_name,
             'vendor': 'pure',
             'replication_type': 'activecluster',
@@ -55,9 +57,9 @@ def discover_relationships(system_name, health_data):
             'relationship_data': {
                 'connection': conn,
                 'pods': pods_info,
+                'replication_mode': 'synchronous',
             },
-        }
-        relationships.append(rel)
+        })
 
     if not relationships and (is_active_cluster or sync_connections):
         # ActiveCluster confirmed but no detailed connection data available
@@ -70,7 +72,64 @@ def discover_relationships(system_name, health_data):
             'primary_cluster': system_name,
             'secondary_cluster': '',
             'replication_state': 'unknown',
-            'relationship_data': {'array_connections': array_connections, 'pods': pods_info},
+            'relationship_data': {
+                'array_connections': array_connections,
+                'pods': pods_info,
+                'replication_mode': 'synchronous',
+            },
+        })
+
+    # ---- Pod replica links (asynchronous pod replication) ------------------
+    # GET /api/<ver>/pod-replica-links returns per-direction entries.
+    # Each outbound link (direction == 'outbound') means this array is the
+    # source for an async pod replication to a remote array.
+    for link in pod_replica_links:
+        if not isinstance(link, dict):
+            continue
+        direction = (link.get('direction') or '').lower()
+        if direction != 'outbound':
+            # Only create a relationship for outbound direction to avoid
+            # duplicate entries (the remote array will have an inbound entry).
+            continue
+
+        local_pod = link.get('local_pod', {})
+        remote_pod = link.get('remote_pod', {})
+        local_pod_name = local_pod.get('name', '') if isinstance(local_pod, dict) else str(local_pod)
+        remote_pod_name = remote_pod.get('name', '') if isinstance(remote_pod, dict) else str(remote_pod)
+
+        # Derive remote array name from the remote pod's array list if present
+        remote_arrays = link.get('remote_arrays', []) or []
+        remote_array_name = (
+            remote_arrays[0].get('name', 'remote-array')
+            if remote_arrays and isinstance(remote_arrays[0], dict)
+            else 'remote-array'
+        )
+
+        status = link.get('status', {})
+        link_state = status.get('progress', '') if isinstance(status, dict) else ''
+        replication_state = 'healthy' if link_state not in ('paused', 'disconnected') else 'degraded'
+
+        relationships.append({
+            'system_name': system_name,
+            'vendor': 'pure',
+            # Pod replica links use 'activecluster' as the replication_type so
+            # that the existing dr_generators dispatch table routes them to this
+            # module.  The relationship_data.replication_mode field ('asynchronous')
+            # distinguishes them from ActiveCluster (synchronous) relationships
+            # without requiring a separate vendor module registration.
+            'replication_type': 'activecluster',
+            'primary_site': system_name,
+            'secondary_site': remote_array_name,
+            'primary_cluster': system_name,
+            'secondary_cluster': remote_array_name,
+            'replication_state': replication_state,
+            'relationship_data': {
+                'local_pod': local_pod_name,
+                'remote_pod': remote_pod_name,
+                'direction': direction,
+                'replication_mode': 'asynchronous',
+                'link': link,
+            },
         })
 
     return relationships

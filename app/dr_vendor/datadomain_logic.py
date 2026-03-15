@@ -31,12 +31,13 @@ def discover_relationships(system_name, health_data):
                 continue
             remote = ctx.get('remote_host', '')
             direction = (ctx.get('direction') or '').upper()
+            is_outbound = direction == 'OUTBOUND'
             mtree_repls.append({
-                'mode': 'SOURCE' if direction != 'INBOUND' else 'TARGET',
+                'mode': 'SOURCE' if is_outbound else 'TARGET',
                 'state': ctx.get('state', 'unknown'),
                 'connected': True,
-                'source_host': system_name if direction != 'INBOUND' else remote,
-                'destination_host': remote if direction != 'INBOUND' else system_name,
+                'source_host': system_name if is_outbound else remote,
+                'destination_host': remote if is_outbound else system_name,
                 'source_mtree': None,
                 'destination_mtree': None,
             })

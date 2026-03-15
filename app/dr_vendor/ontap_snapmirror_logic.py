@@ -9,7 +9,19 @@ asynchronous replication environments.
 # ---------------------------------------------------------------------------
 
 def discover_relationships(system_name, health_data):
-    """Analyse health_data and return normalised SnapMirror DR relationship dicts."""
+    """Analyse health_data and return normalised SnapMirror DR relationship dicts.
+
+    Uses ``snapmirror_relationships`` populated by
+    NetAppONTAPClient.get_health_status() from
+    GET /api/snapmirror/relationships (per ontap_swagger.yaml).
+
+    For DR purposes only inter-cluster relationships are relevant (i.e. where
+    the destination cluster differs from the local cluster).  Intra-cluster
+    SnapMirror relationships (no ``destination.cluster.name``) are skipped.
+
+    ``svm_peers`` (from GET /api/svm/peers) is used to enrich the secondary
+    cluster name when the SnapMirror response itself does not carry it.
+    """
     relationships = []
     sm_list = health_data.get('snapmirror_relationships') or health_data.get('snapmirror', [])
     if not sm_list:
@@ -18,22 +30,56 @@ def discover_relationships(system_name, health_data):
     if not isinstance(sm_list, list):
         sm_list = [sm_list]
 
+    # Build an SVM → cluster lookup from svm_peers for enrichment
+    svm_peer_cluster: dict[str, str] = {}
+    for peer in (health_data.get('svm_peers') or []):
+        if not isinstance(peer, dict):
+            continue
+        peer_cluster = (
+            peer.get('peer', {}).get('cluster', {}).get('name', '')
+            if isinstance(peer.get('peer'), dict)
+            else ''
+        )
+        peer_svm = (
+            peer.get('peer', {}).get('svm', {}).get('name', '')
+            if isinstance(peer.get('peer'), dict)
+            else ''
+        )
+        if peer_svm and peer_cluster:
+            svm_peer_cluster[peer_svm] = peer_cluster
+
     for sm in sm_list:
         if not isinstance(sm, dict):
             continue
+
+        # Determine destination cluster
+        dst_cluster_name = ''
+        dst = sm.get('destination', {}) if isinstance(sm.get('destination'), dict) else {}
+        if isinstance(dst.get('cluster'), dict):
+            dst_cluster_name = dst['cluster'].get('name', '')
+        dst_svm_name = dst.get('svm', {}).get('name', '') if isinstance(dst.get('svm'), dict) else ''
+
+        # Enrich from svm_peers when cluster name is missing from SM record
+        if not dst_cluster_name and dst_svm_name:
+            dst_cluster_name = svm_peer_cluster.get(dst_svm_name, '')
+
+        # Skip intra-cluster relationships (no remote cluster = not a DR pair)
+        if not dst_cluster_name or dst_cluster_name == system_name:
+            continue
+
         state = sm.get('state', 'unknown')
         replication_state = 'healthy' if state in ('snapmirrored', 'in_sync') else 'degraded'
-        src_svm = sm.get('source', {}).get('svm', {}).get('name', '') if isinstance(sm.get('source'), dict) else ''
-        dst_svm = sm.get('destination', {}).get('svm', {}).get('name', '') if isinstance(sm.get('destination'), dict) else ''
+        src = sm.get('source', {}) if isinstance(sm.get('source'), dict) else {}
+        src_svm = src.get('svm', {}).get('name', '') if isinstance(src.get('svm'), dict) else ''
 
         relationships.append({
             'system_name': system_name,
             'vendor': 'netapp-ontap',
             'replication_type': 'snapmirror',
-            'primary_site': src_svm or 'Primary Site',
-            'secondary_site': dst_svm or 'Secondary Site',
+            'primary_site': src_svm or system_name,
+            'secondary_site': dst_svm_name or dst_cluster_name,
             'primary_cluster': system_name,
-            'secondary_cluster': sm.get('destination', {}).get('cluster', {}).get('name', '') if isinstance(sm.get('destination'), dict) else '',
+            'secondary_cluster': dst_cluster_name,
             'replication_state': replication_state,
             'relationship_data': sm,
         })

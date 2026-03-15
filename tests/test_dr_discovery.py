@@ -377,3 +377,218 @@ class TestDataDomainDiscovery:
         destinations = {r['secondary_cluster'] for r in result}
         assert 'dd2' in destinations
         assert 'dd3' in destinations
+
+
+# ---------------------------------------------------------------------------
+# Pure FlashArray – pod-replica-links (async pod replication)
+# ---------------------------------------------------------------------------
+
+class TestPureFlashArrayPodReplicaLinks:
+    """Pure FlashArray discover_relationships also detects pod-replica-links
+    collected via GET /api/<ver>/pod-replica-links."""
+
+    def test_outbound_pod_replica_link_creates_relationship(self):
+        health = {
+            'is_active_cluster': False,
+            'array_connections': [],
+            'pods_info': [],
+            'pod_replica_links': [
+                {
+                    'direction': 'outbound',
+                    'local_pod': {'name': 'pod1'},
+                    'remote_pod': {'name': 'pod1'},
+                    'remote_arrays': [{'name': 'pure02'}],
+                    'status': {'progress': 'replicating'},
+                }
+            ],
+        }
+        result = pure_flasharray_logic.discover_relationships('pure01', health)
+        assert len(result) == 1
+        rel = result[0]
+        assert rel['replication_type'] == 'activecluster'
+        assert rel['primary_cluster'] == 'pure01'
+        assert rel['secondary_cluster'] == 'pure02'
+        assert rel['relationship_data']['replication_mode'] == 'asynchronous'
+
+    def test_inbound_pod_replica_link_ignored(self):
+        """Inbound links must not create duplicate relationships."""
+        health = {
+            'is_active_cluster': False,
+            'array_connections': [],
+            'pod_replica_links': [
+                {
+                    'direction': 'inbound',
+                    'local_pod': {'name': 'pod1'},
+                    'remote_pod': {'name': 'pod1'},
+                }
+            ],
+        }
+        result = pure_flasharray_logic.discover_relationships('pure01', health)
+        assert result == []
+
+    def test_pod_replica_link_paused_is_degraded(self):
+        health = {
+            'is_active_cluster': False,
+            'array_connections': [],
+            'pod_replica_links': [
+                {
+                    'direction': 'outbound',
+                    'local_pod': {'name': 'pod1'},
+                    'remote_pod': {'name': 'pod1'},
+                    'remote_arrays': [{'name': 'pure02'}],
+                    'status': {'progress': 'paused'},
+                }
+            ],
+        }
+        result = pure_flasharray_logic.discover_relationships('pure01', health)
+        assert len(result) == 1
+        assert result[0]['replication_state'] == 'degraded'
+
+    def test_sync_and_async_relationships_coexist(self):
+        """A system can have both ActiveCluster and pod replica link relationships."""
+        health = {
+            'is_active_cluster': True,
+            'array_connections': [
+                {
+                    'name': 'pure02',
+                    'status': 'connected',
+                    'type': 'sync-replication',
+                }
+            ],
+            'pods_info': [],
+            'pod_replica_links': [
+                {
+                    'direction': 'outbound',
+                    'local_pod': {'name': 'archive-pod'},
+                    'remote_pod': {'name': 'archive-pod'},
+                    'remote_arrays': [{'name': 'pure03'}],
+                    'status': {},
+                }
+            ],
+        }
+        result = pure_flasharray_logic.discover_relationships('pure01', health)
+        assert len(result) == 2
+        modes = {r['relationship_data'].get('replication_mode') for r in result}
+        assert 'synchronous' in modes
+        assert 'asynchronous' in modes
+
+
+# ---------------------------------------------------------------------------
+# ONTAP SnapMirror – new inter-cluster filtering and svm_peers enrichment
+# ---------------------------------------------------------------------------
+
+from app.dr_vendor import ontap_snapmirror_logic
+
+
+class TestONTAPSnapMirrorDiscovery:
+    """ONTAP SnapMirror discover_relationships uses snapmirror_relationships and
+    svm_peers populated by get_health_status() (new in this PR)."""
+
+    def test_no_snapmirror_relationships_returns_empty(self):
+        result = ontap_snapmirror_logic.discover_relationships('CL1', {})
+        assert result == []
+
+    def test_inter_cluster_snapmirror_detected(self):
+        health = {
+            'snapmirror_relationships': [
+                {
+                    'state': 'snapmirrored',
+                    'healthy': True,
+                    'source': {'svm': {'name': 'svm1'}, 'cluster': {'name': 'CL1'}},
+                    'destination': {'svm': {'name': 'svm1-dr'}, 'cluster': {'name': 'CL2'}},
+                }
+            ]
+        }
+        result = ontap_snapmirror_logic.discover_relationships('CL1', health)
+        assert len(result) == 1
+        rel = result[0]
+        assert rel['replication_type'] == 'snapmirror'
+        assert rel['secondary_cluster'] == 'CL2'
+        assert rel['replication_state'] == 'healthy'
+
+    def test_intra_cluster_snapmirror_skipped(self):
+        """Relationships with no destination cluster (intra-cluster) must be ignored."""
+        health = {
+            'snapmirror_relationships': [
+                {
+                    'state': 'snapmirrored',
+                    'source': {'svm': {'name': 'svm1'}},
+                    'destination': {'svm': {'name': 'svm1-dp'}},
+                    # no 'cluster' in destination → intra-cluster → skip
+                }
+            ]
+        }
+        result = ontap_snapmirror_logic.discover_relationships('CL1', health)
+        assert result == []
+
+    def test_same_cluster_destination_skipped(self):
+        """Destination cluster == local cluster must be skipped."""
+        health = {
+            'snapmirror_relationships': [
+                {
+                    'state': 'snapmirrored',
+                    'source': {'svm': {'name': 'svm1'}},
+                    'destination': {'svm': {'name': 'svm1-dp'}, 'cluster': {'name': 'CL1'}},
+                }
+            ]
+        }
+        result = ontap_snapmirror_logic.discover_relationships('CL1', health)
+        assert result == []
+
+    def test_broken_snapmirror_is_degraded(self):
+        health = {
+            'snapmirror_relationships': [
+                {
+                    'state': 'broken_off',
+                    'source': {'svm': {'name': 'svm1'}},
+                    'destination': {'svm': {'name': 'svm2'}, 'cluster': {'name': 'CL2'}},
+                }
+            ]
+        }
+        result = ontap_snapmirror_logic.discover_relationships('CL1', health)
+        assert len(result) == 1
+        assert result[0]['replication_state'] == 'degraded'
+
+    def test_svm_peers_enrich_secondary_cluster(self):
+        """When destination.cluster.name is missing, svm_peers provides the cluster."""
+        health = {
+            'snapmirror_relationships': [
+                {
+                    'state': 'snapmirrored',
+                    'source': {'svm': {'name': 'svm1'}},
+                    'destination': {'svm': {'name': 'svm2'}},
+                    # no cluster in destination
+                }
+            ],
+            'svm_peers': [
+                {
+                    'svm': {'name': 'svm1'},
+                    'peer': {'svm': {'name': 'svm2'}, 'cluster': {'name': 'CL2'}},
+                    'state': 'peered',
+                }
+            ],
+        }
+        result = ontap_snapmirror_logic.discover_relationships('CL1', health)
+        assert len(result) == 1
+        assert result[0]['secondary_cluster'] == 'CL2'
+
+    def test_multiple_inter_cluster_relationships(self):
+        health = {
+            'snapmirror_relationships': [
+                {
+                    'state': 'snapmirrored',
+                    'source': {'svm': {'name': 'svm1'}},
+                    'destination': {'svm': {'name': 'svm1-dr'}, 'cluster': {'name': 'CL2'}},
+                },
+                {
+                    'state': 'in_sync',
+                    'source': {'svm': {'name': 'svm2'}},
+                    'destination': {'svm': {'name': 'svm2-dr'}, 'cluster': {'name': 'CL3'}},
+                },
+            ]
+        }
+        result = ontap_snapmirror_logic.discover_relationships('CL1', health)
+        assert len(result) == 2
+        clusters = {r['secondary_cluster'] for r in result}
+        assert 'CL2' in clusters
+        assert 'CL3' in clusters
