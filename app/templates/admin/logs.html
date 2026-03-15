@@ -240,8 +240,9 @@ tbody tr:hover {
 {% block content %}
 <div class="admin-header">
     <h2>📋 System Logs</h2>
-    <div>
+    <div class="admin-actions">
         <a href="{{ url_for('admin.index') }}" class="btn btn-secondary">← Zurück</a>
+        {% include 'admin/_menu_button.html' %}
     </div>
 </div>
 

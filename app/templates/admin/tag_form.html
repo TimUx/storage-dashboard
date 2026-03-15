@@ -67,6 +67,9 @@
 {% endblock %}
 
 {% block content %}
+<div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+    {% include 'admin/_menu_button.html' %}
+</div>
 <div class="form-container">
     <h2>Tag {{ action }}</h2>
     <form method="POST">

@@ -256,7 +256,99 @@
         [data-theme="dark"] textarea::placeholder {
             color: #546e7a;
         }
-        
+
+        /* Shared admin button base styles */
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s;
+        }
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+        .btn-sm {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.85rem;
+        }
+
+        /* Admin Menü dropdown – shared across all admin pages */
+        .admin-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        .admin-more-menu {
+            position: relative;
+        }
+        .admin-more-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 0.4rem);
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            min-width: 220px;
+            z-index: 1000;
+            padding: 0.4rem 0;
+        }
+        .admin-more-dropdown.open {
+            display: block;
+        }
+        .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.1rem;
+            text-decoration: none;
+            color: #333;
+            font-size: 0.95rem;
+            transition: background 0.15s;
+            white-space: nowrap;
+        }
+        .dropdown-item:hover {
+            background: #f0f4f8;
+            color: #111;
+        }
+        .dropdown-item-warning {
+            color: #5a6900;
+        }
+        .dropdown-item-primary {
+            color: var(--accent-color);
+        }
+        .dropdown-divider {
+            height: 1px;
+            background: #e5e9ec;
+            margin: 0.3rem 0;
+        }
+        [data-theme="dark"] .admin-more-dropdown {
+            background: var(--card-bg);
+            border-color: var(--card-border);
+        }
+        [data-theme="dark"] .dropdown-item {
+            color: var(--text-color);
+        }
+        [data-theme="dark"] .dropdown-item:hover {
+            background: var(--table-row-hover);
+            color: var(--text-color);
+        }
+        [data-theme="dark"] .dropdown-item-warning {
+            color: #c8dc50;
+        }
+        [data-theme="dark"] .dropdown-item-primary {
+            color: #40c4ff;
+        }
+
         {% block styles %}{% endblock %}
     </style>
 </head>
@@ -327,5 +419,24 @@
         
         {% block content %}{% endblock %}
     </div>
+    <script>
+        // Admin Menü dropdown toggle – shared across all admin pages
+        (function() {
+            var toggle = document.querySelector('.admin-more-toggle');
+            var dropdown = document.querySelector('.admin-more-dropdown');
+            if (toggle && dropdown) {
+                toggle.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    dropdown.classList.toggle('open');
+                });
+                document.addEventListener('click', function() {
+                    dropdown.classList.remove('open');
+                });
+                dropdown.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                });
+            }
+        })();
+    </script>
 </body>
 </html>

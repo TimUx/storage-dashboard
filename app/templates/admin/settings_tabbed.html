@@ -291,7 +291,10 @@
 <div class="settings-container">
     <div class="settings-header">
         <h1>⚙️ Einstellungen</h1>
-        <a href="/admin" class="back-btn">← Zurück</a>
+        <div class="admin-actions">
+            <a href="/admin" class="back-btn">← Zurück</a>
+            {% include 'admin/_menu_button.html' %}
+        </div>
     </div>
     
     <!-- Tab Navigation -->

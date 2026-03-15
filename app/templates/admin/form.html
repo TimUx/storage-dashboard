@@ -122,6 +122,9 @@
 {% endblock %}
 
 {% block content %}
+<div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+    {% include 'admin/_menu_button.html' %}
+</div>
 <div class="form-container">
     <div class="form-header">
         <h2>{{ action }} Storage System</h2>

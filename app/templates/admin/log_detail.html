@@ -167,8 +167,9 @@
 {% block content %}
 <div class="admin-header">
     <h2>📋 Log Details</h2>
-    <div>
+    <div class="admin-actions">
         <a href="{{ url_for('admin.logs', system_id=log.system_id if log.system_id else '') }}" class="btn btn-secondary">← Zurück zu Logs</a>
+        {% include 'admin/_menu_button.html' %}
     </div>
 </div>
 

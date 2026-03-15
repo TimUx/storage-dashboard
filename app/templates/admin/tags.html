@@ -99,10 +99,11 @@
 {% block content %}
 <div class="tags-header">
     <h2>Tags verwalten</h2>
-    <div style="display: flex; gap: 1rem;">
+    <div style="display: flex; gap: 1rem;" class="admin-actions">
         <a href="{{ url_for('admin.new_tag_group') }}" class="btn btn-primary">+ Neue Tag-Gruppe</a>
         <a href="{{ url_for('admin.new_tag') }}" class="btn btn-primary">+ Neuer Tag</a>
         <a href="{{ url_for('admin.index') }}" class="btn btn-secondary">← Zurück</a>
+        {% include 'admin/_menu_button.html' %}
     </div>
 </div>
 
