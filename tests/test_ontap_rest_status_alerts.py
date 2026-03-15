@@ -461,9 +461,11 @@ class TestEthernetPortCheck:
         port_alerts = [a for a in alerts if a.get('source') == '/api/network/ethernet/ports']
         assert port_alerts == []
 
-    def test_port_down_generates_warning(self):
+    def test_port_down_with_broadcast_domain_generates_warning(self):
+        # A configured port (has a broadcast domain) that goes down must alert.
         alerts = _run_rest_only({'/api/network/ethernet/ports': _ports([
-            {'name': 'e0c', 'node': {'name': 'node1'}, 'state': 'down', 'type': 'physical'}
+            {'name': 'e0c', 'node': {'name': 'node1'}, 'state': 'down', 'type': 'physical',
+             'broadcast_domain': {'name': 'Default'}}
         ])})
         port_alerts = [a for a in alerts if a.get('source') == '/api/network/ethernet/ports']
         assert len(port_alerts) == 1
@@ -479,10 +481,90 @@ class TestEthernetPortCheck:
 
     def test_resource_includes_node(self):
         alerts = _run_rest_only({'/api/network/ethernet/ports': _ports([
-            {'name': 'e0d', 'node': {'name': 'node2'}, 'state': 'down', 'type': 'physical'}
+            {'name': 'e0d', 'node': {'name': 'node2'}, 'state': 'down', 'type': 'physical',
+             'broadcast_domain': {'name': 'Cluster'}}
         ])})
         port_alerts = [a for a in alerts if a.get('source') == '/api/network/ethernet/ports']
         assert port_alerts[0]['component'] == 'node2:e0d'
+
+    # ------------------------------------------------------------------
+    # False-positive suppression: unconfigured physical ports
+    # ------------------------------------------------------------------
+
+    def test_unconfigured_port_down_no_alert(self):
+        # Physical port with no broadcast domain and no LAG membership is
+        # unused; a down link must NOT generate a false-positive alert.
+        alerts = _run_rest_only({'/api/network/ethernet/ports': _ports([
+            {'name': 'e0a', 'node': {'name': 'FASMC5A'}, 'state': 'down', 'type': 'physical'}
+        ])})
+        port_alerts = [a for a in alerts if a.get('source') == '/api/network/ethernet/ports']
+        assert port_alerts == []
+
+    def test_multiple_unconfigured_ports_no_alert(self):
+        # Real-world FASMC5 scenario: 8 unconfigured ports with link down
+        # across two nodes must all be suppressed.
+        unconfigured = [
+            {'name': f'e0{p}', 'node': {'name': node}, 'state': 'down', 'type': 'physical'}
+            for node in ('FASMC5A', 'FASMC5B')
+            for p in ('a', 'b', 'f', 'h')
+        ]
+        alerts = _run_rest_only({'/api/network/ethernet/ports': _ports(unconfigured)})
+        port_alerts = [a for a in alerts if a.get('source') == '/api/network/ethernet/ports']
+        assert port_alerts == []
+
+    def test_configured_cluster_port_down_still_alerts(self):
+        # A port assigned to the Cluster broadcast domain (e.g. e3a) that
+        # goes down IS a real failure and must still alert.
+        alerts = _run_rest_only({'/api/network/ethernet/ports': _ports([
+            {'name': 'e3a', 'node': {'name': 'FASMC5A'}, 'state': 'down', 'type': 'physical',
+             'broadcast_domain': {'name': 'Cluster'}}
+        ])})
+        port_alerts = [a for a in alerts if a.get('source') == '/api/network/ethernet/ports']
+        assert len(port_alerts) == 1
+        assert port_alerts[0]['severity'] == 'warning'
+
+    def test_lag_member_port_down_generates_warning(self):
+        # A physical port that is a member of an interface group (LAG/ifgrp)
+        # is configured. If its link goes down it must still generate an alert,
+        # even though the port itself has no broadcast_domain.
+        alerts = _run_rest_only({'/api/network/ethernet/ports': _ports([
+            # LAG port a0a – lists e0e and e0g as members
+            {'name': 'a0a', 'node': {'name': 'node1'}, 'state': 'up', 'type': 'lag',
+             'lag': {'member_ports': [{'name': 'e0e'}, {'name': 'e0g'}]}},
+            # Physical member e0e goes down
+            {'name': 'e0e', 'node': {'name': 'node1'}, 'state': 'down', 'type': 'physical'},
+            {'name': 'e0g', 'node': {'name': 'node1'}, 'state': 'up',   'type': 'physical'},
+        ])})
+        port_alerts = [a for a in alerts if a.get('source') == '/api/network/ethernet/ports']
+        assert len(port_alerts) == 1
+        assert 'node1:e0e' in port_alerts[0]['component']
+
+    def test_mixed_configured_and_unconfigured_ports(self):
+        # Only configured down ports should alert; unconfigured down ports
+        # must be silenced.
+        alerts = _run_rest_only({'/api/network/ethernet/ports': _ports([
+            # Unconfigured – no broadcast domain, no LAG membership
+            {'name': 'e0a', 'node': {'name': 'node1'}, 'state': 'down', 'type': 'physical'},
+            {'name': 'e0b', 'node': {'name': 'node1'}, 'state': 'down', 'type': 'physical'},
+            # Configured port with a broadcast domain
+            {'name': 'e0M', 'node': {'name': 'node1'}, 'state': 'down', 'type': 'physical',
+             'broadcast_domain': {'name': 'Default'}},
+        ])})
+        port_alerts = [a for a in alerts if a.get('source') == '/api/network/ethernet/ports']
+        assert len(port_alerts) == 1
+        assert 'node1:e0M' in port_alerts[0]['component']
+
+    def test_lag_port_itself_down_with_broadcast_domain_alerts(self):
+        # If the LAG port (ifgrp) itself goes down it has a broadcast domain
+        # and must generate an alert.
+        alerts = _run_rest_only({'/api/network/ethernet/ports': _ports([
+            {'name': 'a0a', 'node': {'name': 'node1'}, 'state': 'down', 'type': 'lag',
+             'broadcast_domain': {'name': 'Data'},
+             'lag': {'member_ports': [{'name': 'e0e'}, {'name': 'e0g'}]}},
+        ])})
+        port_alerts = [a for a in alerts if a.get('source') == '/api/network/ethernet/ports']
+        assert len(port_alerts) == 1
+        assert 'node1:a0a' in port_alerts[0]['component']
 
 
 class TestAggregateStateCheck:
