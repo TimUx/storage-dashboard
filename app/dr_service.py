@@ -142,7 +142,8 @@ def _do_build(app):
                             # Other replication types only use the base two directions.
                             replication_type = rel_dict_copy.get('replication_type', '')
                             if replication_type in ('metrocluster', 'snapmirror',
-                                                    'datadomain-replication'):
+                                                    'datadomain-replication',
+                                                    'activecluster'):
                                 directions = _FAILOVER_DIRECTIONS
                             else:
                                 directions = ['planned_failover', 'failback']

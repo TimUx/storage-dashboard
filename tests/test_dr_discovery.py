@@ -673,6 +673,186 @@ class TestPureFlashArrayPodReplicaLinks:
 
 
 # ---------------------------------------------------------------------------
+# Pure FlashArray ActiveCluster – disaster_recovery workflow
+# ---------------------------------------------------------------------------
+
+
+class TestPureFlashArrayActiveClusterDisasterRecovery:
+    """Tests for the disaster_recovery direction of pure_flasharray_logic.
+
+    ActiveCluster is active-active synchronous replication: hosts continue IO
+    automatically via MPIO when one array becomes unavailable.  The DR planner
+    must NOT generate failover commands.  It must only generate validation and
+    diagnostic procedures targeting the surviving (secondary) array.
+    """
+
+    @staticmethod
+    def _make_rel(primary='pure01', secondary='pure02', pod='production-pod'):
+        return {
+            'system_name': primary,
+            'vendor': 'pure',
+            'replication_type': 'activecluster',
+            'primary_site': primary,
+            'secondary_site': secondary,
+            'primary_cluster': primary,
+            'secondary_cluster': secondary,
+            'replication_state': 'healthy',
+            'relationship_data': {
+                'pod_name': pod,
+                'replication_mode': 'synchronous',
+            },
+        }
+
+    # ---- workflow phases ----
+
+    def test_disaster_recovery_has_6_steps(self):
+        rel = self._make_rel()
+        steps = pure_flasharray_logic.generate_workflow(rel, 'disaster_recovery')
+        assert len(steps) == 6
+
+    def test_disaster_recovery_phases_in_order(self):
+        rel = self._make_rel()
+        steps = pure_flasharray_logic.generate_workflow(rel, 'disaster_recovery')
+        phases = [s['phase'] for s in steps]
+        assert phases[0] == 'detection'
+        assert all(p == 'validation' for p in phases[1:5])
+        assert phases[5] == 'support'
+
+    def test_disaster_recovery_step_numbers_sequential(self):
+        rel = self._make_rel()
+        steps = pure_flasharray_logic.generate_workflow(rel, 'disaster_recovery')
+        assert [s['step'] for s in steps] == list(range(1, 7))
+
+    def test_disaster_recovery_titles_cover_required_phases(self):
+        rel = self._make_rel()
+        steps = pure_flasharray_logic.generate_workflow(rel, 'disaster_recovery')
+        titles = ' '.join(s['title'].lower() for s in steps)
+        assert 'detection' in titles or 'failure' in titles
+        assert 'health' in titles or 'surviving' in titles
+        assert 'pod' in titles or 'replication' in titles
+        assert 'volume' in titles
+        assert 'host' in titles
+        assert 'remote' in titles or 'support' in titles
+
+    # ---- no failover commands ----
+
+    def test_no_purepod_remove_in_disaster_recovery(self):
+        """purepod remove must NOT appear — active-active, no failover action."""
+        rel = self._make_rel()
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert not any('purepod remove' in cli for cli in cli_commands), \
+            'purepod remove must not appear in disaster_recovery commands'
+
+    def test_no_purepod_add_in_disaster_recovery(self):
+        """purepod add must NOT appear — no pod manipulation during disaster."""
+        rel = self._make_rel()
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert not any('purepod add' in cli for cli in cli_commands), \
+            'purepod add must not appear in disaster_recovery commands'
+
+    # ---- required diagnostic commands ----
+
+    def test_purearray_list_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'purearray list' in cli_commands
+
+    def test_purepod_list_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'purepod list' in cli_commands
+
+    def test_purepod_list_replication_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'purepod list --replication' in cli_commands
+
+    def test_purevol_list_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'purevol list' in cli_commands
+
+    def test_purehost_list_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'purehost list' in cli_commands
+
+    def test_purearray_list_connections_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'purearray list --connections' in cli_commands
+
+    def test_remote_assist_enable_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'purearray remote-assist enable' in cli_commands
+
+    # ---- commands target surviving (secondary) array ----
+
+    def test_disaster_recovery_commands_target_surviving_array(self):
+        """All disaster_recovery commands must target the surviving (secondary) array."""
+        rel = self._make_rel(primary='pure01', secondary='pure02')
+        cmds = pure_flasharray_logic.generate_commands(rel, 'disaster_recovery')
+        for cmd in cmds:
+            assert cmd['target'] == 'pure02', \
+                f"Command {cmd['cli']!r} targets {cmd['target']!r}, expected 'pure02'"
+
+    # ---- planned_failover is unaffected ----
+
+    def test_planned_failover_unchanged(self):
+        """Adding disaster_recovery must not break planned_failover."""
+        rel = self._make_rel()
+        steps = pure_flasharray_logic.generate_workflow(rel, 'planned_failover')
+        assert len(steps) == 8
+        cmds = pure_flasharray_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        assert any('purepod remove' in cli for cli in cli_commands)
+
+    # ---- runbook ----
+
+    def test_disaster_recovery_runbook_phases_match_workflow(self):
+        rel = self._make_rel()
+        runbook = pure_flasharray_logic.generate_runbook(rel, 'disaster_recovery')
+        workflow_phases = {s['phase'] for s in pure_flasharray_logic.generate_workflow(rel, 'disaster_recovery')}
+        runbook_phases = {section['phase'] for section in runbook}
+        assert runbook_phases == workflow_phases
+
+    def test_disaster_recovery_runbook_contains_remote_assist(self):
+        rel = self._make_rel()
+        runbook = pure_flasharray_logic.generate_runbook(rel, 'disaster_recovery')
+        all_cli = [c['cli'] for section in runbook for c in section.get('commands', [])]
+        assert 'purearray remote-assist enable' in all_cli
+
+    # ---- diagram ----
+
+    def test_workflow_diagram_is_flowchart(self):
+        rel = self._make_rel()
+        diagram = pure_flasharray_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        assert diagram.startswith('flowchart TD')
+
+    def test_workflow_diagram_contains_all_6_steps(self):
+        rel = self._make_rel()
+        diagram = pure_flasharray_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        for i in range(1, 7):
+            assert f'S{i}[' in diagram, f'Step node S{i} missing from disaster_recovery diagram'
+
+    def test_workflow_diagram_steps_connected(self):
+        rel = self._make_rel()
+        diagram = pure_flasharray_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        for i in range(1, 6):
+            assert f'S{i} --> S{i+1}' in diagram
+
+
+# ---------------------------------------------------------------------------
 # ONTAP SnapMirror – new inter-cluster filtering and svm_peers enrichment
 # ---------------------------------------------------------------------------
 

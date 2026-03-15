@@ -218,6 +218,25 @@ _WORKFLOW_STEPS = {
         {'phase': 'post-failback', 'step': 6, 'title': 'Re-add secondary to pod',
          'description': 'Restore the full ActiveCluster configuration for continued protection.'},
     ],
+    # ActiveCluster is active-active synchronous replication. If one array
+    # becomes unavailable, hosts automatically continue IO via MPIO through
+    # the surviving array. There is NO failover command to execute.
+    # The disaster_recovery direction only generates validation and diagnostic
+    # procedures for the surviving array.
+    'disaster_recovery': [
+        {'phase': 'detection', 'step': 1, 'title': 'Datacenter failure detection',
+         'description': 'Confirm the primary datacenter / array is unreachable. Hosts continue IO automatically via MPIO through the surviving array — no manual failover is required.'},
+        {'phase': 'validation', 'step': 2, 'title': 'Verify surviving FlashArray health',
+         'description': 'Check the overall health of the surviving FlashArray using purearray list.'},
+        {'phase': 'validation', 'step': 3, 'title': 'Verify ActiveCluster pod replication',
+         'description': 'List all pods and their replication state. Confirm pods are online on the surviving array.'},
+        {'phase': 'validation', 'step': 4, 'title': 'Verify volume availability',
+         'description': 'Confirm all volumes inside affected pods are accessible using purevol list.'},
+        {'phase': 'validation', 'step': 5, 'title': 'Verify host connectivity',
+         'description': 'Check host connections to the surviving array using purehost list and purearray list --connections.'},
+        {'phase': 'support', 'step': 6, 'title': 'Enable remote support access',
+         'description': 'Enable Pure Storage remote support access so engineers can assist during the disaster scenario.'},
+    ],
 }
 
 
@@ -237,6 +256,9 @@ def generate_commands(relationship, failover_direction='planned_failover'):
     pod_name = rd.get('pod_name') or 'pod1'
     primary = relationship.get('primary_cluster') or 'array1'
     secondary = relationship.get('secondary_cluster') or 'array2'
+
+    # For disaster_recovery the surviving array is the secondary (DR) site.
+    surviving = secondary or primary
 
     commands = {
         'planned_failover': [
@@ -295,6 +317,53 @@ def generate_commands(relationship, failover_direction='planned_failover'):
                 'description': 'Detach secondary from pod',
                 'cli': f'purepod remove --array {secondary} {pod_name}',
                 'target': secondary,
+            },
+        ],
+        # ActiveCluster is active-active: no failover command is issued.
+        # All disaster_recovery commands are diagnostic/validation only and
+        # target the surviving (secondary/DR) array.
+        'disaster_recovery': [
+            {
+                'phase': 'validation',
+                'description': 'List array health',
+                'cli': 'purearray list',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'List ActiveCluster pods',
+                'cli': 'purepod list',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'Check pod replication state',
+                'cli': 'purepod list --replication',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'List volumes',
+                'cli': 'purevol list',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'List hosts',
+                'cli': 'purehost list',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'List array connections',
+                'cli': 'purearray list --connections',
+                'target': surviving,
+            },
+            {
+                'phase': 'support',
+                'description': 'Enable remote support access',
+                'cli': 'purearray remote-assist enable',
+                'target': surviving,
             },
         ],
     }
