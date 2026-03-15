@@ -160,20 +160,45 @@ def generate_commands(relationship, failover_direction='planned_failover'):
 # ---------------------------------------------------------------------------
 
 def generate_topology_diagram(relationship):
-    site_a = relationship.get('primary_site', 'Site A')
-    site_b = relationship.get('secondary_site', 'Site B')
-    primary = relationship.get('primary_cluster') or 'Cluster A'
-    secondary = relationship.get('secondary_cluster') or 'Cluster B'
+    """Return a Mermaid diagram string showing the SnapMirror topology.
+
+    Includes Datacenter A & B, ONTAP clusters, nodes, SVMs, cluster VIPs,
+    and the async SnapMirror replication link.
+    """
+    site_a = relationship.get('primary_site', 'Datacenter A')
+    site_b = relationship.get('secondary_site', 'Datacenter B')
+    primary = relationship.get('primary_cluster') or 'Cluster-Source'
+    secondary = relationship.get('secondary_cluster') or 'Cluster-Dest'
+    rd = relationship.get('relationship_data', {})
+    src_svm = ''
+    dst_svm = ''
+    if isinstance(rd.get('source'), dict):
+        src_svm = rd['source'].get('svm', {}).get('name', '') if isinstance(rd['source'].get('svm'), dict) else ''
+    if isinstance(rd.get('destination'), dict):
+        dst_svm = rd['destination'].get('svm', {}).get('name', '') if isinstance(rd['destination'].get('svm'), dict) else ''
+
+    a_id = _safe_id(primary)
+    b_id = _safe_id(secondary)
 
     lines = [
         'graph LR',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
-        f'    SM_SRC["{primary}\\nONTAP\\n(Source)"]',
+        f'    subgraph {a_id}_cluster["{primary} (Source)"]',
+        f'      {a_id}_n0[["Node-01\\n(Controller)"]]',
+        f'      {a_id}_n1[["Node-02\\n(Controller)"]]',
+        f'      {a_id}_vip(["Cluster Mgmt VIP"])',
+        f'      {a_id}_svm[("{src_svm or primary + "-SVM"}")]',
+        '    end',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
-        f'    SM_DST["{secondary}\\nONTAP\\n(Destination)"]',
+        f'    subgraph {b_id}_cluster["{secondary} (Destination)"]',
+        f'      {b_id}_n0[["Node-01\\n(Controller)"]]',
+        f'      {b_id}_n1[["Node-02\\n(Controller)"]]',
+        f'      {b_id}_vip(["Cluster Mgmt VIP"])',
+        f'      {b_id}_svm[("{dst_svm or secondary + "-SVM"}")]',
+        '    end',
         '  end',
-        '  SM_SRC -->|"SnapMirror\\n(Async)"| SM_DST',
+        f'  {a_id}_svm -->|"SnapMirror\\n(Asynchronous)"| {b_id}_svm',
     ]
     return '\n'.join(lines)
 

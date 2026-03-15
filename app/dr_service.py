@@ -19,6 +19,7 @@ DR Build Pipeline:
 """
 import json
 import logging
+import os
 import threading
 import time
 import traceback
@@ -26,8 +27,9 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Default: run once per week (Sunday 02:00 approximated as 7 days)
-DR_BUILD_INTERVAL_SECONDS = 7 * 24 * 60 * 60
+# Build interval – configurable via DR_BUILD_INTERVAL_SECONDS env var.
+# Default: once per week (7 days).
+DR_BUILD_INTERVAL_SECONDS = int(os.getenv('DR_BUILD_INTERVAL_SECONDS', str(7 * 24 * 60 * 60)))
 
 _background_thread_started = False
 _thread_lock = threading.Lock()

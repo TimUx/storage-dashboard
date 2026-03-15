@@ -47,19 +47,39 @@ def discover_relationships(system_name, health_data):
 
 def build_topology(relationship):
     """Return a topology dict for the given MetroCluster DR relationship."""
-    site_a = relationship.get('primary_site', 'Site A')
-    site_b = relationship.get('secondary_site', 'Site B')
+    site_a = relationship.get('primary_site', 'Datacenter A')
+    site_b = relationship.get('secondary_site', 'Datacenter B')
+    primary = relationship.get('primary_cluster') or 'Cluster-A'
+    secondary = relationship.get('secondary_cluster') or 'Cluster-B'
     rd = relationship.get('relationship_data', {})
-    mc = rd.get('metrocluster', {})
-    nodes = mc.get('nodes', [])
+    mc = rd.get('metrocluster', {}) if isinstance(rd.get('metrocluster'), dict) else {}
+    api_nodes = mc.get('nodes', []) if isinstance(mc, dict) else []
 
     topo_nodes = []
-    for node in nodes:
-        topo_nodes.append({
-            'name': node.get('name', 'node'),
-            'type': 'ontap-node',
-            'site': node.get('dr_home_port', {}).get('node', {}).get('name', site_a),
-        })
+    vips = []
+
+    # Build per-site node lists from API data if available, else use defaults
+    for node in api_nodes:
+        if not isinstance(node, dict):
+            continue
+        name = node.get('name', 'node')
+        # Assign to site based on available DR home info
+        site = node.get('dr_home_port', {}).get('node', {}).get('name', site_a) if isinstance(node.get('dr_home_port'), dict) else site_a
+        topo_nodes.append({'name': name, 'type': 'ontap-node', 'site': site})
+
+    if not topo_nodes:
+        # Default: 2 nodes per cluster
+        for prefix, site in [(primary, site_a), (secondary, site_b)]:
+            topo_nodes.append({'name': f'{prefix}-01', 'type': 'ontap-node', 'site': site})
+            topo_nodes.append({'name': f'{prefix}-02', 'type': 'ontap-node', 'site': site})
+
+    # Add cluster management VIPs
+    vips.append({'name': f'{primary}-ClusterMgmtVIP', 'type': 'cluster-mgmt', 'cluster': primary})
+    vips.append({'name': f'{secondary}-ClusterMgmtVIP', 'type': 'cluster-mgmt', 'cluster': secondary})
+
+    # Add ISL switches as special nodes
+    topo_nodes.append({'name': 'ISL-Switch-A', 'type': 'fc-switch', 'site': site_a})
+    topo_nodes.append({'name': 'ISL-Switch-B', 'type': 'fc-switch', 'site': site_b})
 
     return {
         'sites': [
@@ -75,7 +95,7 @@ def build_topology(relationship):
                 'label': 'MetroCluster ISL',
             }
         ],
-        'vips': [],
+        'vips': vips,
     }
 
 
@@ -175,22 +195,76 @@ def generate_commands(relationship, failover_direction='planned_failover'):
 # ---------------------------------------------------------------------------
 
 def generate_topology_diagram(relationship):
-    """Return a Mermaid diagram string showing the MetroCluster topology."""
-    site_a = relationship.get('primary_site', 'Site A')
-    site_b = relationship.get('secondary_site', 'Site B')
-    primary = relationship.get('primary_cluster') or 'Cluster A'
+    """Return a Mermaid diagram string showing the MetroCluster topology.
+
+    Includes Datacenter A & B, ONTAP clusters, nodes, FC/IP switches (ISL),
+    SVMs, and cluster management VIPs.
+    """
+    site_a = relationship.get('primary_site', 'Datacenter A')
+    site_b = relationship.get('secondary_site', 'Datacenter B')
+    primary = relationship.get('primary_cluster') or 'Cluster-A'
+    secondary = relationship.get('secondary_cluster') or 'Cluster-B'
+    rd = relationship.get('relationship_data', {})
+    mc = rd.get('metrocluster', {})
+    nodes = mc.get('nodes', []) if isinstance(mc, dict) else []
+
+    a_id = _safe_id(primary)
+    b_id = _safe_id(secondary)
+
+    # Build node lines for each site
+    a_nodes = [n for n in nodes if isinstance(n, dict) and 'A' in n.get('name', '').upper()]
+    b_nodes = [n for n in nodes if isinstance(n, dict) and 'B' in n.get('name', '').upper()]
+    # If we can't split by name, put first half in A, rest in B
+    if not a_nodes and not b_nodes and nodes:
+        mid = max(1, len(nodes) // 2)
+        a_nodes, b_nodes = nodes[:mid], nodes[mid:]
+
+    def _node_lines(cluster_nodes, prefix):
+        """Generate Mermaid subgraph lines for a set of ONTAP nodes."""
+        result = []
+        for i, node in enumerate(cluster_nodes[:4]):  # cap at 4 nodes
+            nname = node.get('name', f'node{i+1}') if isinstance(node, dict) else f'node{i+1}'
+            nid = f'{prefix}_n{i}'
+            result.append(f'      {nid}[["Node: {nname}"]]')
+        return result
 
     lines = [
         'graph LR',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
-        f'    MC_A["{primary}\\nONTAP MetroCluster\\n(Primary)"]',
+        f'    subgraph {a_id}_cluster["{primary} (Primary)"]',
+    ]
+    if a_nodes:
+        lines += _node_lines(a_nodes, a_id)
+    else:
+        lines += [
+            f'      {a_id}_n0[["Node-01\\n(Controller)"]]',
+            f'      {a_id}_n1[["Node-02\\n(Controller)"]]',
+        ]
+    lines += [
+        f'      {a_id}_vip(["Cluster Mgmt VIP"])',
+        f'      {a_id}_svm[("{primary}-SVM")]',
+        '    end',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
-        f'    MC_B["Cluster B\\nONTAP MetroCluster\\n(Secondary)"]',
+        f'    subgraph {b_id}_cluster["{secondary} (Secondary)"]',
+    ]
+    if b_nodes:
+        lines += _node_lines(b_nodes, b_id)
+    else:
+        lines += [
+            f'      {b_id}_n0[["Node-01\\n(Controller)"]]',
+            f'      {b_id}_n1[["Node-02\\n(Controller)"]]',
+        ]
+    lines += [
+        f'      {b_id}_vip(["Cluster Mgmt VIP"])',
+        f'      {b_id}_svm[("{secondary}-SVM")]',
+        '    end',
         '  end',
-        '  ISL["ISL / FC Switch"]',
-        '  MC_A <-->|"Synchronous\\nReplication"| ISL',
-        '  ISL <-->|"MetroCluster\\nISL"| MC_B',
+        '  ISL_A(["FC/IP Switch\\nSite A"])',
+        '  ISL_B(["FC/IP Switch\\nSite B"])',
+        f'  {a_id}_cluster <-->|"MetroCluster\\nSynchronous"| ISL_A',
+        '  ISL_A <-->|"ISL"| ISL_B',
+        f'  ISL_B <-->|"MetroCluster\\nSynchronous"| {b_id}_cluster',
     ]
     return '\n'.join(lines)
 

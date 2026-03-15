@@ -525,17 +525,48 @@ Der DR Planner verwendet einen wöchentlichen Hintergrund-Build-Job (Standard: e
 
 **Wichtig**: Die DR-Seite im Browser ruft zur Laufzeit keine Storage-APIs auf. Alle Daten stammen aus der PostgreSQL-Datenbank.
 
+### Scheduler-Konfiguration
+
+Der Build-Intervall ist über die Umgebungsvariable `DR_BUILD_INTERVAL_SECONDS` konfigurierbar:
+
+```bash
+# Standard: 1 Woche (604800 Sekunden)
+DR_BUILD_INTERVAL_SECONDS=604800
+
+# Beispiel: täglich um Mitternacht (86400 Sekunden)
+DR_BUILD_INTERVAL_SECONDS=86400
+
+# Beispiel: alle 12 Stunden
+DR_BUILD_INTERVAL_SECONDS=43200
+```
+
+Ohne die Umgebungsvariable wird der Standard von 7 Tagen (eine Woche) verwendet.
+
 ### DR Planner bedienen
 
 1. **DR Planner öffnen**: `/dr/` im Browser aufrufen oder auf „🛡️ DR Planner" in der Navigation klicken.
 2. **Topologie-Übersicht**: Alle erkannten DR-Beziehungen werden in einer Tabelle angezeigt.
 3. **System auswählen**: Auf eine Zeile klicken oder das Dropdown „System auswählen" verwenden.
 4. **Failover-Richtung**: Zwischen „Planned Failover" und „Failback" umschalten.
-5. **Architektur-Diagramm**: Zeigt die Topologie des gewählten Systems (Mermaid-Diagramm).
+5. **Architektur-Diagramm**: Zeigt die Topologie des gewählten Systems inkl. Rechenzentren, Cluster, Controller, VIPs und Replikationslinks.
 6. **Workflow-Diagramm**: Zeigt den Failover-Ablauf als Flussdiagramm.
 7. **Runbook**: Strukturierte Schritt-für-Schritt-Anleitung für den Failover.
 8. **CLI Console**: Herstellerspezifische Befehle für das gewählte System und die Richtung.
 9. **Manueller Rebuild**: „🔄 Rebuild DR Information"-Button mit Bestätigungsdialog.
+
+### Screenshots
+
+![DR Topology Overview](screenshots/dr-topology-overview.png)
+
+*DR Topology Overview – Übersicht aller erkannten DR-Beziehungen mit Build-Status-Panel*
+
+![DR Architecture & Workflow Diagrams](screenshots/dr-architecture-diagram.png)
+
+*DR Architecture Diagram (links) zeigt Rechenzentren, Controller und VIPs; Failover Workflow Diagram (rechts) zeigt die Ablaufschritte*
+
+![DR Runbook & CLI Console](screenshots/dr-runbook-cli.png)
+
+*DR Runbook (oben) mit phasenweisen Schritten; CLI Command Console (unten) mit herstellerspezifischen Befehlen*
 
 ### DR-Build-Status
 

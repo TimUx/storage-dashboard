@@ -460,21 +460,29 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" onerror="window._mermaidUnavailable=true"></script>
 <script>
 // ── State ──
 let currentDirection = 'planned_failover';
 let currentSystem = null;
 let topologyData = [];
 
-// ── Init Mermaid ──
-mermaid.initialize({
-    startOnLoad: false,
-    theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default',
-    securityLevel: 'loose',
-    flowchart: { useMaxWidth: true },
-    graph: { useMaxWidth: true },
-});
+// ── Init Mermaid (safe – CDN may be unavailable) ──
+(function() {
+    try {
+        if (typeof mermaid !== 'undefined') {
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default',
+                securityLevel: 'antiscript',
+                flowchart: { useMaxWidth: true },
+                graph: { useMaxWidth: true },
+            });
+        }
+    } catch(e) {
+        console.warn('Mermaid initialization failed:', e);
+    }
+})();
 
 // ── Load topology on page load ──
 document.addEventListener('DOMContentLoaded', function() {
@@ -612,12 +620,17 @@ function setDirection(direction) {
     if (currentSystem) loadSystemDetails();
 }
 
-// ── Render diagrams via Mermaid ──
+// ── Render diagrams via Mermaid (graceful degradation if Mermaid unavailable) ──
 function renderMermaid(elementId, definition) {
     const el = document.getElementById(elementId);
     if (!el) return;
     if (!definition) {
         el.innerHTML = '<span style="color:var(--dr-muted)">Kein Diagramm verfügbar.</span>';
+        return;
+    }
+    // If Mermaid is not available (CDN blocked), show diagram source as pre-formatted text
+    if (typeof mermaid === 'undefined') {
+        el.innerHTML = '<pre style="font-size:.75rem;white-space:pre-wrap;color:var(--dr-muted);">' + escHtml(definition) + '</pre>';
         return;
     }
     const id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);

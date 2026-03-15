@@ -82,16 +82,24 @@ def build_topology(relationship):
     rd = relationship.get('relationship_data', {})
     arrays = rd.get('arrays', [])
 
-    site_a_name = relationship.get('primary_site', 'Site A')
-    site_b_name = relationship.get('secondary_site', 'Site B')
+    site_a_name = relationship.get('primary_site', 'Datacenter A')
+    site_b_name = relationship.get('secondary_site', 'Datacenter B')
 
     nodes = []
+    vips = []
     for arr in arrays:
+        arr_name = arr.get('name', 'array') if isinstance(arr, dict) else str(arr)
+        # Add the array cluster node
         nodes.append({
-            'name': arr.get('name', 'array'),
-            'type': 'flasharray',
-            'site': arr.get('name', site_a_name),
+            'name': arr_name,
+            'type': 'flasharray-cluster',
+            'site': arr_name,
         })
+        # Add controllers for each array
+        nodes.append({'name': f'{arr_name}-CT0', 'type': 'controller', 'site': arr_name})
+        nodes.append({'name': f'{arr_name}-CT1', 'type': 'controller', 'site': arr_name})
+        # Add management VIP
+        vips.append({'name': f'{arr_name}-MgmtVIP', 'type': 'management', 'array': arr_name})
 
     return {
         'sites': [
@@ -107,7 +115,7 @@ def build_topology(relationship):
                 'label': 'ActiveCluster Pod',
             }
         ],
-        'vips': [],
+        'vips': vips,
     }
 
 
@@ -237,26 +245,41 @@ def generate_commands(relationship, failover_direction='planned_failover'):
 # ---------------------------------------------------------------------------
 
 def generate_topology_diagram(relationship):
-    """Return a Mermaid diagram string showing the ActiveCluster topology."""
-    site_a = relationship.get('primary_site', 'Site A')
-    site_b = relationship.get('secondary_site', 'Site B')
-    primary = relationship.get('primary_cluster') or 'Array A'
-    secondary = relationship.get('secondary_cluster') or 'Array B'
+    """Return a Mermaid diagram string showing the ActiveCluster topology.
+
+    Includes Datacenter A & B, FlashArray clusters, controllers (CT0/CT1),
+    management VIPs, replication link, and mediator.
+    """
+    site_a = relationship.get('primary_site', 'Datacenter A')
+    site_b = relationship.get('secondary_site', 'Datacenter B')
+    primary = relationship.get('primary_cluster') or 'Array-A'
+    secondary = relationship.get('secondary_cluster') or 'Array-B'
     rd = relationship.get('relationship_data', {})
     pod_name = rd.get('pod_name') or 'pod'
+    # Derive safe node IDs
+    a_id = _safe_id(primary)
+    b_id = _safe_id(secondary)
 
     lines = [
         'graph LR',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
-        f'    FA1["{primary}\\nFlashArray"]',
+        f'    subgraph {a_id}_cluster["{primary}"]',
+        f'      {a_id}_ct0[["CT0\\n(Controller)"]]',
+        f'      {a_id}_ct1[["CT1\\n(Controller)"]]',
+        f'      {a_id}_vip(["Mgmt VIP"])',
+        f'    end',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
-        f'    FA2["{secondary}\\nFlashArray"]',
+        f'    subgraph {b_id}_cluster["{secondary}"]',
+        f'      {b_id}_ct0[["CT0\\n(Controller)"]]',
+        f'      {b_id}_ct1[["CT1\\n(Controller)"]]',
+        f'      {b_id}_vip(["Mgmt VIP"])',
+        f'    end',
         '  end',
-        f'  M["Mediator"]',
-        f'  FA1 <-->|"ActiveCluster\\n{pod_name}"| FA2',
-        f'  FA1 -.->|"Heartbeat"| M',
-        f'  FA2 -.->|"Heartbeat"| M',
+        f'  M(["Mediator"])',
+        f'  {a_id}_cluster <-->|"ActiveCluster\\n{pod_name}\\n(Synchronous)"| {b_id}_cluster',
+        f'  {a_id}_cluster -.->|"Heartbeat"| M',
+        f'  {b_id}_cluster -.->|"Heartbeat"| M',
     ]
     return '\n'.join(lines)
 
