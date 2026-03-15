@@ -2,6 +2,35 @@
 
 Provides generation rules and command templates for ONTAP MetroCluster
 (synchronous site-level replication) environments.
+
+Supported failover directions
+------------------------------
+planned_failover
+    Negotiated switchover initiated from the healthy primary site.
+    All nodes are up.  Uses ``metrocluster switchover`` (no extra flags).
+
+failback
+    Return operations to the primary site after it has been restored.
+    Uses ``metrocluster switchback``.
+
+disaster_recovery
+    Forced switchover initiated from the surviving secondary site after
+    the primary site is down.  Uses
+    ``metrocluster switchover -forced-on-disaster true``.
+
+    Per NetApp documentation the full disaster recovery procedure is:
+    https://docs.netapp.com/us-en/ontap-metrocluster/disaster-recovery/
+    task_perform_a_forced_switchover_after_a_disaster.html
+
+    The 8-phase workflow is:
+    1. Disaster detection
+    2. Pre-checks on surviving site
+    3. Forced switchover
+    4. Switchover verification
+    5. Aggregate healing (data aggregates)
+    6. Root aggregate healing
+    7. Switchback (when failed site returns)
+    8. Final verification
 """
 
 # ---------------------------------------------------------------------------
@@ -9,22 +38,45 @@ Provides generation rules and command templates for ONTAP MetroCluster
 # ---------------------------------------------------------------------------
 
 def discover_relationships(system_name, health_data):
-    """Analyse health_data and return normalised MetroCluster DR relationship dicts."""
+    """Analyse health_data and return normalised MetroCluster DR relationship dicts.
+
+    Uses ``is_metrocluster``, ``metrocluster_info``, and ``metrocluster_peers``
+    keys as returned by NetAppONTAPClient.get_health_status().  The data matches
+    the ONTAP REST API (GET /api/cluster/metrocluster) defined in ontap_swagger.yaml.
+    """
     relationships = []
-    mc_info = health_data.get('metrocluster') or health_data.get('metro_cluster')
-    if not mc_info:
+
+    # The health_data returned by NetAppONTAPClient.get_health_status() stores
+    # MetroCluster state as is_metrocluster (bool) and configuration details as
+    # metrocluster_info (dict) with local_cluster_name, partner_cluster_name,
+    # configuration_state, configuration_type.  metrocluster_peers is a list of
+    # peer cluster dicts from GET /api/cluster/peers.
+    is_metrocluster = health_data.get('is_metrocluster')
+    if not is_metrocluster:
         return relationships
 
-    if isinstance(mc_info, dict):
-        sites = mc_info.get('sites', [])
-        site_a = sites[0].get('name', 'Site A') if len(sites) > 0 else 'Site A'
-        site_b = sites[1].get('name', 'Site B') if len(sites) > 1 else 'Site B'
-        state = mc_info.get('configuration_state', 'unknown')
-    else:
-        site_a, site_b = 'Site A', 'Site B'
-        state = 'unknown'
+    mc_info = health_data.get('metrocluster_info') or {}
+    mc_peers = health_data.get('metrocluster_peers') or []
+    mc_nodes = health_data.get('metrocluster_nodes') or []
 
-    replication_state = 'healthy' if state in ('configured', 'healthy') else 'degraded'
+    configuration_state = mc_info.get('configuration_state', 'unknown')
+    replication_state = 'healthy' if configuration_state in ('configured', 'healthy') else 'degraded'
+
+    local_cluster = mc_info.get('local_cluster_name') or system_name
+    # Partner cluster from metrocluster_info; fall back to first peer entry
+    partner_cluster = mc_info.get('partner_cluster_name')
+    if not partner_cluster and mc_peers:
+        partner_cluster = mc_peers[0].get('name', '')
+    partner_cluster = partner_cluster or ''
+
+    # Derive site names from cluster names
+    site_a = local_cluster
+    site_b = partner_cluster or 'Site B'
+
+    configuration_type = mc_info.get('configuration_type', '')
+    mc_type_label = 'MetroCluster FC'
+    if configuration_type and 'ip' in configuration_type.lower():
+        mc_type_label = 'MetroCluster IP'
 
     relationships.append({
         'system_name': system_name,
@@ -32,10 +84,19 @@ def discover_relationships(system_name, health_data):
         'replication_type': 'metrocluster',
         'primary_site': site_a,
         'secondary_site': site_b,
-        'primary_cluster': system_name,
-        'secondary_cluster': '',
+        'primary_cluster': local_cluster,
+        'secondary_cluster': partner_cluster,
         'replication_state': replication_state,
-        'relationship_data': {'metrocluster': mc_info if isinstance(mc_info, dict) else {}},
+        'relationship_data': {
+            'metrocluster': {
+                'configuration_state': configuration_state,
+                'configuration_type': mc_type_label,
+                'local_cluster': local_cluster,
+                'partner_cluster': partner_cluster,
+                'peers': mc_peers,
+                'nodes': mc_nodes,
+            }
+        },
     })
 
     return relationships
@@ -136,11 +197,66 @@ _WORKFLOW_STEPS = {
         {'phase': 'post-failback', 'step': 6, 'title': 'Validate MetroCluster health',
          'description': 'Run metrocluster check run and confirm all checks pass.'},
     ],
+    # Disaster recovery: forced switchover from the surviving site after a
+    # site-level disaster.  Per NetApp documentation:
+    # https://docs.netapp.com/us-en/ontap-metrocluster/disaster-recovery/
+    # task_perform_a_forced_switchover_after_a_disaster.html
+    'disaster_recovery': [
+        {'phase': 'detection', 'step': 1, 'title': 'Disaster detected',
+         'description': (
+             'Confirm the primary site is down and the surviving secondary site nodes are '
+             'healthy.  Check connectivity and console output to rule out a partial failure.'
+         )},
+        {'phase': 'pre-checks', 'step': 2, 'title': 'Run MetroCluster pre-checks',
+         'description': (
+             'On the surviving site run metrocluster show, metrocluster node show, '
+             'metrocluster check run, and metrocluster check show to assess cluster '
+             'health and confirm the disaster switchover is required.'
+         )},
+        {'phase': 'forced-switchover', 'step': 3, 'title': 'Forced switchover',
+         'description': (
+             'Execute the forced disaster switchover to bring all data aggregates online '
+             'on the surviving site: '
+             'metrocluster switchover -forced-on-disaster true'
+         )},
+        {'phase': 'verification', 'step': 4, 'title': 'Verify switchover completion',
+         'description': (
+             'Confirm the switchover completed successfully by checking '
+             'metrocluster operation show and metrocluster show.'
+         )},
+        {'phase': 'aggregate-healing', 'step': 5, 'title': 'Aggregate healing (data aggregates)',
+         'description': (
+             'Heal the data (non-root) aggregates to make them fully available: '
+             'metrocluster heal -phase aggregates'
+         )},
+        {'phase': 'aggregate-healing', 'step': 6, 'title': 'Root aggregate healing',
+         'description': (
+             'Heal the root aggregates to complete recovery: '
+             'metrocluster heal -phase root-aggregates'
+         )},
+        {'phase': 'switchback', 'step': 7, 'title': 'Switchback (when site returns)',
+         'description': (
+             'When the failed site is restored and hardware is confirmed healthy, '
+             'perform switchback to return operations to the primary site: '
+             'metrocluster switchback'
+         )},
+        {'phase': 'final-verification', 'step': 8, 'title': 'Final verification',
+         'description': (
+             'After switchback, run metrocluster node show and metrocluster show to '
+             'confirm normal operational state.  All aggregates should be online on '
+             'their original sites.'
+         )},
+    ],
 }
 
 
 def generate_workflow(relationship, failover_direction='planned_failover'):
-    """Return workflow steps for the given failover direction."""
+    """Return workflow steps for the given failover direction.
+
+    Supported directions: ``planned_failover``, ``failback``,
+    ``disaster_recovery``.  Unknown directions fall back to
+    ``planned_failover``.
+    """
     return list(_WORKFLOW_STEPS.get(failover_direction, _WORKFLOW_STEPS['planned_failover']))
 
 
@@ -149,13 +265,28 @@ def generate_workflow(relationship, failover_direction='planned_failover'):
 # ---------------------------------------------------------------------------
 
 def generate_commands(relationship, failover_direction='planned_failover'):
-    """Return CLI command objects for the given failover direction."""
+    """Return CLI command objects for the given failover direction.
+
+    Commands are built dynamically from the discovered topology stored in
+    *relationship*.  This ensures that cluster names and node names in the
+    generated commands reflect the actual discovered environment.
+
+    Supported directions: ``planned_failover``, ``failback``,
+    ``disaster_recovery``.
+    """
     primary = relationship.get('primary_cluster') or 'cluster1'
+    secondary = relationship.get('secondary_cluster') or 'cluster2'
+
+    # For disaster recovery the commands are issued from the surviving
+    # (secondary) site because the primary site is down.
+    surviving = secondary if failover_direction == 'disaster_recovery' else primary
 
     commands = {
         'planned_failover': [
             {'phase': 'pre-failover', 'description': 'Check MetroCluster configuration',
              'cli': 'metrocluster show', 'target': primary},
+            {'phase': 'pre-failover', 'description': 'Check MetroCluster node status',
+             'cli': 'metrocluster node show', 'target': primary},
             {'phase': 'pre-failover', 'description': 'Run MetroCluster health check',
              'cli': 'metrocluster check run', 'target': primary},
             {'phase': 'pre-failover', 'description': 'Show check results',
@@ -166,24 +297,75 @@ def generate_commands(relationship, failover_direction='planned_failover'):
              'cli': 'metrocluster switchover -simulate', 'target': primary},
             {'phase': 'failover', 'description': 'Execute negotiated switchover',
              'cli': 'metrocluster switchover', 'target': primary},
+            {'phase': 'failover', 'description': 'Verify switchover operation',
+             'cli': 'metrocluster operation show', 'target': primary},
             {'phase': 'failover', 'description': 'Verify switchover state',
              'cli': 'metrocluster show', 'target': primary},
+            {'phase': 'post-failover', 'description': 'Verify node state post-switchover',
+             'cli': 'metrocluster node show', 'target': primary},
             {'phase': 'post-failover', 'description': 'Show SVMs on secondary',
              'cli': 'vserver show', 'target': primary},
             {'phase': 'post-failover', 'description': 'Show LIF status on secondary',
              'cli': 'network interface show', 'target': primary},
         ],
         'failback': [
+            {'phase': 'pre-failback', 'description': 'Check MetroCluster configuration',
+             'cli': 'metrocluster show', 'target': surviving},
+            {'phase': 'pre-failback', 'description': 'Check MetroCluster node status',
+             'cli': 'metrocluster node show', 'target': surviving},
             {'phase': 'pre-failback', 'description': 'Simulate switchback (dry run)',
-             'cli': 'metrocluster switchback -simulate', 'target': primary},
+             'cli': 'metrocluster switchback -simulate', 'target': surviving},
             {'phase': 'failback', 'description': 'Execute switchback',
-             'cli': 'metrocluster switchback', 'target': primary},
+             'cli': 'metrocluster switchback', 'target': surviving},
+            {'phase': 'failback', 'description': 'Verify switchback operation',
+             'cli': 'metrocluster operation show', 'target': surviving},
             {'phase': 'failback', 'description': 'Verify normal state',
-             'cli': 'metrocluster show', 'target': primary},
+             'cli': 'metrocluster show', 'target': surviving},
             {'phase': 'post-failback', 'description': 'Run health check post-switchback',
-             'cli': 'metrocluster check run', 'target': primary},
+             'cli': 'metrocluster check run', 'target': surviving},
             {'phase': 'post-failback', 'description': 'Review check results',
-             'cli': 'metrocluster check show', 'target': primary},
+             'cli': 'metrocluster check show', 'target': surviving},
+            {'phase': 'post-failback', 'description': 'Verify node state post-switchback',
+             'cli': 'metrocluster node show', 'target': surviving},
+        ],
+        # Disaster recovery commands executed on the *surviving* (secondary) site.
+        # Reference: https://docs.netapp.com/us-en/ontap-metrocluster/disaster-recovery/
+        #   task_perform_a_forced_switchover_after_a_disaster.html
+        'disaster_recovery': [
+            # Phase: pre-checks (on surviving site)
+            {'phase': 'pre-checks', 'description': 'Check MetroCluster configuration on surviving site',
+             'cli': 'metrocluster show', 'target': surviving},
+            {'phase': 'pre-checks', 'description': 'Check MetroCluster node status on surviving site',
+             'cli': 'metrocluster node show', 'target': surviving},
+            {'phase': 'pre-checks', 'description': 'Run MetroCluster health check',
+             'cli': 'metrocluster check run', 'target': surviving},
+            {'phase': 'pre-checks', 'description': 'Show MetroCluster check results',
+             'cli': 'metrocluster check show', 'target': surviving},
+            # Phase: forced-switchover
+            {'phase': 'forced-switchover', 'description': 'Execute forced disaster switchover',
+             'cli': 'metrocluster switchover -forced-on-disaster true', 'target': surviving},
+            # Phase: verification
+            {'phase': 'verification', 'description': 'Verify switchover operation completed',
+             'cli': 'metrocluster operation show', 'target': surviving},
+            {'phase': 'verification', 'description': 'Verify MetroCluster state after switchover',
+             'cli': 'metrocluster show', 'target': surviving},
+            {'phase': 'verification', 'description': 'Verify node state after switchover',
+             'cli': 'metrocluster node show', 'target': surviving},
+            # Phase: aggregate-healing (data aggregates, then root aggregates)
+            {'phase': 'aggregate-healing', 'description': 'Heal data aggregates',
+             'cli': 'metrocluster heal -phase aggregates', 'target': surviving},
+            {'phase': 'aggregate-healing', 'description': 'Heal root aggregates',
+             'cli': 'metrocluster heal -phase root-aggregates', 'target': surviving},
+            # Phase: switchback (when failed site returns)
+            {'phase': 'switchback', 'description': 'Verify switchback readiness',
+             'cli': 'metrocluster switchback -simulate', 'target': surviving},
+            {'phase': 'switchback', 'description': 'Execute switchback to primary site',
+             'cli': 'metrocluster switchback', 'target': surviving},
+            # Phase: final-verification
+            {'phase': 'final-verification', 'description': 'Verify node state after switchback',
+             'cli': 'metrocluster node show', 'target': surviving},
+            {'phase': 'final-verification', 'description': 'Verify normal MetroCluster state',
+             'cli': 'metrocluster show', 'target': surviving},
         ],
     }
 
@@ -270,7 +452,11 @@ def generate_topology_diagram(relationship):
 
 
 def generate_workflow_diagram(relationship, failover_direction='planned_failover'):
-    """Return a Mermaid flowchart for the MetroCluster DR workflow."""
+    """Return a Mermaid flowchart for the MetroCluster DR workflow.
+
+    The diagram is generated dynamically from the workflow steps so that any
+    change to the step list is automatically reflected in the diagram.
+    """
     steps = generate_workflow(relationship, failover_direction)
     lines = ['flowchart TD']
     prev_id = None
@@ -306,3 +492,4 @@ def generate_runbook(relationship, failover_direction='planned_failover'):
 
 def _safe_id(name):
     return name.replace(' ', '_').replace('-', '_').replace('/', '_')
+

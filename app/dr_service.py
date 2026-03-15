@@ -136,7 +136,19 @@ def _do_build(app):
                                 topology_data=json.dumps(topo_data),
                             ))
 
-                            for direction in ['planned_failover', 'failback']:
+                            from app.dr_generators import _FAILOVER_DIRECTIONS
+                            # MetroCluster, SnapMirror, and DataDomain all support
+                            # disaster_recovery in addition to planned_failover and failback.
+                            # Other replication types only use the base two directions.
+                            replication_type = rel_dict_copy.get('replication_type', '')
+                            if replication_type in ('metrocluster', 'snapmirror',
+                                                    'datadomain-replication',
+                                                    'activecluster'):
+                                directions = _FAILOVER_DIRECTIONS
+                            else:
+                                directions = ['planned_failover', 'failback']
+
+                            for direction in directions:
                                 # Step 3: Generate workflow
                                 workflow_steps = workflow_gen.generate(rel_dict_copy, direction)
                                 db.session.add(DRWorkflow(

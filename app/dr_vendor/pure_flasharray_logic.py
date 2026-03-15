@@ -1,7 +1,8 @@
 """Pure Storage FlashArray ActiveCluster DR logic.
 
 Provides generation rules and command templates for Pure FlashArray
-ActiveCluster (synchronous replication) environments.
+ActiveCluster (synchronous replication) and pod-replica-link (asynchronous
+pod replication) environments.
 """
 
 # ---------------------------------------------------------------------------
@@ -12,62 +13,123 @@ def discover_relationships(system_name, health_data):
     """Analyse health_data returned by PureStorageClient.get_health_status()
     and return a list of normalised DR relationship dicts.
 
+    Detects two replication mechanisms:
+    1. **ActiveCluster (sync)** – identified by ``is_active_cluster`` /
+       ``array_connections`` with ``type == 'sync-replication'``.
+    2. **Pod replica links (async)** – identified by ``pod_replica_links``
+       from GET /api/<ver>/pod-replica-links (pure_swagger.json schema).
+       Each outbound entry represents an async pod-level DR relationship.
+
     Each dict contains:
         system_name, vendor, replication_type,
         primary_site, secondary_site, primary_cluster, secondary_cluster,
         replication_state, relationship_data
     """
     relationships = []
-    ac_info = health_data.get('activecluster') or health_data.get('active_cluster')
-    if not ac_info:
-        return relationships
 
-    mediators = ac_info.get('mediator_status') if isinstance(ac_info, dict) else None
-    pods = health_data.get('pods', []) or []
+    # The health_data returned by PureStorageClient.get_health_status() stores
+    # ActiveCluster state as is_active_cluster (bool) and array connection
+    # details as array_connections (list of dicts with name, status, type,
+    # management_address, version).  pods_info carries pod-level detail.
+    is_active_cluster = health_data.get('is_active_cluster')
+    array_connections = health_data.get('array_connections') or []
+    pods_info = health_data.get('pods_info') or []
+    pod_replica_links = health_data.get('pod_replica_links') or []
 
-    for pod in pods:
-        if not isinstance(pod, dict):
-            continue
-        arrays = pod.get('arrays', [])
-        if len(arrays) < 2:
-            continue
+    # Filter for sync-replication connections (ActiveCluster)
+    sync_connections = [c for c in array_connections if isinstance(c, dict) and c.get('type') == 'sync-replication']
 
-        primary = arrays[0]
-        secondary = arrays[1]
-        state = 'healthy'
-        if pod.get('status') not in (None, 'online', 'healthy'):
-            state = 'degraded'
+    # ---- ActiveCluster (synchronous) relationships -------------------------
+    for conn in sync_connections:
+        partner_name = conn.get('name') or conn.get('management_address') or 'peer-array'
+        state = conn.get('status', 'unknown')
+        replication_state = 'healthy' if state == 'connected' else 'degraded'
 
-        rel = {
-            'system_name': system_name,
-            'vendor': 'pure',
-            'replication_type': 'activecluster',
-            'primary_site': primary.get('name', 'Site A'),
-            'secondary_site': secondary.get('name', 'Site B'),
-            'primary_cluster': primary.get('name', system_name),
-            'secondary_cluster': secondary.get('name', ''),
-            'replication_state': state,
-            'relationship_data': {
-                'pod_name': pod.get('name'),
-                'pod_status': pod.get('status'),
-                'arrays': arrays,
-                'mediator': mediators,
-            },
-        }
-        relationships.append(rel)
-
-    if not relationships and isinstance(ac_info, dict):
-        # Minimal entry when ActiveCluster is detected but no pod detail
         relationships.append({
             'system_name': system_name,
             'vendor': 'pure',
             'replication_type': 'activecluster',
-            'primary_site': 'Site A',
-            'secondary_site': 'Site B',
+            'primary_site': system_name,
+            'secondary_site': partner_name,
+            'primary_cluster': system_name,
+            'secondary_cluster': partner_name,
+            'replication_state': replication_state,
+            'relationship_data': {
+                'connection': conn,
+                'pods': pods_info,
+                'replication_mode': 'synchronous',
+            },
+        })
+
+    if not relationships and (is_active_cluster or sync_connections):
+        # ActiveCluster confirmed but no detailed connection data available
+        relationships.append({
+            'system_name': system_name,
+            'vendor': 'pure',
+            'replication_type': 'activecluster',
+            'primary_site': system_name,
+            'secondary_site': 'peer-array',
             'primary_cluster': system_name,
             'secondary_cluster': '',
             'replication_state': 'unknown',
-            'relationship_data': {'activecluster': ac_info},
+            'relationship_data': {
+                'array_connections': array_connections,
+                'pods': pods_info,
+                'replication_mode': 'synchronous',
+            },
+        })
+
+    # ---- Pod replica links (asynchronous pod replication) ------------------
+    # GET /api/<ver>/pod-replica-links returns per-direction entries.
+    # Each outbound link (direction == 'outbound') means this array is the
+    # source for an async pod replication to a remote array.
+    for link in pod_replica_links:
+        if not isinstance(link, dict):
+            continue
+        direction = (link.get('direction') or '').lower()
+        if direction != 'outbound':
+            # Only create a relationship for outbound direction to avoid
+            # duplicate entries (the remote array will have an inbound entry).
+            continue
+
+        local_pod = link.get('local_pod', {})
+        remote_pod = link.get('remote_pod', {})
+        local_pod_name = local_pod.get('name', '') if isinstance(local_pod, dict) else str(local_pod)
+        remote_pod_name = remote_pod.get('name', '') if isinstance(remote_pod, dict) else str(remote_pod)
+
+        # Derive remote array name from the remote pod's array list if present
+        remote_arrays = link.get('remote_arrays', []) or []
+        remote_array_name = (
+            remote_arrays[0].get('name', 'remote-array')
+            if remote_arrays and isinstance(remote_arrays[0], dict)
+            else 'remote-array'
+        )
+
+        status = link.get('status', {})
+        link_state = status.get('progress', '') if isinstance(status, dict) else ''
+        replication_state = 'healthy' if link_state not in ('paused', 'disconnected') else 'degraded'
+
+        relationships.append({
+            'system_name': system_name,
+            'vendor': 'pure',
+            # Pod replica links use 'activecluster' as the replication_type so
+            # that the existing dr_generators dispatch table routes them to this
+            # module.  The relationship_data.replication_mode field ('asynchronous')
+            # distinguishes them from ActiveCluster (synchronous) relationships
+            # without requiring a separate vendor module registration.
+            'replication_type': 'activecluster',
+            'primary_site': system_name,
+            'secondary_site': remote_array_name,
+            'primary_cluster': system_name,
+            'secondary_cluster': remote_array_name,
+            'replication_state': replication_state,
+            'relationship_data': {
+                'local_pod': local_pod_name,
+                'remote_pod': remote_pod_name,
+                'direction': direction,
+                'replication_mode': 'asynchronous',
+                'link': link,
+            },
         })
 
     return relationships
@@ -156,6 +218,25 @@ _WORKFLOW_STEPS = {
         {'phase': 'post-failback', 'step': 6, 'title': 'Re-add secondary to pod',
          'description': 'Restore the full ActiveCluster configuration for continued protection.'},
     ],
+    # ActiveCluster is active-active synchronous replication. If one array
+    # becomes unavailable, hosts automatically continue IO via MPIO through
+    # the surviving array. There is NO failover command to execute.
+    # The disaster_recovery direction only generates validation and diagnostic
+    # procedures for the surviving array.
+    'disaster_recovery': [
+        {'phase': 'detection', 'step': 1, 'title': 'Datacenter failure detection',
+         'description': 'Confirm the primary datacenter / array is unreachable. Hosts continue IO automatically via MPIO through the surviving array — no manual failover is required.'},
+        {'phase': 'validation', 'step': 2, 'title': 'Verify surviving FlashArray health',
+         'description': 'Check the overall health of the surviving FlashArray using purearray list.'},
+        {'phase': 'validation', 'step': 3, 'title': 'Verify ActiveCluster pod replication',
+         'description': 'List all pods and their replication state. Confirm pods are online on the surviving array.'},
+        {'phase': 'validation', 'step': 4, 'title': 'Verify volume availability',
+         'description': 'Confirm all volumes inside affected pods are accessible using purevol list.'},
+        {'phase': 'validation', 'step': 5, 'title': 'Verify host connectivity',
+         'description': 'Check host connections to the surviving array using purehost list and purearray list --connections.'},
+        {'phase': 'support', 'step': 6, 'title': 'Enable remote support access',
+         'description': 'Enable Pure Storage remote support access so engineers can assist during the disaster scenario.'},
+    ],
 }
 
 
@@ -175,6 +256,9 @@ def generate_commands(relationship, failover_direction='planned_failover'):
     pod_name = rd.get('pod_name') or 'pod1'
     primary = relationship.get('primary_cluster') or 'array1'
     secondary = relationship.get('secondary_cluster') or 'array2'
+
+    # For disaster_recovery the surviving array is the secondary (DR) site.
+    surviving = secondary or primary
 
     commands = {
         'planned_failover': [
@@ -233,6 +317,53 @@ def generate_commands(relationship, failover_direction='planned_failover'):
                 'description': 'Detach secondary from pod',
                 'cli': f'purepod remove --array {secondary} {pod_name}',
                 'target': secondary,
+            },
+        ],
+        # ActiveCluster is active-active: no failover command is issued.
+        # All disaster_recovery commands are diagnostic/validation only and
+        # target the surviving (secondary/DR) array.
+        'disaster_recovery': [
+            {
+                'phase': 'validation',
+                'description': 'List array health',
+                'cli': 'purearray list',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'List ActiveCluster pods',
+                'cli': 'purepod list',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'Check pod replication state',
+                'cli': 'purepod list --replication',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'List volumes',
+                'cli': 'purevol list',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'List hosts',
+                'cli': 'purehost list',
+                'target': surviving,
+            },
+            {
+                'phase': 'validation',
+                'description': 'List array connections',
+                'cli': 'purearray list --connections',
+                'target': surviving,
+            },
+            {
+                'phase': 'support',
+                'description': 'Enable remote support access',
+                'cli': 'purearray remote-assist enable',
+                'target': surviving,
             },
         ],
     }
