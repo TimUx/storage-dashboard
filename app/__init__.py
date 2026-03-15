@@ -145,11 +145,19 @@ def create_app():
     from app.routes import main, admin, api
     from app.routes import capacity as capacity_routes
     from app.routes import alerts as alerts_routes
+    from app.routes import dr as dr_routes
     app.register_blueprint(main.bp)
     app.register_blueprint(admin.bp)
     app.register_blueprint(api.bp)
     app.register_blueprint(capacity_routes.bp)
     app.register_blueprint(alerts_routes.bp)
+    app.register_blueprint(dr_routes.bp)
+
+    # 404 handler: redirect unknown routes to /dashboard
+    @app.errorhandler(404)
+    def page_not_found(e):
+        from flask import redirect
+        return redirect('/dashboard')
     
     with app.app_context():
         # Create tables if they don't exist
@@ -216,5 +224,12 @@ def create_app():
             start_status_refresh(app)
         except Exception as e:
             app.logger.warning(f"Could not start status background refresh: {e}")
+
+        # Start DR build background thread (weekly DR relationship discovery and artifact generation)
+        try:
+            from app.dr_service import start_background_refresh as start_dr_refresh
+            start_dr_refresh(app)
+        except Exception as e:
+            app.logger.warning(f"Could not start DR build background refresh: {e}")
 
     return app

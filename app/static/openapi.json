@@ -3,7 +3,7 @@
   "info": {
     "title": "Storage Dashboard API",
     "description": "REST API des Storage Dashboards – liefert Statusinformationen und Verwaltungsfunktionen für alle angebundenen Storage-Systeme.",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "contact": {
       "name": "Timo Braun",
       "url": "https://github.com/TimUx/storage-dashboard",
@@ -40,12 +40,18 @@
     {
       "name": "Backup",
       "description": "Backup & Restore – Export und Import aller Einstellungen, Systeme, Zertifikate und Tags"
+    },
+    {
+      "name": "DR",
+      "description": "Disaster Recovery Planner – DR-Topologie, Runbooks, Workflows und CLI-Befehle"
     }
   ],
   "paths": {
     "/": {
       "get": {
-        "tags": ["Dashboard"],
+        "tags": [
+          "Dashboard"
+        ],
         "summary": "Haupt-Dashboard",
         "description": "Gibt das Haupt-Dashboard als HTML-Seite zurück. Per Standard wird die asynchrone Variante geladen (async=true), bei der die Systemdaten über /api/cached-status nachgeladen werden.",
         "parameters": [
@@ -55,7 +61,10 @@
             "required": false,
             "schema": {
               "type": "string",
-              "enum": ["true", "false"],
+              "enum": [
+                "true",
+                "false"
+              ],
               "default": "true"
             },
             "description": "Wenn true, wird das Dashboard mit Platzhaltern gerendert und die Daten asynchron per JavaScript geladen."
@@ -73,7 +82,9 @@
     },
     "/api/systems": {
       "get": {
-        "tags": ["Systems"],
+        "tags": [
+          "Systems"
+        ],
         "summary": "Alle Storage-Systeme auflisten",
         "description": "Gibt alle konfigurierten Storage-Systeme (aktiv und inaktiv) als JSON-Array zurück.",
         "responses": {
@@ -95,7 +106,9 @@
     },
     "/api/status": {
       "get": {
-        "tags": ["Systems"],
+        "tags": [
+          "Systems"
+        ],
         "summary": "Live-Status aller aktiven Systeme",
         "description": "Fragt den Gesundheitsstatus aller aktivierten Storage-Systeme **live** ab (direkte API-Calls zu den Systemen). Kann bei vielen Systemen einige Sekunden dauern.",
         "responses": {
@@ -117,7 +130,9 @@
     },
     "/api/systems/{system_id}/status": {
       "get": {
-        "tags": ["Systems"],
+        "tags": [
+          "Systems"
+        ],
         "summary": "Live-Status eines einzelnen Systems",
         "description": "Fragt den Gesundheitsstatus eines einzelnen Storage-Systems **live** ab.",
         "parameters": [
@@ -150,7 +165,9 @@
     },
     "/api/cached-status": {
       "get": {
-        "tags": ["Systems"],
+        "tags": [
+          "Systems"
+        ],
         "summary": "Gecachter Status aller aktiven Systeme",
         "description": "Gibt den zuletzt vom Hintergrund-Service gespeicherten Status aller aktiven Systeme zurück. Kein direkter API-Call zu den Storage-Systemen – sehr schnelle Antwort. Jeder Eintrag enthält den Zeitstempel `fetched_at`.",
         "responses": {
@@ -172,7 +189,9 @@
     },
     "/api/trigger-status-refresh": {
       "post": {
-        "tags": ["Systems"],
+        "tags": [
+          "Systems"
+        ],
         "summary": "Sofortige Statusaktualisierung auslösen",
         "description": "Löst eine sofortige, synchrone Statusaktualisierung aller aktiven Systeme aus. Wartet auf Abschluss und gibt die frischen Daten zurück.",
         "responses": {
@@ -194,7 +213,9 @@
     },
     "/api/alerts": {
       "get": {
-        "tags": ["Alerts"],
+        "tags": [
+          "Alerts"
+        ],
         "summary": "Aktuelle Alerts aller Systeme",
         "description": "Gibt alle offenen Alerts aus dem StatusCache als JSON zurück. Wird von der Alerts-Seite für Auto-Refresh verwendet.",
         "responses": {
@@ -213,7 +234,9 @@
     },
     "/api/alerts/state": {
       "post": {
-        "tags": ["Alerts"],
+        "tags": [
+          "Alerts"
+        ],
         "summary": "Alert-Status aktualisieren (Acknowledge / Assignee / Kommentar)",
         "description": "Aktualisiert den Bearbeitungsstatus eines oder mehrerer Alerts. Unterstützt Bulk-Updates über eine Liste von Alert-Keys.\n\nAlert-Keys haben das Format `system_name|alert_id|title`.",
         "requestBody": {
@@ -224,7 +247,9 @@
                 "$ref": "#/components/schemas/AlertStateRequest"
               },
               "example": {
-                "alert_keys": ["mein-system|42|Drive Failure"],
+                "alert_keys": [
+                  "mein-system|42|Drive Failure"
+                ],
                 "acknowledged": true,
                 "assignee": "Max Müller",
                 "comment": "Wird untersucht"
@@ -257,7 +282,9 @@
     },
     "/api/alerts/assignees": {
       "get": {
-        "tags": ["Alerts"],
+        "tags": [
+          "Alerts"
+        ],
         "summary": "Bearbeiter-Verlauf abrufen",
         "description": "Gibt alle gespeicherten Bearbeiternamen für die Autocomplete-Funktion zurück, sortiert nach zuletzt verwendet.",
         "responses": {
@@ -270,7 +297,10 @@
                   "items": {
                     "type": "string"
                   },
-                  "example": ["Max Müller", "Anna Schmidt"]
+                  "example": [
+                    "Max Müller",
+                    "Anna Schmidt"
+                  ]
                 }
               }
             }
@@ -280,7 +310,9 @@
     },
     "/api/alerts/assignees/{name}": {
       "delete": {
-        "tags": ["Alerts"],
+        "tags": [
+          "Alerts"
+        ],
         "summary": "Bearbeiter aus dem Verlauf entfernen",
         "description": "Löscht einen Bearbeiternamen aus der Autocomplete-Historie.",
         "parameters": [
@@ -316,7 +348,9 @@
     },
     "/systems/{system_id}/details": {
       "get": {
-        "tags": ["Systems"],
+        "tags": [
+          "Systems"
+        ],
         "summary": "Detailansicht eines Systems",
         "description": "Gibt die HTML-Detailansicht eines einzelnen Storage-Systems zurück.",
         "parameters": [
@@ -345,7 +379,9 @@
     },
     "/capacity/": {
       "get": {
-        "tags": ["Capacity"],
+        "tags": [
+          "Capacity"
+        ],
         "summary": "Kapazitätsreport",
         "description": "Gibt den Kapazitätsreport als HTML-Seite zurück.",
         "responses": {
@@ -360,11 +396,15 @@
     },
     "/admin": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Admin-Dashboard",
         "description": "Gibt das Admin-Dashboard zurück. Erfordert Anmeldung.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "responses": {
           "200": {
@@ -378,7 +418,9 @@
     },
     "/admin/login": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Admin-Login-Seite",
         "description": "Gibt die Login-Seite des Admin-Bereichs zurück.",
         "responses": {
@@ -388,7 +430,9 @@
         }
       },
       "post": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Admin-Login",
         "description": "Verarbeitet die Anmeldung im Admin-Bereich.",
         "requestBody": {
@@ -406,7 +450,10 @@
                     "format": "password"
                   }
                 },
-                "required": ["username", "password"]
+                "required": [
+                  "username",
+                  "password"
+                ]
               }
             }
           }
@@ -420,11 +467,15 @@
     },
     "/admin/logout": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Admin-Logout",
         "description": "Meldet den aktuellen Admin-Benutzer ab.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "responses": {
           "302": {
@@ -435,11 +486,15 @@
     },
     "/admin/docs": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "API-Einrichtungsdokumentation",
         "description": "Zeigt die Dokumentation zur Einrichtung von API-Zugängen für alle unterstützten Storage-Systeme.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "responses": {
           "200": {
@@ -450,11 +505,15 @@
     },
     "/admin/swagger": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Swagger UI",
         "description": "Interaktive API-Dokumentation (Swagger UI) für das Storage Dashboard.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "responses": {
           "200": {
@@ -465,11 +524,15 @@
     },
     "/admin/settings": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Einstellungsseite anzeigen",
         "description": "Gibt die Einstellungsseite des Admin-Bereichs zurück (Design, Logs, Zertifikate, API-Zugänge, Proxy, System, Backup).",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "responses": {
           "200": {
@@ -481,11 +544,15 @@
         }
       },
       "post": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Einstellungen speichern",
         "description": "Speichert die Einstellungen (Design, Logs, API-Zugänge, Proxy, System). Multipart-Form mit optionalem Logo-Upload.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "requestBody": {
           "required": true,
@@ -494,24 +561,79 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "company_name": { "type": "string" },
-                  "primary_color": { "type": "string", "example": "#A70240" },
-                  "secondary_color": { "type": "string", "example": "#BED600" },
-                  "accent_color": { "type": "string", "example": "#0098DB" },
-                  "logo": { "type": "string", "format": "binary" },
-                  "max_logs_per_system": { "type": "integer" },
-                  "log_retention_days": { "type": "integer" },
-                  "min_log_level": { "type": "string", "enum": ["DEBUG","INFO","WARNING","ERROR","CRITICAL"] },
-                  "dashboard_refresh_interval": { "type": "integer", "enum": [1,5,15,30,60] },
-                  "timezone": { "type": "string", "example": "Europe/Berlin" },
-                  "pure1_display_name": { "type": "string" },
-                  "pure1_app_id": { "type": "string" },
-                  "pure1_private_key": { "type": "string" },
-                  "pure1_private_key_passphrase": { "type": "string" },
-                  "pure1_public_key": { "type": "string" },
-                  "proxy_http": { "type": "string" },
-                  "proxy_https": { "type": "string" },
-                  "proxy_no_proxy": { "type": "string" }
+                  "company_name": {
+                    "type": "string"
+                  },
+                  "primary_color": {
+                    "type": "string",
+                    "example": "#A70240"
+                  },
+                  "secondary_color": {
+                    "type": "string",
+                    "example": "#BED600"
+                  },
+                  "accent_color": {
+                    "type": "string",
+                    "example": "#0098DB"
+                  },
+                  "logo": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "max_logs_per_system": {
+                    "type": "integer"
+                  },
+                  "log_retention_days": {
+                    "type": "integer"
+                  },
+                  "min_log_level": {
+                    "type": "string",
+                    "enum": [
+                      "DEBUG",
+                      "INFO",
+                      "WARNING",
+                      "ERROR",
+                      "CRITICAL"
+                    ]
+                  },
+                  "dashboard_refresh_interval": {
+                    "type": "integer",
+                    "enum": [
+                      1,
+                      5,
+                      15,
+                      30,
+                      60
+                    ]
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "example": "Europe/Berlin"
+                  },
+                  "pure1_display_name": {
+                    "type": "string"
+                  },
+                  "pure1_app_id": {
+                    "type": "string"
+                  },
+                  "pure1_private_key": {
+                    "type": "string"
+                  },
+                  "pure1_private_key_passphrase": {
+                    "type": "string"
+                  },
+                  "pure1_public_key": {
+                    "type": "string"
+                  },
+                  "proxy_http": {
+                    "type": "string"
+                  },
+                  "proxy_https": {
+                    "type": "string"
+                  },
+                  "proxy_no_proxy": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -526,11 +648,15 @@
     },
     "/admin/export": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Storage-Systeme exportieren",
         "description": "Exportiert alle konfigurierten Storage-Systeme (ohne Zugangsdaten) als JSON-Datei.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "responses": {
           "200": {
@@ -548,11 +674,15 @@
     },
     "/admin/import": {
       "get": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Import-Seite anzeigen",
         "description": "Gibt die Importseite für Storage-Systeme zurück.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "responses": {
           "200": {
@@ -561,11 +691,15 @@
         }
       },
       "post": {
-        "tags": ["Admin"],
+        "tags": [
+          "Admin"
+        ],
         "summary": "Storage-Systeme importieren",
         "description": "Importiert Storage-Systeme aus einer zuvor exportierten JSON-Datei. Bereits vorhandene Systeme (gleicher Name) werden übersprungen.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "requestBody": {
           "required": true,
@@ -573,7 +707,9 @@
             "multipart/form-data": {
               "schema": {
                 "type": "object",
-                "required": ["import_file"],
+                "required": [
+                  "import_file"
+                ],
                 "properties": {
                   "import_file": {
                     "type": "string",
@@ -594,11 +730,15 @@
     },
     "/admin/backup/export": {
       "get": {
-        "tags": ["Backup"],
+        "tags": [
+          "Backup"
+        ],
         "summary": "Full-Backup herunterladen",
         "description": "Exportiert **alle** Dashboard-Daten in eine einzige JSON-Datei:\n- Allgemeine Einstellungen (Design, Logs, System)\n- Pure1-Zugangsdaten (im Klartext – Datei sicher aufbewahren!)\n- Proxy-Konfiguration\n- Alle Storage-Systeme inkl. Zugangsdaten\n- SSL-Zertifikate\n- Tag-Gruppen und Tags\n\nDie Backup-Datei kann über `POST /admin/backup/import` wieder eingespielt werden.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "responses": {
           "200": {
@@ -612,7 +752,9 @@
             },
             "headers": {
               "Content-Disposition": {
-                "schema": { "type": "string" },
+                "schema": {
+                  "type": "string"
+                },
                 "description": "attachment; filename=\"storage_dashboard_backup_YYYYMMDD_HHMMSS.json\""
               }
             }
@@ -625,11 +767,15 @@
     },
     "/admin/backup/import": {
       "post": {
-        "tags": ["Backup"],
+        "tags": [
+          "Backup"
+        ],
         "summary": "Backup einspielen (Restore)",
         "description": "Stellt Einstellungen, Systeme, Zertifikate und Tags aus einer zuvor erstellten Full-Backup-Datei wieder her.\n\n**Restore-Verhalten:**\n- **Einstellungen:** werden vollständig überschrieben\n- **Systeme / Zertifikate / Tags:** bereits vorhandene Einträge (gleicher Name) werden übersprungen (sicheres Zusammenführen)\n\nNach dem Einspielen wird auf die Einstellungsseite weitergeleitet.",
         "security": [
-          { "sessionCookie": [] }
+          {
+            "sessionCookie": []
+          }
         ],
         "requestBody": {
           "required": true,
@@ -637,7 +783,9 @@
             "multipart/form-data": {
               "schema": {
                 "type": "object",
-                "required": ["backup_file"],
+                "required": [
+                  "backup_file"
+                ],
                 "properties": {
                   "backup_file": {
                     "type": "string",
@@ -652,6 +800,354 @@
         "responses": {
           "302": {
             "description": "Weiterleitung zur Einstellungsseite mit Erfolgs- oder Fehlermeldung (Flash)"
+          }
+        }
+      }
+    },
+    "/dr/": {
+      "get": {
+        "tags": [
+          "DR"
+        ],
+        "summary": "DR Planner Seite",
+        "description": "Gibt die DR Planner HTML-Seite zurück.",
+        "responses": {
+          "200": {
+            "description": "HTML-Seite des DR Planners",
+            "content": {
+              "text/html": {}
+            }
+          }
+        }
+      }
+    },
+    "/dr/api/topology": {
+      "get": {
+        "tags": [
+          "DR"
+        ],
+        "summary": "DR Topologie-Übersicht",
+        "description": "Gibt eine Übersicht aller gefundenen DR-Beziehungen aus dem aktuellen Build zurück.",
+        "responses": {
+          "200": {
+            "description": "DR Topologie-Daten",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "build": {
+                      "type": "object",
+                      "nullable": true
+                    },
+                    "relationships": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "stale": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dr/api/system/{system_name}": {
+      "get": {
+        "tags": [
+          "DR"
+        ],
+        "summary": "DR System Details",
+        "description": "Gibt alle DR-Artefakte (Topologie, Workflow, Runbook, Befehle, Diagramme) für ein bestimmtes System zurück.",
+        "parameters": [
+          {
+            "name": "system_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "planned_failover",
+                "failback"
+              ],
+              "default": "planned_failover"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DR System-Detaildaten",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "System oder Build nicht gefunden"
+          }
+        }
+      }
+    },
+    "/dr/api/architecture/{system_name}": {
+      "get": {
+        "tags": [
+          "DR"
+        ],
+        "summary": "DR Architektur-Daten",
+        "description": "Gibt das DR-Topologiemodell und das Architekturdiagramm für ein System zurück.",
+        "parameters": [
+          {
+            "name": "system_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Architekturdiagramm und Topologiedaten",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nicht gefunden"
+          }
+        }
+      }
+    },
+    "/dr/api/workflow/{system_name}": {
+      "get": {
+        "tags": [
+          "DR"
+        ],
+        "summary": "DR Workflow-Definitionen",
+        "description": "Gibt die DR-Workflow-Schritte und das Workflow-Diagramm für ein System zurück.",
+        "parameters": [
+          {
+            "name": "system_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "planned_failover",
+                "failback"
+              ],
+              "default": "planned_failover"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workflow-Schritte und Diagramm",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nicht gefunden"
+          }
+        }
+      }
+    },
+    "/dr/api/runbook/{system_name}": {
+      "get": {
+        "tags": [
+          "DR"
+        ],
+        "summary": "DR Runbook",
+        "description": "Gibt das strukturierte DR-Runbook für ein System zurück.",
+        "parameters": [
+          {
+            "name": "system_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "planned_failover",
+                "failback"
+              ],
+              "default": "planned_failover"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Runbook-Sektionen und Schritte",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nicht gefunden"
+          }
+        }
+      }
+    },
+    "/dr/api/commands/{system_name}": {
+      "get": {
+        "tags": [
+          "DR"
+        ],
+        "summary": "DR CLI-Befehlssatz",
+        "description": "Gibt die generierten CLI-Befehle für ein DR-System zurück.",
+        "parameters": [
+          {
+            "name": "system_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "planned_failover",
+                "failback"
+              ],
+              "default": "planned_failover"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CLI-Befehlssatz",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nicht gefunden"
+          }
+        }
+      }
+    },
+    "/dr/api/build-status": {
+      "get": {
+        "tags": [
+          "DR"
+        ],
+        "summary": "DR Build-Status",
+        "description": "Gibt Metadaten über den letzten DR-Build zurück.",
+        "responses": {
+          "200": {
+            "description": "Build-Metadaten",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "build": {
+                      "type": "object",
+                      "nullable": true
+                    },
+                    "stale": {
+                      "type": "boolean"
+                    },
+                    "next_scheduled_build": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "total_builds": {
+                      "type": "integer"
+                    },
+                    "build_interval_seconds": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dr/api/rebuild": {
+      "post": {
+        "tags": [
+          "DR"
+        ],
+        "summary": "DR Rebuild auslösen",
+        "description": "Löst einen manuellen DR-Rebuild aus (Neuentdeckung und Neugenerierung aller DR-Artefakte).",
+        "responses": {
+          "200": {
+            "description": "Rebuild wurde ausgelöst",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Fehler beim Auslösen des Rebuilds"
           }
         }
       }
@@ -681,7 +1177,12 @@
           },
           "vendor": {
             "type": "string",
-            "enum": ["pure", "netapp-ontap", "netapp-storagegrid", "dell-datadomain"],
+            "enum": [
+              "pure",
+              "netapp-ontap",
+              "netapp-storagegrid",
+              "dell-datadomain"
+            ],
             "description": "Hersteller"
           },
           "ip_address": {
@@ -699,7 +1200,15 @@
           "cluster_type": {
             "type": "string",
             "nullable": true,
-            "enum": ["ha", "active-cluster", "metrocluster", "local", "multi-site", "single-site", null],
+            "enum": [
+              "ha",
+              "active-cluster",
+              "metrocluster",
+              "local",
+              "multi-site",
+              "single-site",
+              null
+            ],
             "description": "Cluster-Typ"
           },
           "os_version": {
@@ -730,17 +1239,31 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["online", "error", "unknown"],
+            "enum": [
+              "online",
+              "error",
+              "unknown"
+            ],
             "description": "Gesamtstatus"
           },
           "hardware_status": {
             "type": "string",
-            "enum": ["ok", "warning", "error", "unknown"],
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "unknown"
+            ],
             "description": "Hardware-Status"
           },
           "cluster_status": {
             "type": "string",
-            "enum": ["ok", "warning", "error", "unknown"],
+            "enum": [
+              "ok",
+              "warning",
+              "error",
+              "unknown"
+            ],
             "description": "Cluster-Status"
           },
           "alerts": {
@@ -790,8 +1313,12 @@
           },
           "status": {
             "oneOf": [
-              { "$ref": "#/components/schemas/HealthStatus" },
-              { "type": "null" }
+              {
+                "$ref": "#/components/schemas/HealthStatus"
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "Status aus dem Cache (null wenn noch kein Cache vorhanden)"
           },
@@ -833,7 +1360,14 @@
           },
           "severity": {
             "type": "string",
-            "enum": ["info", "warning", "error", "critical", "emergency", "unknown"],
+            "enum": [
+              "info",
+              "warning",
+              "error",
+              "critical",
+              "emergency",
+              "unknown"
+            ],
             "description": "Schweregrad"
           },
           "error_code": {
@@ -892,7 +1426,9 @@
       "AlertStateRequest": {
         "type": "object",
         "description": "Anfrage zum Aktualisieren des Bearbeitungsstatus eines oder mehrerer Alerts",
-        "required": ["alert_keys"],
+        "required": [
+          "alert_keys"
+        ],
         "properties": {
           "alert_keys": {
             "type": "array",
@@ -900,7 +1436,9 @@
               "type": "string"
             },
             "description": "Liste der Alert-Schlüssel (system_name|alert_id|title)",
-            "example": ["mein-system|42|Drive Failure"]
+            "example": [
+              "mein-system|42|Drive Failure"
+            ]
           },
           "acknowledged": {
             "type": "boolean",
@@ -922,24 +1460,84 @@
         "type": "object",
         "description": "Einstellungen-Abschnitt einer Backup-Datei",
         "properties": {
-          "primary_color": { "type": "string", "example": "#A70240" },
-          "secondary_color": { "type": "string", "example": "#BED600" },
-          "accent_color": { "type": "string", "example": "#0098DB" },
-          "company_name": { "type": "string", "example": "Storage Dashboard" },
-          "timezone": { "type": "string", "example": "Europe/Berlin" },
-          "max_logs_per_system": { "type": "integer", "example": 1000 },
-          "log_retention_days": { "type": "integer", "example": 30 },
-          "min_log_level": { "type": "string", "enum": ["DEBUG","INFO","WARNING","ERROR","CRITICAL"] },
-          "dashboard_refresh_interval": { "type": "integer", "example": 5 },
-          "pure1_display_name": { "type": "string", "nullable": true },
-          "pure1_app_id": { "type": "string", "nullable": true },
-          "pure1_private_key": { "type": "string", "nullable": true },
-          "pure1_private_key_passphrase": { "type": "string", "nullable": true },
-          "pure1_public_key": { "type": "string", "nullable": true },
-          "proxy_http": { "type": "string", "nullable": true },
-          "proxy_https": { "type": "string", "nullable": true },
-          "proxy_no_proxy": { "type": "string", "nullable": true },
-          "logo_filename": { "type": "string", "nullable": true },
+          "primary_color": {
+            "type": "string",
+            "example": "#A70240"
+          },
+          "secondary_color": {
+            "type": "string",
+            "example": "#BED600"
+          },
+          "accent_color": {
+            "type": "string",
+            "example": "#0098DB"
+          },
+          "company_name": {
+            "type": "string",
+            "example": "Storage Dashboard"
+          },
+          "timezone": {
+            "type": "string",
+            "example": "Europe/Berlin"
+          },
+          "max_logs_per_system": {
+            "type": "integer",
+            "example": 1000
+          },
+          "log_retention_days": {
+            "type": "integer",
+            "example": 30
+          },
+          "min_log_level": {
+            "type": "string",
+            "enum": [
+              "DEBUG",
+              "INFO",
+              "WARNING",
+              "ERROR",
+              "CRITICAL"
+            ]
+          },
+          "dashboard_refresh_interval": {
+            "type": "integer",
+            "example": 5
+          },
+          "pure1_display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "pure1_app_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "pure1_private_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "pure1_private_key_passphrase": {
+            "type": "string",
+            "nullable": true
+          },
+          "pure1_public_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "proxy_http": {
+            "type": "string",
+            "nullable": true
+          },
+          "proxy_https": {
+            "type": "string",
+            "nullable": true
+          },
+          "proxy_no_proxy": {
+            "type": "string",
+            "nullable": true
+          },
+          "logo_filename": {
+            "type": "string",
+            "nullable": true
+          },
           "logo_data": {
             "type": "string",
             "nullable": true,
@@ -951,27 +1549,78 @@
         "type": "object",
         "description": "Storage-System-Eintrag in einer Backup-Datei",
         "properties": {
-          "name": { "type": "string" },
-          "vendor": { "type": "string", "enum": ["pure", "netapp-ontap", "netapp-storagegrid", "dell-datadomain"] },
-          "ip_address": { "type": "string" },
-          "port": { "type": "integer" },
-          "api_username": { "type": "string", "nullable": true },
-          "api_password": { "type": "string", "nullable": true },
-          "api_token": { "type": "string", "nullable": true },
-          "enabled": { "type": "boolean" },
-          "cluster_type": { "type": "string", "nullable": true },
-          "node_count": { "type": "integer", "nullable": true },
-          "site_count": { "type": "integer", "nullable": true },
-          "dns_names": { "type": "array", "items": { "type": "string" } },
-          "all_ips": { "type": "array", "items": { "type": "string" } },
-          "pure1_array_name": { "type": "string", "nullable": true },
+          "name": {
+            "type": "string"
+          },
+          "vendor": {
+            "type": "string",
+            "enum": [
+              "pure",
+              "netapp-ontap",
+              "netapp-storagegrid",
+              "dell-datadomain"
+            ]
+          },
+          "ip_address": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "api_username": {
+            "type": "string",
+            "nullable": true
+          },
+          "api_password": {
+            "type": "string",
+            "nullable": true
+          },
+          "api_token": {
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "cluster_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "node_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "site_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "dns_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "all_ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pure1_array_name": {
+            "type": "string",
+            "nullable": true
+          },
           "tags": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "group": { "type": "string" },
-                "tag": { "type": "string" }
+                "group": {
+                  "type": "string"
+                },
+                "tag": {
+                  "type": "string"
+                }
               }
             }
           }
@@ -981,25 +1630,43 @@
         "type": "object",
         "description": "Zertifikat-Eintrag in einer Backup-Datei",
         "properties": {
-          "name": { "type": "string" },
-          "certificate_type": { "type": "string" },
-          "certificate_pem": { "type": "string" },
-          "description": { "type": "string", "nullable": true },
-          "enabled": { "type": "boolean" }
+          "name": {
+            "type": "string"
+          },
+          "certificate_type": {
+            "type": "string"
+          },
+          "certificate_pem": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean"
+          }
         }
       },
       "BackupTagGroup": {
         "type": "object",
         "description": "Tag-Gruppe mit zugehörigen Tags in einer Backup-Datei",
         "properties": {
-          "name": { "type": "string" },
-          "description": { "type": "string", "nullable": true },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
           "tags": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "name": { "type": "string" }
+                "name": {
+                  "type": "string"
+                }
               }
             }
           }
@@ -1008,7 +1675,11 @@
       "BackupPayload": {
         "type": "object",
         "description": "Vollständige Backup-Datei des Storage Dashboards",
-        "required": ["backup_version", "backup_date", "backup_type"],
+        "required": [
+          "backup_version",
+          "backup_date",
+          "backup_type"
+        ],
         "properties": {
           "backup_version": {
             "type": "string",
@@ -1022,7 +1693,9 @@
           },
           "backup_type": {
             "type": "string",
-            "enum": ["full"],
+            "enum": [
+              "full"
+            ],
             "description": "Typ des Backups"
           },
           "settings": {
@@ -1030,17 +1703,23 @@
           },
           "systems": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/BackupSystem" },
+            "items": {
+              "$ref": "#/components/schemas/BackupSystem"
+            },
             "description": "Alle konfigurierten Storage-Systeme inkl. Zugangsdaten"
           },
           "certificates": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/BackupCertificate" },
+            "items": {
+              "$ref": "#/components/schemas/BackupCertificate"
+            },
             "description": "Alle SSL-Zertifikate"
           },
           "tag_groups": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/BackupTagGroup" },
+            "items": {
+              "$ref": "#/components/schemas/BackupTagGroup"
+            },
             "description": "Alle Tag-Gruppen mit ihren Tags"
           }
         }
@@ -1056,7 +1735,9 @@
           },
           "systems": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/BackupSystem" }
+            "items": {
+              "$ref": "#/components/schemas/BackupSystem"
+            }
           }
         }
       }

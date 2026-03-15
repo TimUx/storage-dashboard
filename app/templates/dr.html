@@ -1,0 +1,792 @@
+{% extends "base.html" %}
+
+{% block title %}DR Planner – Storage Dashboard{% endblock %}
+
+{% block styles %}
+/* ── DR Planner Styles ── */
+:root {
+    --dr-blue:   var(--accent-color);
+    --dr-red:    var(--primary-color);
+    --dr-green:  var(--secondary-color);
+    --dr-border: #e1e8ed;
+    --dr-bg:     #f5f7fa;
+    --dr-white:  #ffffff;
+    --dr-text:   #333;
+    --dr-muted:  #6a6a6a;
+    --dr-warn:   #FFA500;
+    --dr-danger: #dc3545;
+    --dr-success:#28a745;
+}
+[data-theme="dark"] {
+    --dr-border: #2e3347;
+    --dr-bg:     #0f1117;
+    --dr-white:  #1a1d27;
+    --dr-text:   #e2e8f0;
+    --dr-muted:  #78909c;
+}
+
+.dr-container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+
+/* ── Header ── */
+.dr-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--dr-white);
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    border-left: 4px solid var(--dr-blue);
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: .75rem;
+}
+.dr-header h2 { font-size: 1.4rem; color: var(--dr-blue); margin: 0; }
+.dr-header-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+
+/* ── Build Status Panel ── */
+.dr-build-panel {
+    background: var(--dr-white);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.07);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+    align-items: center;
+    border-top: 3px solid var(--dr-blue);
+}
+.dr-build-item { display: flex; flex-direction: column; gap: 0.2rem; }
+.dr-build-label { font-size: .75rem; color: var(--dr-muted); text-transform: uppercase; letter-spacing: .05em; }
+.dr-build-value { font-size: .95rem; font-weight: 600; color: var(--dr-text); }
+.dr-build-value.status-success { color: var(--dr-success); }
+.dr-build-value.status-error { color: var(--dr-danger); }
+.dr-build-value.status-running { color: var(--dr-warn); }
+.dr-build-value.stale { color: var(--dr-warn); }
+.dr-stale-warning {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    color: #856404;
+    padding: .5rem 1rem;
+    border-radius: 6px;
+    font-size: .85rem;
+    margin-bottom: 1rem;
+}
+[data-theme="dark"] .dr-stale-warning { background: #3a3000; border-color: #ffc107; color: #ffc107; }
+
+/* ── Section card ── */
+.dr-section {
+    background: var(--dr-white);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.07);
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+}
+.dr-section-header {
+    padding: .75rem 1.25rem;
+    background: var(--dr-bg);
+    border-bottom: 1px solid var(--dr-border);
+    font-weight: 600;
+    font-size: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--dr-text);
+}
+.dr-section-body { padding: 1rem 1.25rem; }
+
+/* ── Topology table ── */
+.dr-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.dr-table th {
+    background: var(--dr-bg);
+    padding: .6rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--dr-muted);
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    border-bottom: 2px solid var(--dr-border);
+}
+.dr-table td { padding: .6rem 1rem; border-bottom: 1px solid var(--dr-border); color: var(--dr-text); }
+.dr-table tr:last-child td { border-bottom: none; }
+.dr-table tr:hover td { background: rgba(0,0,0,.03); }
+.dr-table tr.selected td { background: rgba(0,152,219,.08); }
+
+.state-healthy { color: var(--dr-success); font-weight: 600; }
+.state-degraded { color: var(--dr-warn); font-weight: 600; }
+.state-unknown { color: var(--dr-muted); font-weight: 600; }
+.state-broken { color: var(--dr-danger); font-weight: 600; }
+
+.rep-badge {
+    display: inline-block;
+    padding: .15rem .5rem;
+    border-radius: 12px;
+    font-size: .75rem;
+    font-weight: 600;
+    background: rgba(0,152,219,.12);
+    color: var(--dr-blue);
+    white-space: nowrap;
+}
+
+/* ── System selector ── */
+.dr-selector {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: .75rem 0;
+}
+.dr-selector label { font-size: .88rem; color: var(--dr-muted); font-weight: 500; }
+.dr-selector select, .dr-selector input[type="text"] {
+    background: var(--dr-white);
+    border: 1px solid var(--dr-border);
+    color: var(--dr-text);
+    padding: .4rem .75rem;
+    border-radius: 6px;
+    font-size: .88rem;
+    min-width: 200px;
+}
+
+/* ── Direction toggle ── */
+.direction-toggle {
+    display: flex;
+    background: var(--dr-bg);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--dr-border);
+}
+.direction-toggle button {
+    background: transparent;
+    border: none;
+    padding: .4rem 1rem;
+    cursor: pointer;
+    font-size: .85rem;
+    color: var(--dr-muted);
+    transition: all .25s;
+    font-weight: 500;
+}
+.direction-toggle button.active { background: var(--dr-blue); color: white; }
+.direction-toggle button:hover:not(.active) { background: rgba(0,152,219,.1); color: var(--dr-blue); }
+
+/* ── Diagram box ── */
+.dr-diagram-box {
+    background: var(--dr-bg);
+    border-radius: 8px;
+    border: 1px solid var(--dr-border);
+    padding: 1.25rem;
+    min-height: 120px;
+    font-family: monospace;
+    font-size: .8rem;
+    overflow-x: auto;
+}
+.dr-diagram-box .mermaid { display: block; text-align: center; }
+
+/* ── Workflow steps ── */
+.wf-phase { margin-bottom: 1rem; }
+.wf-phase-title {
+    font-size: .78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--dr-blue);
+    padding: .4rem 0;
+    border-bottom: 2px solid var(--dr-blue);
+    margin-bottom: .6rem;
+}
+.wf-step {
+    display: flex;
+    gap: .75rem;
+    padding: .5rem 0;
+    border-bottom: 1px solid var(--dr-border);
+    align-items: flex-start;
+}
+.wf-step:last-child { border-bottom: none; }
+.wf-step-num {
+    flex-shrink: 0;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    background: var(--dr-blue);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .8rem;
+    font-weight: 700;
+    margin-top: .1rem;
+}
+.wf-step-content { flex: 1; }
+.wf-step-title { font-weight: 600; font-size: .9rem; color: var(--dr-text); }
+.wf-step-desc { font-size: .83rem; color: var(--dr-muted); margin-top: .15rem; }
+
+/* ── CLI console ── */
+.cli-console {
+    background: #1a1d27;
+    border-radius: 8px;
+    padding: 1rem;
+    color: #a8d8a8;
+    font-family: 'Courier New', monospace;
+    font-size: .82rem;
+    min-height: 120px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+.cli-phase-label {
+    color: #ffd700;
+    font-weight: 600;
+    margin: .5rem 0 .25rem;
+    font-size: .78rem;
+    text-transform: uppercase;
+}
+.cli-line {
+    display: flex;
+    gap: .5rem;
+    align-items: baseline;
+    padding: .2rem 0;
+}
+.cli-prompt { color: #7ec8e3; flex-shrink: 0; }
+.cli-cmd { color: #a8d8a8; word-break: break-all; }
+.cli-target { color: #b8b8b8; font-size: .75rem; flex-shrink: 0; }
+.cli-desc { color: #888; font-size: .75rem; font-style: italic; }
+
+/* ── Runbook sections ── */
+.rb-section { margin-bottom: 1.25rem; }
+.rb-phase-header {
+    font-size: .88rem;
+    font-weight: 700;
+    color: var(--dr-blue);
+    text-transform: uppercase;
+    padding: .4rem .75rem;
+    background: rgba(0,152,219,.08);
+    border-radius: 6px;
+    margin-bottom: .6rem;
+    border-left: 3px solid var(--dr-blue);
+}
+.rb-step { padding: .4rem .5rem; border-bottom: 1px solid var(--dr-border); }
+.rb-step:last-child { border-bottom: none; }
+.rb-step-title { font-weight: 600; font-size: .88rem; color: var(--dr-text); }
+.rb-step-desc { font-size: .82rem; color: var(--dr-muted); margin: .15rem 0; }
+
+/* ── Buttons ── */
+.dr-btn {
+    background: var(--dr-blue);
+    color: white;
+    border: none;
+    padding: .45rem 1.1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: .88rem;
+    font-weight: 500;
+    transition: all .25s;
+}
+.dr-btn:hover { opacity: .88; transform: translateY(-1px); }
+.dr-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.dr-btn-danger { background: var(--dr-danger); }
+.dr-btn-outline {
+    background: transparent;
+    color: var(--dr-blue);
+    border: 1px solid var(--dr-blue);
+}
+.dr-btn-outline:hover { background: var(--dr-blue); color: white; }
+
+.dr-no-data {
+    text-align: center;
+    color: var(--dr-muted);
+    padding: 2rem;
+    font-size: .9rem;
+}
+
+/* ── Grid layout ── */
+.dr-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 900px) { .dr-grid-2 { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block content %}
+<div class="dr-container">
+    <!-- Header -->
+    <div class="dr-header">
+        <div>
+            <h2>🛡️ DR Planner</h2>
+            <div style="font-size:.82rem;color:var(--dr-muted);margin-top:.25rem;">
+                Disaster Recovery Operations &amp; Runbooks
+            </div>
+        </div>
+        <div class="dr-header-actions">
+            <button class="dr-btn dr-btn-outline" id="btnRefreshAll" onclick="loadTopology()">↻ Aktualisieren</button>
+            <button class="dr-btn dr-btn-danger" id="btnRebuild" onclick="confirmRebuild()">🔄 Rebuild DR Information</button>
+        </div>
+    </div>
+
+    <!-- Build Status Panel -->
+    <div class="dr-build-panel" id="buildPanel">
+        <div class="dr-build-item">
+            <span class="dr-build-label">Last Generated</span>
+            <span class="dr-build-value" id="buildTimestamp">–</span>
+        </div>
+        <div class="dr-build-item">
+            <span class="dr-build-label">Build Status</span>
+            <span class="dr-build-value" id="buildStatus">–</span>
+        </div>
+        <div class="dr-build-item">
+            <span class="dr-build-label">Systems Processed</span>
+            <span class="dr-build-value" id="buildSystems">–</span>
+        </div>
+        <div class="dr-build-item">
+            <span class="dr-build-label">DR Relationships Detected</span>
+            <span class="dr-build-value" id="buildRelationships">–</span>
+        </div>
+        <div class="dr-build-item">
+            <span class="dr-build-label">Next Scheduled Build</span>
+            <span class="dr-build-value" id="buildNext">–</span>
+        </div>
+    </div>
+
+    <!-- Stale warning (shown when DR info is outdated) -->
+    <div class="dr-stale-warning" id="staleWarning" style="display:none;">
+        ⚠️ Die DR-Informationen sind möglicherweise veraltet. Bitte führen Sie einen Rebuild durch, um aktuelle Daten zu erhalten.
+    </div>
+
+    <!-- DR Topology Overview -->
+    <div class="dr-section">
+        <div class="dr-section-header">
+            🗺️ DR Topology Overview
+            <span style="font-size:.78rem;color:var(--dr-muted);font-weight:400;" id="topologyCount"></span>
+        </div>
+        <div class="dr-section-body" style="padding:0;">
+            <table class="dr-table" id="topologyTable">
+                <thead>
+                    <tr>
+                        <th>System</th>
+                        <th>Vendor</th>
+                        <th>Replication Type</th>
+                        <th>Primary Site</th>
+                        <th>Secondary Site</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="topologyBody">
+                    <tr><td colspan="7" class="dr-no-data">Lade DR-Topologie…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- DR System Details (shown after selecting a system) -->
+    <div id="systemDetails" style="display:none;">
+
+        <!-- System Selector + Direction Toggle -->
+        <div class="dr-section">
+            <div class="dr-section-header">⚙️ DR System Selection</div>
+            <div class="dr-section-body">
+                <div class="dr-selector">
+                    <label>System:</label>
+                    <select id="systemSelect" onchange="loadSystemDetails()">
+                        <option value="">-- System auswählen --</option>
+                    </select>
+                    <label>Failover Direction:</label>
+                    <div class="direction-toggle">
+                        <button id="btnPlanned" class="active" onclick="setDirection('planned_failover')">
+                            ▶ Planned Failover
+                        </button>
+                        <button id="btnFailback" onclick="setDirection('failback')">
+                            ◀ Failback
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="dr-grid-2">
+            <!-- Architecture Diagram -->
+            <div class="dr-section">
+                <div class="dr-section-header">🏗️ Architecture Diagram</div>
+                <div class="dr-section-body">
+                    <div class="dr-diagram-box">
+                        <div class="mermaid" id="topoDiagram">graph LR\n  A["No data"] --> B["Select a system"]</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Failover Workflow Diagram -->
+            <div class="dr-section">
+                <div class="dr-section-header">🔄 Failover Workflow Diagram</div>
+                <div class="dr-section-body">
+                    <div class="dr-diagram-box">
+                        <div class="mermaid" id="wfDiagram">flowchart TD\n  A["Select a system"]</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DR Runbook View -->
+        <div class="dr-section">
+            <div class="dr-section-header">📋 DR Runbook</div>
+            <div class="dr-section-body" id="runbookContent">
+                <div class="dr-no-data">System auswählen um das Runbook anzuzeigen.</div>
+            </div>
+        </div>
+
+        <!-- CLI Command Console -->
+        <div class="dr-section">
+            <div class="dr-section-header">
+                💻 CLI Command Console
+                <button class="dr-btn dr-btn-outline" onclick="copyAllCommands()" style="font-size:.75rem;padding:.3rem .7rem;">📋 Alle kopieren</button>
+            </div>
+            <div class="dr-section-body" style="padding:.75rem 1.25rem;">
+                <div class="cli-console" id="cliConsole">
+                    <div style="color:#888;font-style:italic;">System auswählen um CLI-Befehle anzuzeigen.</div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /systemDetails -->
+
+</div><!-- /dr-container -->
+
+<!-- Rebuild confirmation modal -->
+<div id="rebuildModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:var(--dr-white);border-radius:12px;padding:2rem;max-width:450px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.3);">
+        <h3 style="margin-bottom:1rem;color:var(--dr-text);">🔄 DR Information Rebuild</h3>
+        <p style="color:var(--dr-muted);margin-bottom:1.5rem;font-size:.9rem;">
+            Dadurch wird eine vollständige Neuermittlung aller DR-Beziehungen und eine Neugenerierung aller Runbooks, Diagramme und CLI-Befehlssätze ausgelöst. Dieser Vorgang kann einige Minuten dauern.
+        </p>
+        <div style="display:flex;gap:.75rem;justify-content:flex-end;">
+            <button class="dr-btn dr-btn-outline" onclick="closeRebuildModal()">Abbrechen</button>
+            <button class="dr-btn dr-btn-danger" onclick="triggerRebuild()">🔄 Rebuild starten</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" onerror="window._mermaidUnavailable=true"></script>
+<script>
+// ── State ──
+let currentDirection = 'planned_failover';
+let currentSystem = null;
+let topologyData = [];
+
+// ── Init Mermaid (safe – CDN may be unavailable) ──
+(function() {
+    try {
+        if (typeof mermaid !== 'undefined') {
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default',
+                securityLevel: 'antiscript',
+                flowchart: { useMaxWidth: true },
+                graph: { useMaxWidth: true },
+            });
+        }
+    } catch(e) {
+        console.warn('Mermaid initialization failed:', e);
+    }
+})();
+
+// ── Load topology on page load ──
+document.addEventListener('DOMContentLoaded', function() {
+    loadBuildStatus();
+    loadTopology();
+});
+
+// ── Load build status ──
+function loadBuildStatus() {
+    fetch('/dr/api/build-status')
+        .then(r => r.json())
+        .then(data => {
+            const build = data.build;
+            if (build) {
+                document.getElementById('buildTimestamp').textContent = formatDate(build.build_timestamp);
+                const statusEl = document.getElementById('buildStatus');
+                statusEl.textContent = build.build_status || '–';
+                statusEl.className = 'dr-build-value status-' + (build.build_status || 'unknown');
+                document.getElementById('buildSystems').textContent = build.systems_processed ?? '–';
+                document.getElementById('buildRelationships').textContent = build.dr_relationships_detected ?? '–';
+            } else {
+                document.getElementById('buildTimestamp').textContent = 'Noch kein Build';
+                document.getElementById('buildStatus').textContent = '–';
+            }
+            if (data.next_scheduled_build) {
+                document.getElementById('buildNext').textContent = formatDate(data.next_scheduled_build);
+            }
+            if (data.stale) {
+                document.getElementById('staleWarning').style.display = 'block';
+                document.getElementById('buildTimestamp').classList.add('stale');
+            } else {
+                document.getElementById('staleWarning').style.display = 'none';
+            }
+        })
+        .catch(err => console.error('Build status load failed:', err));
+}
+
+// ── Load topology overview ──
+function loadTopology() {
+    const tbody = document.getElementById('topologyBody');
+    tbody.innerHTML = '<tr><td colspan="7" class="dr-no-data">Lade DR-Topologie…</td></tr>';
+
+    fetch('/dr/api/topology')
+        .then(r => r.json())
+        .then(data => {
+            topologyData = data.relationships || [];
+            renderTopologyTable(topologyData);
+            populateSystemSelector(topologyData);
+            loadBuildStatus();
+
+            if (data.stale) {
+                document.getElementById('staleWarning').style.display = 'block';
+            }
+        })
+        .catch(err => {
+            tbody.innerHTML = '<tr><td colspan="7" class="dr-no-data" style="color:var(--dr-danger);">Fehler beim Laden der DR-Topologie: ' + err.message + '</td></tr>';
+        });
+}
+
+function renderTopologyTable(relationships) {
+    const tbody = document.getElementById('topologyBody');
+    document.getElementById('topologyCount').textContent = relationships.length + ' Beziehungen';
+
+    if (!relationships.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="dr-no-data">Keine DR-Beziehungen gefunden. Führen Sie einen DR-Rebuild durch, sobald Systeme konfiguriert sind.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = relationships.map((r, idx) => `
+        <tr id="topo-row-${idx}" onclick="selectSystemFromTable('${escHtml(r.system_name)}', ${idx})">
+            <td><strong>${escHtml(r.system_name)}</strong></td>
+            <td>${escHtml(vendorLabel(r.vendor))}</td>
+            <td><span class="rep-badge">${escHtml(replLabel(r.replication_type))}</span></td>
+            <td>${escHtml(r.primary_site || '–')}</td>
+            <td>${escHtml(r.secondary_site || '–')}</td>
+            <td><span class="state-${r.replication_state || 'unknown'}">${escHtml(stateLabel(r.replication_state))}</span></td>
+            <td><button class="dr-btn" style="font-size:.75rem;padding:.3rem .7rem;" onclick="event.stopPropagation();selectSystemFromTable('${escHtml(r.system_name)}', ${idx})">Details →</button></td>
+        </tr>
+    `).join('');
+}
+
+function populateSystemSelector(relationships) {
+    const sel = document.getElementById('systemSelect');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">-- System auswählen --</option>';
+    relationships.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.system_name;
+        opt.textContent = r.system_name + ' (' + replLabel(r.replication_type) + ')';
+        sel.appendChild(opt);
+    });
+    if (prev) sel.value = prev;
+}
+
+function selectSystemFromTable(systemName, idx) {
+    // Highlight row
+    document.querySelectorAll('#topologyBody tr').forEach(row => row.classList.remove('selected'));
+    const row = document.getElementById('topo-row-' + idx);
+    if (row) row.classList.add('selected');
+
+    document.getElementById('systemSelect').value = systemName;
+    currentSystem = systemName;
+    document.getElementById('systemDetails').style.display = 'block';
+    loadSystemDetails();
+
+    // Scroll to details
+    document.getElementById('systemDetails').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Load system details ──
+function loadSystemDetails() {
+    const sel = document.getElementById('systemSelect');
+    const sysName = sel.value;
+    if (!sysName) return;
+    currentSystem = sysName;
+    document.getElementById('systemDetails').style.display = 'block';
+
+    fetch('/dr/api/system/' + encodeURIComponent(sysName) + '?direction=' + currentDirection)
+        .then(r => r.json())
+        .then(data => {
+            renderTopologyDiagram(data.topology_diagram);
+            renderWorkflowDiagram(data.workflow_diagram);
+            renderRunbook(data.runbook);
+            renderCLICommands(data.command_set);
+        })
+        .catch(err => {
+            console.error('System detail load failed:', err);
+        });
+}
+
+function setDirection(direction) {
+    currentDirection = direction;
+    document.getElementById('btnPlanned').classList.toggle('active', direction === 'planned_failover');
+    document.getElementById('btnFailback').classList.toggle('active', direction === 'failback');
+    if (currentSystem) loadSystemDetails();
+}
+
+// ── Render diagrams via Mermaid (graceful degradation if Mermaid unavailable) ──
+function renderMermaid(elementId, definition) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    if (!definition) {
+        el.innerHTML = '<span style="color:var(--dr-muted)">Kein Diagramm verfügbar.</span>';
+        return;
+    }
+    // If Mermaid is not available (CDN blocked), show diagram source as pre-formatted text
+    if (typeof mermaid === 'undefined') {
+        el.innerHTML = '<pre style="font-size:.75rem;white-space:pre-wrap;color:var(--dr-muted);">' + escHtml(definition) + '</pre>';
+        return;
+    }
+    const id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+    try {
+        mermaid.render(id, definition).then(result => {
+            el.innerHTML = result.svg;
+        }).catch(err => {
+            el.innerHTML = '<pre style="font-size:.75rem;white-space:pre-wrap;">' + escHtml(definition) + '</pre>';
+        });
+    } catch(e) {
+        el.innerHTML = '<pre style="font-size:.75rem;white-space:pre-wrap;">' + escHtml(definition) + '</pre>';
+    }
+}
+
+function renderTopologyDiagram(diagramData) {
+    const def = diagramData ? diagramData.diagram_definition : null;
+    renderMermaid('topoDiagram', def);
+}
+
+function renderWorkflowDiagram(diagramData) {
+    const def = diagramData ? diagramData.diagram_definition : null;
+    renderMermaid('wfDiagram', def);
+}
+
+// ── Render runbook ──
+function renderRunbook(runbookData) {
+    const el = document.getElementById('runbookContent');
+    if (!runbookData || !runbookData.runbook_data || !runbookData.runbook_data.length) {
+        el.innerHTML = '<div class="dr-no-data">Kein Runbook für dieses System/diese Richtung verfügbar.</div>';
+        return;
+    }
+    let html = '';
+    for (const section of runbookData.runbook_data) {
+        html += `<div class="rb-section">
+            <div class="rb-phase-header">${escHtml(phaseLabel(section.phase))}</div>`;
+        for (const step of (section.steps || [])) {
+            html += `<div class="rb-step">
+                <div class="rb-step-title">Step ${step.step}: ${escHtml(step.title)}</div>
+                <div class="rb-step-desc">${escHtml(step.description || '')}</div>
+            </div>`;
+        }
+        html += '</div>';
+    }
+    el.innerHTML = html;
+}
+
+// ── Render CLI commands ──
+function renderCLICommands(commandSetData) {
+    const el = document.getElementById('cliConsole');
+    if (!commandSetData || !commandSetData.commands_data || !commandSetData.commands_data.length) {
+        el.innerHTML = '<div style="color:#888;font-style:italic;">Keine CLI-Befehle für dieses System verfügbar.</div>';
+        return;
+    }
+
+    // Group by phase
+    const byPhase = {};
+    for (const cmd of commandSetData.commands_data) {
+        const p = cmd.phase || 'general';
+        if (!byPhase[p]) byPhase[p] = [];
+        byPhase[p].push(cmd);
+    }
+
+    let html = '';
+    for (const [phase, cmds] of Object.entries(byPhase)) {
+        html += `<div class="cli-phase-label"># ${phaseLabel(phase)}</div>`;
+        for (const cmd of cmds) {
+            html += `<div class="cli-line">
+                <span class="cli-prompt">${escHtml(cmd.target || 'system')}$</span>
+                <span class="cli-cmd">${escHtml(cmd.cli)}</span>
+            </div>
+            <div class="cli-desc">&nbsp;&nbsp;# ${escHtml(cmd.description || '')}</div>`;
+        }
+    }
+    el.innerHTML = html;
+}
+
+function copyAllCommands() {
+    const el = document.getElementById('cliConsole');
+    const lines = el.querySelectorAll('.cli-cmd');
+    const text = Array.from(lines).map(l => l.textContent.trim()).join('\n');
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = event.target;
+        btn.textContent = '✅ Kopiert!';
+        setTimeout(() => btn.textContent = '📋 Alle kopieren', 2000);
+    });
+}
+
+// ── Rebuild ──
+function confirmRebuild() {
+    document.getElementById('rebuildModal').style.display = 'flex';
+}
+function closeRebuildModal() {
+    document.getElementById('rebuildModal').style.display = 'none';
+}
+function triggerRebuild() {
+    closeRebuildModal();
+    const btn = document.getElementById('btnRebuild');
+    btn.disabled = true;
+    btn.textContent = '⏳ Rebuild läuft…';
+
+    fetch('/dr/api/rebuild', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            btn.textContent = '✅ Rebuild ausgelöst';
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = '🔄 Rebuild DR Information';
+                loadBuildStatus();
+                loadTopology();
+            }, 3000);
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.textContent = '❌ Fehler';
+            setTimeout(() => btn.textContent = '🔄 Rebuild DR Information', 2000);
+            console.error('Rebuild failed:', err);
+        });
+}
+
+// ── Helpers ──
+function escHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function formatDate(iso) {
+    if (!iso) return '–';
+    try {
+        const d = new Date(iso);
+        return d.toLocaleString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    } catch(e) { return iso; }
+}
+
+function vendorLabel(v) {
+    const m = { 'pure': 'Pure Storage', 'netapp-ontap': 'NetApp ONTAP', 'netapp-storagegrid': 'NetApp StorageGRID', 'dell-datadomain': 'Dell DataDomain' };
+    return m[v] || v || '–';
+}
+
+function replLabel(t) {
+    const m = { 'activecluster': 'ActiveCluster', 'metrocluster': 'MetroCluster', 'snapmirror': 'SnapMirror', 'storagegrid-multisite': 'StorageGRID Multi-Site', 'datadomain-replication': 'DD Replication' };
+    return m[t] || t || '–';
+}
+
+function stateLabel(s) {
+    const m = { 'healthy': '✅ Healthy', 'degraded': '⚠️ Degraded', 'broken': '❌ Broken', 'unknown': '❓ Unknown' };
+    return m[s] || s || '–';
+}
+
+function phaseLabel(p) {
+    const m = { 'pre-failover':'Pre-Failover', 'failover':'Failover', 'post-failover':'Post-Failover', 'pre-failback':'Pre-Failback', 'failback':'Failback', 'post-failback':'Post-Failback', 'all':'All Phases', 'general':'General' };
+    return m[p] || p || '';
+}
+</script>
+{% endblock %}

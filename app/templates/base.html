@@ -356,9 +356,10 @@
     <nav class="navbar">
         <h1 aria-label="{% if settings and settings.logo_filename %}{{ settings.company_name }} Logo{% endif %}">{{ settings.company_name if settings else 'Storage Dashboard' }}</h1>
         <div class="navbar-links">
-            <a href="/">📊 Dashboard</a>
+            <a href="/dashboard">📊 Dashboard</a>
             <a href="/alerts/"{% if open_alerts_count > 0 %} class="alerts-active"{% endif %}>🔔 Alerts{% if open_alerts_count > 0 %} <span class="alert-badge">{{ open_alerts_count }}</span>{% endif %}</a>
             <a href="/capacity/">📈 Kapazitätsreport</a>
+            <a href="/dr/">🛡️ DR Planner</a>
             <a href="/admin">⚙️ Admin</a>
             {% if current_user.is_authenticated %}
             <a href="{{ url_for('admin.logout') }}">🚪 Abmelden</a>

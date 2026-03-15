@@ -222,6 +222,13 @@ def fetch_system_status(system, app):
 
 
 @bp.route('/')
+def root():
+    """Redirect root URL to /dashboard."""
+    from flask import redirect
+    return redirect('/dashboard')
+
+
+@bp.route('/dashboard')
 def index():
     """Main dashboard view - returns HTML with empty dashboard for async loading"""
     from flask import request
