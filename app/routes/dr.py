@@ -73,20 +73,25 @@ def api_systems():
     relationships = get_dr_relationships(build_id=build.id)
     stale = _is_stale(build)
 
-    # Collect environment classification from StorageSystem tags,
-    # and build a set of systems excluded from DR failover.
+    # Collect environment classification from StorageSystem tags (Landschaft group),
+    # DataCenter tags for site names, and build a set of systems excluded from DR failover.
     sys_env_map: dict[str, str] = {}
+    sys_dc_map: dict[str, str] = {}
     excluded_systems: set[str] = set()
     try:
         from app.dr_service import _is_dr_excluded
         for ss in StorageSystem.query.all():
-            tag_names = {t.name.lower() for t in (ss.tags or [])}
-            if tag_names & {'prod', 'production'}:
-                sys_env_map[ss.name] = 'production'
-            elif tag_names & {'test', 'lab', 'dev'}:
-                sys_env_map[ss.name] = 'test'
-            else:
-                sys_env_map[ss.name] = 'unknown'
+            sys_env_map[ss.name] = 'unknown'
+            for tag in (ss.tags or []):
+                group_name = (tag.group.name if tag.group else '').strip()
+                tag_name = tag.name.strip()
+                if group_name == 'Landschaft':
+                    if tag_name == 'Produktion':
+                        sys_env_map[ss.name] = 'production'
+                    elif tag_name == 'Test/Dev':
+                        sys_env_map[ss.name] = 'test'
+                elif group_name == 'DataCenter':
+                    sys_dc_map[ss.name] = tag_name
             if _is_dr_excluded(ss):
                 excluded_systems.add(ss.name)
     except Exception as exc:
@@ -98,12 +103,20 @@ def api_systems():
         rel_dict = rel.to_dict()
         sname = rel_dict['system_name']
         if sname not in systems_map:
+            # Resolve DataCenter tags for primary and secondary sites.
+            # Primary site = DataCenter tag of this system.
+            # Secondary site = DataCenter tag of the secondary cluster system (if found),
+            # falling back to the raw secondary_site value from the relationship.
+            primary_dc = sys_dc_map.get(sname) or rel_dict.get('primary_site') or ''
+            sec_cluster = rel_dict.get('secondary_cluster') or ''
+            secondary_dc = (sys_dc_map.get(sec_cluster) if sec_cluster else '') \
+                or rel_dict.get('secondary_site') or ''
             systems_map[sname] = {
                 'system_name': sname,
                 'vendor': rel_dict['vendor'],
                 'replication_type': rel_dict['replication_type'],
-                'primary_site': rel_dict.get('primary_site') or '',
-                'secondary_site': rel_dict.get('secondary_site') or '',
+                'primary_site': primary_dc,
+                'secondary_site': secondary_dc,
                 'status': rel_dict.get('replication_state') or 'unknown',
                 'environment': sys_env_map.get(sname, 'unknown'),
                 'relationships': [],
@@ -123,26 +136,34 @@ def api_systems():
     if env_filter in ('production', 'test'):
         systems_map = {k: v for k, v in systems_map.items() if v['environment'] == env_filter}
 
-    # Group by storage technology tab
+    # Group by storage technology tab; sort each group alphabetically by system name
     groups: dict[str, list] = {}
     for sys_dict in systems_map.values():
         rep_type = sys_dict['replication_type']
         group_label = _REPLICATION_TYPE_LABELS.get(rep_type, rep_type)
         groups.setdefault(group_label, []).append(sys_dict)
 
-    # Collect unique sites for direction selector
-    sites: set[str] = set()
+    for label in groups:
+        groups[label].sort(key=lambda s: s['system_name'].lower())
+
+    # Collect unique site pairs (primary → secondary) for the direction selector.
+    # Pairs are expressed as "DC1 → DC2" strings so the filter can match both ends.
+    seen_pairs: set[tuple] = set()
+    site_pairs: list[str] = []
     for sys_dict in systems_map.values():
-        if sys_dict['primary_site']:
-            sites.add(sys_dict['primary_site'])
-        if sys_dict['secondary_site']:
-            sites.add(sys_dict['secondary_site'])
+        p = sys_dict['primary_site']
+        s = sys_dict['secondary_site']
+        if p and s:
+            pair = (p, s)
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                site_pairs.append(f"{p} \u2192 {s}")
 
     return jsonify({
         'build': build.to_dict(),
         'groups': groups,
         'systems': list(systems_map.values()),
-        'sites': sorted(sites),
+        'sites': sorted(site_pairs),
         'stale': stale,
     })
 
