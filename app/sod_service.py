@@ -3,6 +3,9 @@
 Architecture mirrors ``capacity_service``:
 - A single daemon thread runs ``_background_loop`` and calls ``_do_refresh``
   once on startup, then sleeps for ``SOD_REFRESH_INTERVAL_SECONDS``.
+- If the SodHistory trend data is stale (last entry older than 7 days), the
+  loop retries with a shorter ``SOD_CATCHUP_INTERVAL_SECONDS`` interval until
+  the history is up to date again (automatic catch-up / backfill).
 - ``trigger_refresh`` spawns a one-shot thread for on-demand refreshes.
 - ``get_cached_data`` returns the latest persisted data (no live API call).
 """
@@ -10,19 +13,95 @@ import json
 import logging
 import threading
 import traceback
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 logger = logging.getLogger(__name__)
 
 # Weekly automatic refresh
 SOD_REFRESH_INTERVAL_SECONDS = 7 * 24 * 60 * 60
 
+# Retry interval when SodHistory data is stale (> 7 days old)
+SOD_CATCHUP_INTERVAL_SECONDS = 60 * 60  # 1 hour
+
+# Maximum staleness before a backfill is considered necessary (in days)
+SOD_STALE_THRESHOLD_DAYS = 7
+
+# How many weeks back to look when there is no history at all (initial import)
+SOD_HISTORY_INITIAL_WEEKS = 52
+
 _background_thread_started = False
 _thread_lock = threading.Lock()
 
 
+def _refresh_sod_history(app):
+    """Update SodHistory with the latest weekly data, backfilling any missed weeks.
+
+    Determines the most recent date in SodHistory and fetches all data from
+    that date through today.  When no history exists at all, the initial
+    backfill covers ``SOD_HISTORY_INITIAL_WEEKS`` weeks.
+
+    Must be called within an active Flask application context (e.g. inside a
+    ``with app.app_context():`` block).
+    """
+    from app.capacity_service import import_sod_history_from_pure1
+    from app.models import SodHistory
+
+    today = date.today()
+    last_entry = SodHistory.query.order_by(SodHistory.date.desc()).first()
+
+    if last_entry is None:
+        start_date = today - timedelta(weeks=SOD_HISTORY_INITIAL_WEEKS)
+        logger.info(
+            "No SoD history found. Backfilling from %s to %s.", start_date, today
+        )
+    else:
+        days_since_last = (today - last_entry.date).days
+        if days_since_last <= SOD_STALE_THRESHOLD_DAYS:
+            # Already fresh – refresh the current week's data point only.
+            start_date = last_entry.date
+            logger.debug(
+                "SoD history current (last entry: %s, %d day(s) ago). Refreshing current week.",
+                last_entry.date, days_since_last,
+            )
+        else:
+            # Stale – backfill from the last known date.
+            start_date = last_entry.date
+            logger.info(
+                "SoD history stale (last entry: %s, %d day(s) ago). Backfilling to today.",
+                last_entry.date, days_since_last,
+            )
+
+    try:
+        imported, skipped, errors = import_sod_history_from_pure1(start_date, today)
+        logger.info(
+            "SoD history refresh: %d imported, %d skipped, %d error(s).",
+            imported, skipped, len(errors),
+        )
+        if errors:
+            logger.warning("SoD history import errors (first 5): %s", errors[:5])
+    except Exception as exc:
+        logger.error("SoD history refresh failed: %s", exc)
+
+
+def _is_sod_history_stale(app) -> bool:
+    """Return True when the most recent SodHistory entry is older than the stale threshold."""
+    try:
+        from app.models import SodHistory
+        with app.app_context():
+            last_entry = SodHistory.query.order_by(SodHistory.date.desc()).first()
+            if last_entry is None:
+                return True
+            return (date.today() - last_entry.date).days > SOD_STALE_THRESHOLD_DAYS
+    except Exception:
+        return False
+
+
 def _do_refresh(app):
-    """Fetch subscription licences from Pure1 and persist them in the cache table."""
+    """Fetch subscription licences from Pure1 and persist them in the cache table.
+
+    Also updates the SodHistory trend table, with automatic backfill for any
+    weeks that were missed (e.g. due to previous API or network errors).
+    """
     from app import db
     from app.models import AppSettings, SubscriptionLicenseCache
     from app.api.pure1_client import fetch_subscription_licenses
@@ -61,6 +140,9 @@ def _do_refresh(app):
             logger.error("Failed to commit SoD cache: %s", exc)
             db.session.rollback()
 
+        # Update SodHistory (trend chart) – includes backfill for any missed weeks.
+        _refresh_sod_history(app)
+
 
 def _background_loop(app):
     import time
@@ -73,7 +155,17 @@ def _background_loop(app):
                 exc,
                 traceback.format_exc(),
             )
-        time.sleep(SOD_REFRESH_INTERVAL_SECONDS)
+
+        # Use a shorter retry interval when SodHistory is still stale so that
+        # missed weeks are caught up as quickly as possible.
+        if _is_sod_history_stale(app):
+            logger.info(
+                "SoD history still stale after refresh – retrying in %ds.",
+                SOD_CATCHUP_INTERVAL_SECONDS,
+            )
+            time.sleep(SOD_CATCHUP_INTERVAL_SECONDS)
+        else:
+            time.sleep(SOD_REFRESH_INTERVAL_SECONDS)
 
 
 def start_background_refresh(app):
