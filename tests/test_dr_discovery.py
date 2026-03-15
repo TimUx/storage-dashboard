@@ -197,6 +197,205 @@ class TestONTAPMetroClusterDiscovery:
         assert 'IP' in mc['configuration_type']
 
 
+
+# ---------------------------------------------------------------------------
+# ONTAP MetroCluster – disaster_recovery workflow (new tests)
+# ---------------------------------------------------------------------------
+
+class TestMetroClusterDisasterRecovery:
+    """Tests for the disaster_recovery direction added to ontap_metrocluster_logic."""
+
+    def _make_rel(self, primary='FASMC1', secondary='FASMC2'):
+        return {
+            'system_name': primary,
+            'vendor': 'netapp-ontap',
+            'replication_type': 'metrocluster',
+            'primary_site': primary,
+            'secondary_site': secondary,
+            'primary_cluster': primary,
+            'secondary_cluster': secondary,
+            'replication_state': 'healthy',
+            'relationship_data': {
+                'metrocluster': {
+                    'configuration_state': 'configured',
+                    'configuration_type': 'MetroCluster IP',
+                    'local_cluster': primary,
+                    'partner_cluster': secondary,
+                    'peers': [],
+                    'nodes': [],
+                }
+            },
+        }
+
+    # ---- workflow steps ----
+
+    def test_disaster_recovery_has_8_steps(self):
+        rel = self._make_rel()
+        steps = ontap_metrocluster_logic.generate_workflow(rel, 'disaster_recovery')
+        assert len(steps) == 8
+
+    def test_disaster_recovery_phases_in_order(self):
+        rel = self._make_rel()
+        steps = ontap_metrocluster_logic.generate_workflow(rel, 'disaster_recovery')
+        phases = [s['phase'] for s in steps]
+        assert phases[0] == 'detection'
+        assert phases[1] == 'pre-checks'
+        assert phases[2] == 'forced-switchover'
+        assert phases[3] == 'verification'
+        assert 'aggregate-healing' in phases
+        assert 'switchback' in phases
+        assert phases[-1] == 'final-verification'
+
+    def test_disaster_recovery_step_numbers_sequential(self):
+        rel = self._make_rel()
+        steps = ontap_metrocluster_logic.generate_workflow(rel, 'disaster_recovery')
+        assert [s['step'] for s in steps] == list(range(1, 9))
+
+    # ---- command generation ----
+
+    def test_forced_switchover_command_present(self):
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'metrocluster switchover -forced-on-disaster true' in cli_commands
+
+    def test_forced_switchover_not_in_planned_failover(self):
+        """Forced switchover must NOT appear in the negotiated planned_failover."""
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'metrocluster switchover -forced-on-disaster true' not in cli_commands
+
+    def test_forced_switchover_not_in_failback(self):
+        """Forced switchover must NOT appear in the failback direction."""
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'failback')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'metrocluster switchover -forced-on-disaster true' not in cli_commands
+
+    def test_aggregate_healing_command_present(self):
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'metrocluster heal -phase aggregates' in cli_commands
+
+    def test_root_aggregate_healing_command_present(self):
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'metrocluster heal -phase root-aggregates' in cli_commands
+
+    def test_aggregate_healing_before_root(self):
+        """Data aggregate healing must precede root aggregate healing."""
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        idx_aggr = cli_commands.index('metrocluster heal -phase aggregates')
+        idx_root = cli_commands.index('metrocluster heal -phase root-aggregates')
+        assert idx_aggr < idx_root
+
+    def test_pre_check_commands_present(self):
+        """All four pre-check commands must be present for disaster_recovery."""
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        for expected in ('metrocluster show', 'metrocluster node show',
+                         'metrocluster check run', 'metrocluster check show'):
+            assert expected in cli_commands, f'{expected!r} not in disaster_recovery commands'
+
+    def test_post_switchover_verification_commands(self):
+        """Post-switchover verification requires operation show, show, and node show."""
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        for expected in ('metrocluster operation show', 'metrocluster show',
+                         'metrocluster node show'):
+            assert expected in cli_commands
+
+    def test_switchback_command_present(self):
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'metrocluster switchback' in cli_commands
+
+    def test_disaster_recovery_commands_target_surviving_site(self):
+        """All disaster_recovery commands must target the surviving (secondary) cluster."""
+        rel = self._make_rel(primary='FASMC1', secondary='FASMC2')
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'disaster_recovery')
+        for cmd in cmds:
+            assert cmd['target'] == 'FASMC2', (
+                f"Command {cmd['cli']!r} targets {cmd['target']!r} instead of surviving site FASMC2"
+            )
+
+    def test_planned_failover_commands_target_primary(self):
+        """planned_failover commands must target the primary cluster."""
+        rel = self._make_rel(primary='FASMC1', secondary='FASMC2')
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'planned_failover')
+        for cmd in cmds:
+            assert cmd['target'] == 'FASMC1'
+
+    # ---- runbook ----
+
+    def test_runbook_phases_match_workflow(self):
+        rel = self._make_rel()
+        runbook = ontap_metrocluster_logic.generate_runbook(rel, 'disaster_recovery')
+        runbook_phases = {section['phase'] for section in runbook}
+        workflow_phases = {s['phase'] for s in ontap_metrocluster_logic.generate_workflow(rel, 'disaster_recovery')}
+        assert runbook_phases == workflow_phases
+
+    def test_runbook_forced_switchover_section_has_command(self):
+        rel = self._make_rel()
+        runbook = ontap_metrocluster_logic.generate_runbook(rel, 'disaster_recovery')
+        forced_section = next(s for s in runbook if s['phase'] == 'forced-switchover')
+        cli_commands = [c['cli'] for c in forced_section['commands']]
+        assert 'metrocluster switchover -forced-on-disaster true' in cli_commands
+
+    def test_runbook_aggregate_healing_section_has_both_commands(self):
+        rel = self._make_rel()
+        runbook = ontap_metrocluster_logic.generate_runbook(rel, 'disaster_recovery')
+        healing_sections = [s for s in runbook if s['phase'] == 'aggregate-healing']
+        assert healing_sections, "aggregate-healing section missing from runbook"
+        all_cli = [c['cli'] for s in healing_sections for c in s['commands']]
+        assert 'metrocluster heal -phase aggregates' in all_cli
+        assert 'metrocluster heal -phase root-aggregates' in all_cli
+
+    # ---- workflow diagram ----
+
+    def test_workflow_diagram_is_flowchart(self):
+        rel = self._make_rel()
+        diagram = ontap_metrocluster_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        assert diagram.startswith('flowchart TD')
+
+    def test_workflow_diagram_contains_all_8_steps(self):
+        rel = self._make_rel()
+        diagram = ontap_metrocluster_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        for i in range(1, 9):
+            assert f'S{i}[' in diagram, f'Step node S{i} missing from disaster_recovery diagram'
+
+    def test_workflow_diagram_steps_connected(self):
+        """Each pair of consecutive steps must have an arrow in the diagram."""
+        rel = self._make_rel()
+        diagram = ontap_metrocluster_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        for i in range(1, 8):
+            assert f'S{i} --> S{i+1}' in diagram
+
+    # ---- planned_failover improvements ----
+
+    def test_planned_failover_includes_node_show(self):
+        """planned_failover must include metrocluster node show."""
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'metrocluster node show' in cli_commands
+
+    def test_planned_failover_includes_operation_show(self):
+        """planned_failover must include metrocluster operation show post-switchover."""
+        rel = self._make_rel()
+        cmds = ontap_metrocluster_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'metrocluster operation show' in cli_commands
+
+
 # ---------------------------------------------------------------------------
 # NetApp StorageGRID
 # ---------------------------------------------------------------------------

@@ -2256,8 +2256,8 @@ class NetAppStorageGRIDClient(StorageClient):
             
             # Determine site count from node siteNames
             # Multi-site detection: if nodes have different siteNames, it's multi-site.
-            # This is the fallback path; the expansion/sites API (below) provides the
-            # authoritative site list when available.
+            # This is the fallback path; the expansion/sites API (below) may supersede
+            # this with the authoritative site list when it is available.
             site_count = len(site_names) if site_names else 1
             sites_info = []
 

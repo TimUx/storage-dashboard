@@ -19,7 +19,7 @@ _VENDOR_MODULES = {
     'datadomain-replication': 'app.dr_vendor.datadomain_logic',
 }
 
-_FAILOVER_DIRECTIONS = ['planned_failover', 'failback']
+_FAILOVER_DIRECTIONS = ['planned_failover', 'failback', 'disaster_recovery']
 
 
 def _get_logic_module(replication_type):
