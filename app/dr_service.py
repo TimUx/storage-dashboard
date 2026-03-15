@@ -40,6 +40,32 @@ _rebuild_event = threading.Event()
 
 
 # ---------------------------------------------------------------------------
+# Exclusion logic
+# ---------------------------------------------------------------------------
+
+def _is_dr_excluded(system) -> bool:
+    """Return True when *system* must be excluded from DR failover.
+
+    ONTAP systems tagged with *both*:
+    - tag group "Landschaft", tag name "File"   (landscape = file services)
+    - tag group "Storage Art", tag name "Backup" (storage type = backup)
+
+    are outside the DR scope and must be ignored by the DR planner.
+    The check is case-insensitive and ignores surrounding whitespace.
+    """
+    has_file_landscape = False
+    has_backup_storage_art = False
+    for tag in (system.tags or []):
+        group_name = (tag.group.name if tag.group else '').strip().lower()
+        tag_name = tag.name.strip().lower()
+        if group_name == 'landschaft' and tag_name == 'file':
+            has_file_landscape = True
+        elif group_name == 'storage art' and tag_name == 'backup':
+            has_backup_storage_art = True
+    return has_file_landscape and has_backup_storage_art
+
+
+# ---------------------------------------------------------------------------
 # Build pipeline
 # ---------------------------------------------------------------------------
 
@@ -89,6 +115,12 @@ def _do_build(app):
                 diagram_gen = DRDiagramGenerator()
 
                 for system in systems:
+                    if _is_dr_excluded(system):
+                        logger.debug(
+                            "DR build: skipping %s (Landschaft=File, Storage Art=Backup – outside DR scope)",
+                            system.name,
+                        )
+                        continue
                     systems_processed += 1
                     try:
                         # The DR build pipeline calls storage APIs directly to get full
