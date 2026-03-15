@@ -133,6 +133,9 @@
 
 {% block content %}
 <div class="settings-container">
+    <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
+        {% include 'admin/_menu_button.html' %}
+    </div>
     <h1>⚙️ Einstellungen</h1>
     
     <form method="POST" enctype="multipart/form-data">

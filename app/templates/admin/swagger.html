@@ -61,8 +61,9 @@
 {% block content %}
 <div class="swagger-ui-header">
     <h2>📖 Swagger UI – Storage Dashboard API</h2>
-    <div class="header-links">
+    <div class="header-links" style="display: flex; align-items: center; gap: 1rem;">
         <a href="{{ url_for('static', filename='openapi.json') }}" target="_blank" download>⬇ OpenAPI JSON herunterladen</a>
+        {% include 'admin/_menu_button.html' %}
     </div>
 </div>
 

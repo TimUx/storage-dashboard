@@ -1,0 +1,18 @@
+<div class="admin-more-menu">
+    <button class="btn btn-secondary admin-more-toggle" type="button" title="Admin Menü">
+        ☰ Menü
+    </button>
+    <div class="admin-more-dropdown">
+        <a href="{{ url_for('admin.index') }}" class="dropdown-item dropdown-item-primary">🖥️ Storage Systeme verwalten</a>
+        <div class="dropdown-divider"></div>
+        <a href="{{ url_for('admin.logs') }}" class="dropdown-item dropdown-item-warning">📋 System Logs</a>
+        <a href="{{ url_for('admin.settings') }}" class="dropdown-item dropdown-item-warning">⚙️ Einstellungen</a>
+        <a href="{{ url_for('admin.tags') }}" class="dropdown-item dropdown-item-warning">🏷️ Tags</a>
+        <a href="{{ url_for('admin.docs') }}" class="dropdown-item dropdown-item-warning">📖 Dokumentation</a>
+        <a href="{{ url_for('admin.swagger') }}" class="dropdown-item dropdown-item-warning">🔌 Swagger UI</a>
+        <div class="dropdown-divider"></div>
+        <a href="{{ url_for('admin.import_systems') }}" class="dropdown-item dropdown-item-primary">📥 Importieren</a>
+        <a href="{{ url_for('admin.export_systems') }}" class="dropdown-item dropdown-item-primary">📤 Exportieren</a>
+        <a href="{{ url_for('admin.export_backup') }}" class="dropdown-item dropdown-item-primary">🗃️ Full-Backup</a>
+    </div>
+</div>

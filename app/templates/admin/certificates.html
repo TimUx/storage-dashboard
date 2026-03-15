@@ -186,7 +186,10 @@ tbody tr:hover {
 {% block content %}
 <div class="admin-header">
     <h2>🔒 Zertifikatsverwaltung</h2>
-    <a href="/admin/certificates/new" class="btn btn-primary">+ Neues Zertifikat</a>
+    <div class="admin-actions">
+        <a href="/admin/certificates/new" class="btn btn-primary">+ Neues Zertifikat</a>
+        {% include 'admin/_menu_button.html' %}
+    </div>
 </div>
 
 <div class="info-box">
