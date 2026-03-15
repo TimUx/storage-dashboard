@@ -985,3 +985,193 @@ class TestSnapMirrorDisasterRecovery:
         diagram = ontap_snapmirror_logic.generate_workflow_diagram(rel, 'disaster_recovery')
         for i in range(1, 8):
             assert f'S{i} --> S{i+1}' in diagram
+
+
+# ---------------------------------------------------------------------------
+# DataDomain – disaster_recovery workflow (new tests)
+# ---------------------------------------------------------------------------
+
+class TestDataDomainDisasterRecovery:
+    """Tests for the disaster_recovery direction added to datadomain_logic."""
+
+    def _make_rel(self, primary='dd1', secondary='dd2',
+                  mtree='/data/col1/backup'):
+        return {
+            'system_name': primary,
+            'vendor': 'dell-datadomain',
+            'replication_type': 'datadomain-replication',
+            'primary_site': primary,
+            'secondary_site': secondary,
+            'primary_cluster': primary,
+            'secondary_cluster': secondary,
+            'replication_state': 'healthy',
+            'relationship_data': {
+                'source': {'host': primary, 'mtree': mtree},
+                'destination': {'host': secondary, 'mtree': mtree},
+                'state': 'NORMAL',
+                'connected': True,
+                'mode': 'SOURCE',
+            },
+        }
+
+    # ---- workflow steps ----
+
+    def test_disaster_recovery_has_7_steps(self):
+        rel = self._make_rel()
+        steps = datadomain_logic.generate_workflow(rel, 'disaster_recovery')
+        assert len(steps) == 7
+
+    def test_disaster_recovery_phases_in_order(self):
+        rel = self._make_rel()
+        steps = datadomain_logic.generate_workflow(rel, 'disaster_recovery')
+        phases = [s['phase'] for s in steps]
+        assert phases[0] == 'detection'
+        assert phases[1] == 'validation'
+        assert phases[2] == 'break-replication'
+        assert phases[3] == 'promote-mtree'
+        assert 'validate-filesystem' in phases
+        assert 'switch-backup' in phases
+        assert phases[-1] == 'recreate-replication'
+
+    def test_disaster_recovery_step_numbers_sequential(self):
+        rel = self._make_rel()
+        steps = datadomain_logic.generate_workflow(rel, 'disaster_recovery')
+        assert [s['step'] for s in steps] == list(range(1, 8))
+
+    def test_unknown_direction_falls_back_to_planned_failover(self):
+        rel = self._make_rel()
+        steps = datadomain_logic.generate_workflow(rel, 'nonexistent')
+        planned = datadomain_logic.generate_workflow(rel, 'planned_failover')
+        assert steps == planned
+
+    # ---- command generation ----
+
+    def test_replication_break_command_present(self):
+        rel = self._make_rel(mtree='/data/col1/backup')
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert any('replication break' in cli for cli in cli_commands)
+
+    def test_no_replication_sync_in_disaster_recovery(self):
+        """Sync must NOT appear in disaster_recovery (source is down)."""
+        rel = self._make_rel()
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert not any('replication sync' in cli for cli in cli_commands), (
+            'replication sync must not appear in disaster_recovery commands'
+        )
+
+    def test_planned_failover_has_replication_sync(self):
+        """planned_failover should still sync before breaking."""
+        rel = self._make_rel()
+        cmds = datadomain_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        assert any('replication sync' in cli for cli in cli_commands)
+
+    def test_precheck_replication_status_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'replication status' in cli_commands
+
+    def test_precheck_replication_show_config_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'replication show config' in cli_commands
+
+    def test_precheck_filesys_status_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'filesys status' in cli_commands
+
+    def test_precheck_alerts_show_in_disaster_recovery(self):
+        rel = self._make_rel()
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert 'alerts show' in cli_commands
+
+    def test_precheck_commands_in_planned_failover(self):
+        """planned_failover should also include all 4 pre-check commands."""
+        rel = self._make_rel()
+        cmds = datadomain_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        for expected in ('replication status', 'replication show config',
+                         'filesys status', 'alerts show'):
+            assert expected in cli_commands, f'{expected!r} missing from planned_failover commands'
+
+    def test_recreate_replication_command_present(self):
+        rel = self._make_rel(primary='dd1', mtree='/data/col1/backup')
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert any('replication add source' in cli for cli in cli_commands)
+
+    def test_mtree_in_break_command(self):
+        rel = self._make_rel(mtree='/data/col1/veeam')
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        break_cmd = next(c for c in cmds if 'replication break' in c['cli'])
+        assert '/data/col1/veeam' in break_cmd['cli']
+
+    def test_disaster_recovery_commands_target_dr_system(self):
+        """All disaster_recovery commands must target the surviving (secondary/DR) system."""
+        rel = self._make_rel(primary='dd1', secondary='dd2')
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        for cmd in cmds:
+            assert cmd['target'] == 'dd2', (
+                f"Command {cmd['cli']!r} targets {cmd['target']!r} instead of DR system dd2"
+            )
+
+    def test_planned_failover_commands_target_correct_systems(self):
+        """Pre-failover commands target primary; failover/post-failover target secondary."""
+        rel = self._make_rel(primary='dd1', secondary='dd2')
+        cmds = datadomain_logic.generate_commands(rel, 'planned_failover')
+        pre = [c for c in cmds if c['phase'] == 'pre-failover']
+        failover = [c for c in cmds if c['phase'] == 'failover']
+        for cmd in pre:
+            assert cmd['target'] == 'dd1', f"pre-failover cmd {cmd['cli']!r} should target primary"
+        for cmd in failover:
+            assert cmd['target'] == 'dd2', f"failover cmd {cmd['cli']!r} should target secondary"
+
+    # ---- runbook ----
+
+    def test_runbook_phases_match_workflow(self):
+        rel = self._make_rel()
+        runbook = datadomain_logic.generate_runbook(rel, 'disaster_recovery')
+        runbook_phases = {section['phase'] for section in runbook}
+        workflow_phases = {s['phase'] for s in datadomain_logic.generate_workflow(rel, 'disaster_recovery')}
+        assert runbook_phases == workflow_phases
+
+    def test_runbook_break_replication_section_has_command(self):
+        rel = self._make_rel()
+        runbook = datadomain_logic.generate_runbook(rel, 'disaster_recovery')
+        break_section = next(s for s in runbook if s['phase'] == 'break-replication')
+        cli_commands = [c['cli'] for c in break_section['commands']]
+        assert any('replication break' in cli for cli in cli_commands)
+
+    def test_runbook_recreate_replication_section_has_add_command(self):
+        rel = self._make_rel()
+        runbook = datadomain_logic.generate_runbook(rel, 'disaster_recovery')
+        recreate = next((s for s in runbook if s['phase'] == 'recreate-replication'), None)
+        assert recreate is not None, 'recreate-replication section missing from DataDomain DR runbook'
+        cli_commands = [c['cli'] for c in recreate['commands']]
+        assert any('replication add source' in cli for cli in cli_commands)
+
+    # ---- workflow diagram ----
+
+    def test_workflow_diagram_is_flowchart(self):
+        rel = self._make_rel()
+        diagram = datadomain_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        assert diagram.startswith('flowchart TD')
+
+    def test_workflow_diagram_contains_all_7_steps(self):
+        rel = self._make_rel()
+        diagram = datadomain_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        for i in range(1, 8):
+            assert f'S{i}[' in diagram, f'Step node S{i} missing from disaster_recovery diagram'
+
+    def test_workflow_diagram_steps_connected(self):
+        rel = self._make_rel()
+        diagram = datadomain_logic.generate_workflow_diagram(rel, 'disaster_recovery')
+        for i in range(1, 7):
+            assert f'S{i} --> S{i+1}' in diagram
