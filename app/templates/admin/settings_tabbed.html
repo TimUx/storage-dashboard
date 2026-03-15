@@ -675,6 +675,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const tabButtons = document.querySelectorAll('.tab-button');
     const tabPanes = document.querySelectorAll('.tab-pane');
     
+    const submitBtnGroup = document.querySelector('.btn-group');
+
+    function updateSubmitVisibility(tabName) {
+        if (submitBtnGroup) {
+            submitBtnGroup.style.display = tabName === 'backup' ? 'none' : '';
+        }
+    }
+
     tabButtons.forEach(button => {
         button.addEventListener('click', function() {
             const tabName = this.getAttribute('data-tab');
@@ -687,11 +695,14 @@ document.addEventListener('DOMContentLoaded', function() {
             this.classList.add('active');
             document.getElementById(tabName + '-tab').classList.add('active');
             
+            // Show/hide save buttons depending on active tab
+            updateSubmitVisibility(tabName);
+
             // Store active tab in sessionStorage
             sessionStorage.setItem('activeSettingsTab', tabName);
         });
     });
-    
+
     // Restore active tab from sessionStorage
     const savedTab = sessionStorage.getItem('activeSettingsTab');
     if (savedTab) {
@@ -699,6 +710,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (savedButton) {
             savedButton.click();
         }
+    }
+
+    // Apply visibility for the current active tab (after any session restore)
+    const currentActiveTab = document.querySelector('.tab-button.active');
+    if (currentActiveTab) {
+        updateSubmitVisibility(currentActiveTab.getAttribute('data-tab'));
     }
 });
 
