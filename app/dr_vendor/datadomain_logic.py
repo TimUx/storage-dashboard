@@ -9,31 +9,76 @@ MTree replication environments.
 # ---------------------------------------------------------------------------
 
 def discover_relationships(system_name, health_data):
-    """Analyse health_data and return normalised DataDomain DR relationship dicts."""
+    """Analyse health_data and return normalised DataDomain DR relationship dicts.
+
+    Uses ``mtree_replications`` (preferred) from the schema-defined endpoint
+    GET /api/v1/dd-systems/0/mtree-replications (per dd_api.json), falling back
+    to ``replication_status.contexts`` from the legacy REST v1.0 endpoint.
+
+    Each MtreeReplicationDetail entry provides source_host, destination_host,
+    source_mtree, destination_mtree, mode (SOURCE/TARGET), state and connected.
+    """
     relationships = []
-    replication = health_data.get('replication') or health_data.get('dd_replication', [])
-    if not replication:
+
+    # Prefer the structured MTree replication list collected via the API schema
+    # endpoint.  Fall back to the legacy replication context list.
+    mtree_repls = health_data.get('mtree_replications') or []
+    if not mtree_repls:
+        repl_status = health_data.get('replication_status') or {}
+        legacy_contexts = repl_status.get('contexts') or []
+        for ctx in legacy_contexts:
+            if not isinstance(ctx, dict):
+                continue
+            remote = ctx.get('remote_host', '')
+            direction = (ctx.get('direction') or '').upper()
+            mtree_repls.append({
+                'mode': 'SOURCE' if direction != 'INBOUND' else 'TARGET',
+                'state': ctx.get('state', 'unknown'),
+                'connected': True,
+                'source_host': system_name if direction != 'INBOUND' else remote,
+                'destination_host': remote if direction != 'INBOUND' else system_name,
+                'source_mtree': None,
+                'destination_mtree': None,
+            })
+
+    if not mtree_repls:
         return relationships
 
-    if not isinstance(replication, list):
-        replication = [replication]
-
-    for rep in replication:
-        if not isinstance(rep, dict):
+    for repl in mtree_repls:
+        if not isinstance(repl, dict):
             continue
-        state = rep.get('state', 'unknown')
-        replication_state = 'healthy' if state in ('replicating', 'active', 'idle') else 'degraded'
+
+        state = (repl.get('state') or 'unknown').upper()
+        connected = repl.get('connected', False)
+        replication_state = 'healthy' if state in ('NORMAL', 'RESYNCING') and connected else 'degraded'
+
+        mode = (repl.get('mode') or 'SOURCE').upper()
+        source_host = repl.get('source_host') or system_name
+        dest_host = repl.get('destination_host') or 'Secondary'
+
+        # The source is always the primary and the destination the secondary,
+        # regardless of whether the local system is the SOURCE or TARGET.
+        primary_site = source_host
+        secondary_site = dest_host
+        primary_cluster = source_host
+        secondary_cluster = dest_host
 
         relationships.append({
             'system_name': system_name,
             'vendor': 'dell-datadomain',
             'replication_type': 'datadomain-replication',
-            'primary_site': rep.get('source', {}).get('host', system_name) if isinstance(rep.get('source'), dict) else system_name,
-            'secondary_site': rep.get('destination', {}).get('host', 'Secondary') if isinstance(rep.get('destination'), dict) else 'Secondary',
-            'primary_cluster': system_name,
-            'secondary_cluster': rep.get('destination', {}).get('host', '') if isinstance(rep.get('destination'), dict) else '',
+            'primary_site': primary_site,
+            'secondary_site': secondary_site,
+            'primary_cluster': primary_cluster,
+            'secondary_cluster': secondary_cluster,
             'replication_state': replication_state,
-            'relationship_data': rep,
+            'relationship_data': {
+                'source': {'host': source_host, 'mtree': repl.get('source_mtree')},
+                'destination': {'host': dest_host, 'mtree': repl.get('destination_mtree')},
+                'state': repl.get('state'),
+                'connected': connected,
+                'mode': mode,
+            },
         })
 
     return relationships

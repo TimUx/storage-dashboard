@@ -12,62 +12,65 @@ def discover_relationships(system_name, health_data):
     """Analyse health_data returned by PureStorageClient.get_health_status()
     and return a list of normalised DR relationship dicts.
 
+    Uses ``is_active_cluster`` / ``array_connections`` / ``pods_info`` keys as
+    returned by the Pure Storage REST API (GET /api/<ver>/array-connections and
+    GET /api/<ver>/pods per the pure_swagger.json schema).
+
     Each dict contains:
         system_name, vendor, replication_type,
         primary_site, secondary_site, primary_cluster, secondary_cluster,
         replication_state, relationship_data
     """
     relationships = []
-    ac_info = health_data.get('activecluster') or health_data.get('active_cluster')
-    if not ac_info:
+
+    # The health_data returned by PureStorageClient.get_health_status() stores
+    # ActiveCluster state as is_active_cluster (bool) and array connection
+    # details as array_connections (list of dicts with name, status, type,
+    # management_address, version).  pods_info carries pod-level detail.
+    is_active_cluster = health_data.get('is_active_cluster')
+    array_connections = health_data.get('array_connections') or []
+    pods_info = health_data.get('pods_info') or []
+
+    # Filter for sync-replication connections (ActiveCluster)
+    sync_connections = [c for c in array_connections if isinstance(c, dict) and c.get('type') == 'sync-replication']
+
+    if not is_active_cluster and not sync_connections:
         return relationships
 
-    mediators = ac_info.get('mediator_status') if isinstance(ac_info, dict) else None
-    pods = health_data.get('pods', []) or []
-
-    for pod in pods:
-        if not isinstance(pod, dict):
-            continue
-        arrays = pod.get('arrays', [])
-        if len(arrays) < 2:
-            continue
-
-        primary = arrays[0]
-        secondary = arrays[1]
-        state = 'healthy'
-        if pod.get('status') not in (None, 'online', 'healthy'):
-            state = 'degraded'
+    # Build a relationship per sync-replication peer
+    for conn in sync_connections:
+        partner_name = conn.get('name') or conn.get('management_address') or 'peer-array'
+        state = conn.get('status', 'unknown')
+        replication_state = 'healthy' if state == 'connected' else 'degraded'
 
         rel = {
             'system_name': system_name,
             'vendor': 'pure',
             'replication_type': 'activecluster',
-            'primary_site': primary.get('name', 'Site A'),
-            'secondary_site': secondary.get('name', 'Site B'),
-            'primary_cluster': primary.get('name', system_name),
-            'secondary_cluster': secondary.get('name', ''),
-            'replication_state': state,
+            'primary_site': system_name,
+            'secondary_site': partner_name,
+            'primary_cluster': system_name,
+            'secondary_cluster': partner_name,
+            'replication_state': replication_state,
             'relationship_data': {
-                'pod_name': pod.get('name'),
-                'pod_status': pod.get('status'),
-                'arrays': arrays,
-                'mediator': mediators,
+                'connection': conn,
+                'pods': pods_info,
             },
         }
         relationships.append(rel)
 
-    if not relationships and isinstance(ac_info, dict):
-        # Minimal entry when ActiveCluster is detected but no pod detail
+    if not relationships and (is_active_cluster or sync_connections):
+        # ActiveCluster confirmed but no detailed connection data available
         relationships.append({
             'system_name': system_name,
             'vendor': 'pure',
             'replication_type': 'activecluster',
-            'primary_site': 'Site A',
-            'secondary_site': 'Site B',
+            'primary_site': system_name,
+            'secondary_site': 'peer-array',
             'primary_cluster': system_name,
             'secondary_cluster': '',
             'replication_state': 'unknown',
-            'relationship_data': {'activecluster': ac_info},
+            'relationship_data': {'array_connections': array_connections, 'pods': pods_info},
         })
 
     return relationships

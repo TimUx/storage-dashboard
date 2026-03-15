@@ -9,9 +9,19 @@ multi-site grid environments.
 # ---------------------------------------------------------------------------
 
 def discover_relationships(system_name, health_data):
-    """Analyse health_data and return normalised StorageGRID DR relationship dicts."""
+    """Analyse health_data and return normalised StorageGRID DR relationship dicts.
+
+    Uses ``sites_info`` and ``site_count`` keys as returned by
+    NetAppStorageGRIDClient.get_health_status().  Site information is derived
+    from node siteNames collected via GET /api/v4/grid/node-health (per the
+    grid-combined-schema.yml schema).
+    """
     relationships = []
-    sites = health_data.get('sites', []) or []
+
+    # The health_data returned by NetAppStorageGRIDClient.get_health_status()
+    # stores multi-site info as sites_info (list of {name: ...}) built from the
+    # unique siteNames of all nodes returned by /api/v4/grid/node-health.
+    sites = health_data.get('sites_info') or []
     if not isinstance(sites, list) or len(sites) < 2:
         return relationships
 
@@ -19,8 +29,7 @@ def discover_relationships(system_name, health_data):
     site_b = sites[1].get('name', 'Site B') if isinstance(sites[1], dict) else str(sites[1])
 
     grid_name = health_data.get('grid_name') or system_name
-    state = health_data.get('replication_state', 'unknown')
-    replication_state = 'healthy' if state in ('active', 'healthy') else 'unknown'
+    replication_state = 'unknown'
 
     relationships.append({
         'system_name': system_name,

@@ -9,22 +9,44 @@ Provides generation rules and command templates for ONTAP MetroCluster
 # ---------------------------------------------------------------------------
 
 def discover_relationships(system_name, health_data):
-    """Analyse health_data and return normalised MetroCluster DR relationship dicts."""
+    """Analyse health_data and return normalised MetroCluster DR relationship dicts.
+
+    Uses ``is_metrocluster``, ``metrocluster_info``, and ``metrocluster_peers``
+    keys as returned by NetAppONTAPClient.get_health_status().  The data matches
+    the ONTAP REST API (GET /api/cluster/metrocluster) defined in ontap_swagger.yaml.
+    """
     relationships = []
-    mc_info = health_data.get('metrocluster') or health_data.get('metro_cluster')
-    if not mc_info:
+
+    # The health_data returned by NetAppONTAPClient.get_health_status() stores
+    # MetroCluster state as is_metrocluster (bool) and configuration details as
+    # metrocluster_info (dict) with local_cluster_name, partner_cluster_name,
+    # configuration_state, configuration_type.  metrocluster_peers is a list of
+    # peer cluster dicts from GET /api/cluster/peers.
+    is_metrocluster = health_data.get('is_metrocluster')
+    if not is_metrocluster:
         return relationships
 
-    if isinstance(mc_info, dict):
-        sites = mc_info.get('sites', [])
-        site_a = sites[0].get('name', 'Site A') if len(sites) > 0 else 'Site A'
-        site_b = sites[1].get('name', 'Site B') if len(sites) > 1 else 'Site B'
-        state = mc_info.get('configuration_state', 'unknown')
-    else:
-        site_a, site_b = 'Site A', 'Site B'
-        state = 'unknown'
+    mc_info = health_data.get('metrocluster_info') or {}
+    mc_peers = health_data.get('metrocluster_peers') or []
 
-    replication_state = 'healthy' if state in ('configured', 'healthy') else 'degraded'
+    configuration_state = mc_info.get('configuration_state', 'unknown')
+    replication_state = 'healthy' if configuration_state in ('configured', 'healthy') else 'degraded'
+
+    local_cluster = mc_info.get('local_cluster_name') or system_name
+    # Partner cluster from metrocluster_info; fall back to first peer entry
+    partner_cluster = mc_info.get('partner_cluster_name')
+    if not partner_cluster and mc_peers:
+        partner_cluster = mc_peers[0].get('name', '')
+    partner_cluster = partner_cluster or ''
+
+    # Derive site names from cluster names
+    site_a = local_cluster
+    site_b = partner_cluster or 'Site B'
+
+    configuration_type = mc_info.get('configuration_type', '')
+    mc_type_label = 'MetroCluster FC'
+    if configuration_type and 'ip' in configuration_type.lower():
+        mc_type_label = 'MetroCluster IP'
 
     relationships.append({
         'system_name': system_name,
@@ -32,10 +54,18 @@ def discover_relationships(system_name, health_data):
         'replication_type': 'metrocluster',
         'primary_site': site_a,
         'secondary_site': site_b,
-        'primary_cluster': system_name,
-        'secondary_cluster': '',
+        'primary_cluster': local_cluster,
+        'secondary_cluster': partner_cluster,
         'replication_state': replication_state,
-        'relationship_data': {'metrocluster': mc_info if isinstance(mc_info, dict) else {}},
+        'relationship_data': {
+            'metrocluster': {
+                'configuration_state': configuration_state,
+                'configuration_type': mc_type_label,
+                'local_cluster': local_cluster,
+                'partner_cluster': partner_cluster,
+                'peers': mc_peers,
+            }
+        },
     })
 
     return relationships

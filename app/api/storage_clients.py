@@ -2727,6 +2727,43 @@ class DellDataDomainClient(StorageClient):
         except Exception as e:
             logger.debug(f"Could not get replication status for DataDomain {self.ip_address}: {e}")
             return None
+
+    def _get_mtree_replications(self, headers, ssl_verify):
+        """Get MTree replication information using the DataDomain API schema endpoint.
+
+        Uses GET /api/v1/dd-systems/0/mtree-replications as defined in the dd_api.json
+        schema. Each entry (MtreeReplicationDetail) carries sourceHost, destinationHost,
+        sourceMtreePath, destinationMtreePath, mode (SOURCE/TARGET), state and connected.
+
+        Returns:
+            list: List of normalised MTree replication dicts, or empty list on failure.
+        """
+        try:
+            data = self._make_api_request('/api/v1/dd-systems/0/mtree-replications', headers, ssl_verify)
+            if not data:
+                return []
+
+            contexts = data.get('contexts', []) or []
+            result = []
+            for ctx in contexts:
+                if not isinstance(ctx, dict):
+                    continue
+                result.append({
+                    'id': ctx.get('id'),
+                    'mode': ctx.get('mode', 'SOURCE'),
+                    'state': ctx.get('state', 'unknown'),
+                    'connected': ctx.get('connected', False),
+                    'source_host': ctx.get('sourceHost'),
+                    'destination_host': ctx.get('destinationHost'),
+                    'source_mtree': ctx.get('sourceMtreePath'),
+                    'destination_mtree': ctx.get('destinationMtreePath'),
+                })
+
+            logger.debug(f"DataDomain {self.ip_address} - Found {len(result)} MTree replication contexts")
+            return result
+        except Exception as e:
+            logger.debug(f"Could not get MTree replications for DataDomain {self.ip_address}: {e}")
+            return []
     
     def _get_hardware_status(self, headers, ssl_verify):
         """Get hardware component health status
@@ -2943,8 +2980,12 @@ class DellDataDomainClient(StorageClient):
                     except Exception as iface_error:
                         logger.debug(f"Could not get interface {iface} for DataDomain {self.ip_address}: {iface_error}")
             
-            # Get replication status
+            # Get replication status (legacy context API)
             replication_status = self._get_replication_status(headers, ssl_verify)
+
+            # Get MTree replications using the schema-defined endpoint
+            # GET /api/v1/dd-systems/0/mtree-replications (per dd_api.json)
+            mtree_replications = self._get_mtree_replications(headers, ssl_verify)
             
             # Get hardware health status
             hardware_status = self._get_hardware_status(headers, ssl_verify)
@@ -3000,6 +3041,9 @@ class DellDataDomainClient(StorageClient):
             
             if replication_status:
                 result['replication_status'] = replication_status
+
+            if mtree_replications:
+                result['mtree_replications'] = mtree_replications
             
             if hardware_status:
                 result['hardware_details'] = hardware_status
