@@ -985,13 +985,13 @@ function renderRelationships(relationships) {
         if (Array.isArray(contexts) && contexts.length) {
             html += '<tr><td colspan="7" style="padding:.25rem .75rem;">'
                 + '<details><summary style="cursor:pointer;font-size:.78rem;color:var(--dr-muted);">'
-                + contexts.length + ' MTree-Replikation(en) \u2013 zum Aufklappen klicken</summary>'
+                + contexts.length + ' Replikationskontext(e) \u2013 zum Aufklappen klicken</summary>'
                 + '<div style="overflow-x:auto;padding:.5rem 0;"><table class="rel-table" style="margin:0;">'
-                + '<thead><tr><th>Quelle MTree</th><th>Ziel MTree</th><th>Status</th></tr></thead><tbody>';
+                + '<thead><tr><th>Quelle</th><th>Ziel</th><th>Status</th></tr></thead><tbody>';
             contexts.slice(0, 30).forEach(function(ctx) {
-                var src = ctx.source_mtree || ctx.source_path || ctx.src_path || ctx.source_volume || ctx.source || '–';
-                var dst = ctx.destination_mtree || ctx.destination_path || ctx.dst_path || ctx.destination_volume || ctx.destination || '–';
-                var st = ctx.state || ctx.status || ctx.health_status || '–';
+                var src = ctx.source_mtree || ctx.source_path || ctx.src_path || ctx.source_volume || ctx.source || '\u2013';
+                var dst = ctx.destination_mtree || ctx.destination_path || ctx.dst_path || ctx.destination_volume || ctx.destination || '\u2013';
+                var st = ctx.state || ctx.status || ctx.health_status || '\u2013';
                 html += '<tr><td>' + escHtml(src) + '</td><td>' + escHtml(dst) + '</td><td>' + escHtml(st) + '</td></tr>';
             });
             if (contexts.length > 30) {
@@ -1010,7 +1010,21 @@ function renderRunbook(runbookData) {
         el.innerHTML = '<div class="dr-no-data">Kein Runbook f\u00fcr dieses System / diese Richtung verf\u00fcgbar.</div>';
         return;
     }
-    var phaseOrder = ['pre-failover', 'failover', 'post-failover', 'pre-failback', 'failback', 'post-failback'];
+    // Full phase ordering covering all vendor DR directions incl. DataDomain disaster_recovery
+    var phaseOrder = [
+        'pre-failover', 'failover', 'post-failover',
+        'pre-failback', 'failback', 'post-failback',
+        // disaster_recovery phases (MetroCluster / SnapMirror / DataDomain)
+        'detection', 'pre-checks', 'forced-switchover', 'verification',
+        'aggregate-healing', 'switchback', 'final-verification',
+        'snapmirror-break', 'activate-dr', 'verify-storage', 'verify-network',
+        'serve-clients', 'reprotect',
+        // DataDomain disaster_recovery phases
+        'validation', 'break-replication', 'promote-mtree',
+        'validate-filesystem', 'switch-backup', 'recreate-replication',
+        // FlashArray
+        'support',
+    ];
     var sections = runbookData.runbook_data.slice().sort(function(a, b) {
         var ai = phaseOrder.indexOf(a.phase), bi = phaseOrder.indexOf(b.phase);
         return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
@@ -1033,7 +1047,21 @@ function renderCLICommands(commandSetData) {
         el.innerHTML = '<div style="color:#888;font-style:italic;">Keine CLI-Befehle f\u00fcr dieses System verf\u00fcgbar.</div>';
         return;
     }
-    var phaseOrder = ['pre-failover', 'failover', 'post-failover', 'pre-failback', 'failback', 'post-failback'];
+    // Full phase ordering covering all vendor DR directions incl. DataDomain disaster_recovery
+    var phaseOrder = [
+        'pre-failover', 'failover', 'post-failover',
+        'pre-failback', 'failback', 'post-failback',
+        // disaster_recovery phases (MetroCluster / SnapMirror / DataDomain / FlashArray)
+        'detection', 'pre-checks', 'forced-switchover', 'verification',
+        'aggregate-healing', 'switchback', 'final-verification',
+        'snapmirror-break', 'activate-dr', 'verify-storage', 'verify-network',
+        'serve-clients', 'reprotect',
+        // DataDomain disaster_recovery phases
+        'validation', 'break-replication', 'promote-mtree',
+        'validate-filesystem', 'switch-backup', 'recreate-replication',
+        // FlashArray
+        'support',
+    ];
     var byPhase = {};
     commandSetData.commands_data.forEach(function(cmd) {
         var p = cmd.phase || 'general';
