@@ -76,7 +76,7 @@ def api_systems():
     # Collect environment classification from StorageSystem tags (Landschaft group),
     # DataCenter tags for site names, and build a set of systems excluded from DR failover.
     sys_env_map: dict[str, str] = {}
-    sys_dc_map: dict[str, str] = {}
+    sys_dc_map: dict[str, str] = {}  # lowercase system name → DataCenter tag
     excluded_systems: set[str] = set()
     try:
         from app.dr_service import _is_dr_excluded
@@ -91,7 +91,9 @@ def api_systems():
                     elif tag_name == 'Test/Dev':
                         sys_env_map[ss.name] = 'test'
                 elif group_name == 'DataCenter':
-                    sys_dc_map[ss.name] = tag_name
+                    # Store with lowercase key to allow case-insensitive lookup
+                    # (API-returned cluster names may differ in case from inventory names)
+                    sys_dc_map[ss.name.lower()] = tag_name
             if _is_dr_excluded(ss):
                 excluded_systems.add(ss.name)
     except Exception as exc:
@@ -108,7 +110,9 @@ def api_systems():
             # Partner system = the OTHER cluster (not sname).  If sname is
             # the secondary_cluster, the partner is primary_cluster and vice-versa.
             # Secondary site = DataCenter tag of the partner cluster.
-            primary_dc = sys_dc_map.get(sname) or rel_dict.get('primary_site') or ''
+            # sys_dc_map uses lowercase keys to handle case differences between
+            # API-returned cluster names and the names stored in the inventory.
+            primary_dc = sys_dc_map.get(sname.lower()) or rel_dict.get('primary_site') or ''
             primary_cl = rel_dict.get('primary_cluster') or ''
             sec_cluster = rel_dict.get('secondary_cluster') or ''
             # Identify the partner cluster (the one that is NOT this system).
@@ -116,15 +120,20 @@ def api_systems():
             # TARGET systems sname == secondary_cluster, so the partner is primary_cluster.
             # If both clusters equal sname (e.g. StorageGRID same-grid entry), fall back
             # to sec_cluster and let the secondary_dc resolution use the raw site value.
-            if sec_cluster and sec_cluster != sname:
+            if sec_cluster and sec_cluster.lower() != sname.lower():
                 partner_cl = sec_cluster
-            elif primary_cl and primary_cl != sname:
+            elif primary_cl and primary_cl.lower() != sname.lower():
                 partner_cl = primary_cl
             else:
                 # No distinct partner found (e.g. StorageGRID single-grid setup)
                 partner_cl = ''
-            secondary_dc = (sys_dc_map.get(partner_cl) if partner_cl else '') \
-                or rel_dict.get('secondary_site') or ''
+            if partner_cl:
+                # Look up the DataCenter tag of the partner system (case-insensitive).
+                # Use 'unknown' when the partner system is not in the inventory or has
+                # no DataCenter tag – never fall back to the system name.
+                secondary_dc = sys_dc_map.get(partner_cl.lower(), 'unknown')
+            else:
+                secondary_dc = ''
             systems_map[sname] = {
                 'system_name': sname,
                 'vendor': rel_dict['vendor'],
@@ -215,14 +224,15 @@ def api_system(system_name):
     ).all()
 
     # Resolve DataCenter tags so that detail view shows DC names, not cluster names
-    sys_dc_map: dict[str, str] = {}
+    sys_dc_map: dict[str, str] = {}  # lowercase system name → DataCenter tag
     try:
         from app.models import StorageSystem
         for ss in StorageSystem.query.all():
             for tag in (ss.tags or []):
                 group_name = (tag.group.name if tag.group else '').strip()
                 if group_name == 'DataCenter':
-                    sys_dc_map[ss.name] = tag.name.strip()
+                    # Store with lowercase key for case-insensitive lookup
+                    sys_dc_map[ss.name.lower()] = tag.name.strip()
     except Exception as exc:
         logger.warning("Could not load DataCenter tags for detail view: %s", exc)
 
@@ -233,15 +243,20 @@ def api_system(system_name):
         sname = rd.get('system_name', '')
         primary_cl = rd.get('primary_cluster') or ''
         sec_cl = rd.get('secondary_cluster') or ''
-        if sec_cl and sec_cl != sname:
+        if sec_cl and sec_cl.lower() != sname.lower():
             partner_cl = sec_cl
-        elif primary_cl and primary_cl != sname:
+        elif primary_cl and primary_cl.lower() != sname.lower():
             partner_cl = primary_cl
         else:
             partner_cl = ''
-        primary_dc = sys_dc_map.get(sname) or rd.get('primary_site') or ''
-        secondary_dc = (sys_dc_map.get(partner_cl) if partner_cl else '') \
-            or rd.get('secondary_site') or ''
+        primary_dc = sys_dc_map.get(sname.lower()) or rd.get('primary_site') or ''
+        if partner_cl:
+            # Look up the DataCenter tag of the partner system (case-insensitive).
+            # Use 'unknown' when the partner system is not in the inventory or has
+            # no DataCenter tag – never fall back to the system name.
+            secondary_dc = sys_dc_map.get(partner_cl.lower(), 'unknown')
+        else:
+            secondary_dc = ''
         enriched = dict(rd)
         enriched['primary_site'] = primary_dc
         enriched['secondary_site'] = secondary_dc
