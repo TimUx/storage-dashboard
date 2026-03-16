@@ -146,12 +146,14 @@ def create_app():
     from app.routes import capacity as capacity_routes
     from app.routes import alerts as alerts_routes
     from app.routes import dr as dr_routes
+    from app.routes import snaps as snaps_routes
     app.register_blueprint(main.bp)
     app.register_blueprint(admin.bp)
     app.register_blueprint(api.bp)
     app.register_blueprint(capacity_routes.bp)
     app.register_blueprint(alerts_routes.bp)
     app.register_blueprint(dr_routes.bp)
+    app.register_blueprint(snaps_routes.bp)
 
     # 404 handler: redirect unknown routes to /dashboard
     @app.errorhandler(404)
@@ -231,5 +233,12 @@ def create_app():
             start_dr_refresh(app)
         except Exception as e:
             app.logger.warning(f"Could not start DR build background refresh: {e}")
+
+        # Start snapshot background collector (every 15 minutes)
+        try:
+            from app.snap_service import start_background_refresh as start_snap_refresh
+            start_snap_refresh(app)
+        except Exception as e:
+            app.logger.warning(f"Could not start snapshot background collector: {e}")
 
     return app

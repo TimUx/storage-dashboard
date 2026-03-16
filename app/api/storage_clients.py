@@ -972,6 +972,65 @@ class PureStorageClient(StorageClient):
             logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
+    def get_volume_snapshots(self):
+        """Return volume snapshots from Pure FlashArray via REST API.
+
+        Queries GET /api/<version>/volume-snapshots and returns a list of dicts
+        with at minimum: name, created.
+        """
+        try:
+            if not self.token:
+                return []
+            ssl_verify = get_ssl_verify(self.resolved_address)
+            api_version = self.detect_api_version()
+            session_token = self.authenticate(api_version)
+            if not session_token:
+                return []
+
+            headers = {'x-auth-token': session_token, 'Content-Type': 'application/json'}
+            results = []
+            params = {'limit': 1000, 'offset': 0}
+            while True:
+                resp = _local_session.get(
+                    f"{self.base_url}/api/{api_version}/volume-snapshots",
+                    headers=headers,
+                    params=params,
+                    verify=ssl_verify,
+                    timeout=30,
+                )
+                if resp.status_code != 200:
+                    break
+                data = resp.json()
+                items = data.get('items', [])
+                if not items:
+                    break
+                for item in items:
+                    results.append({
+                        'name': item.get('name', ''),
+                        'created': item.get('created'),
+                    })
+                # Check for continuation token (pagination)
+                continuation = data.get('continuation_token')
+                if not continuation:
+                    break
+                params = {'continuation_token': continuation}
+
+            # Logout
+            try:
+                _local_session.post(
+                    f"{self.base_url}/api/{api_version}/logout",
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=10,
+                )
+            except Exception:
+                pass
+
+            return results
+        except Exception as exc:
+            logger.warning("FlashArray get_volume_snapshots error for %s: %s", self.ip_address, exc)
+            return []
+
 
 class NetAppONTAPClient(StorageClient):
     """NetApp ONTAP 9 client using REST API"""
@@ -1951,6 +2010,67 @@ class NetAppONTAPClient(StorageClient):
             logger.error(f"Error getting NetApp ONTAP health status for {self.ip_address}: {e}")
             logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
+
+    def get_volume_snapshots(self):
+        """Return ONTAP volume snapshots via REST API.
+
+        Queries GET /api/storage/volumes/*/snapshots (using the bulk snapshots
+        endpoint if available, otherwise iterates volumes).  Returns a list of
+        dicts with keys: name, create_time, volume, svm, cluster.
+        """
+        try:
+            ssl_verify = get_ssl_verify(self.resolved_address)
+            auth = (self.username, self.password) if self.username else None
+            headers = {'Accept': 'application/json'}
+
+            # Resolve cluster name for context
+            cluster_name = self.ip_address
+            try:
+                cl_resp = _local_session.get(
+                    f"{self.base_url}/api/cluster",
+                    auth=auth, headers=headers, verify=ssl_verify, timeout=10,
+                )
+                if cl_resp.status_code == 200:
+                    cluster_name = cl_resp.json().get('name', self.ip_address)
+            except Exception:
+                pass
+
+            results = []
+            # Collect all volumes first
+            vol_resp = _local_session.get(
+                f"{self.base_url}/api/storage/volumes",
+                auth=auth, headers=headers, verify=ssl_verify, timeout=30,
+                params={'fields': 'name,uuid,svm', 'max_records': 1000},
+            )
+            if vol_resp.status_code != 200:
+                return []
+
+            volumes = vol_resp.json().get('records', [])
+            for vol in volumes:
+                vol_uuid = vol.get('uuid')
+                vol_name = vol.get('name', '')
+                svm_name = (vol.get('svm') or {}).get('name', '')
+                if not vol_uuid:
+                    continue
+                snap_resp = _local_session.get(
+                    f"{self.base_url}/api/storage/volumes/{vol_uuid}/snapshots",
+                    auth=auth, headers=headers, verify=ssl_verify, timeout=30,
+                    params={'fields': 'name,create_time', 'max_records': 500},
+                )
+                if snap_resp.status_code != 200:
+                    continue
+                for snap in snap_resp.json().get('records', []):
+                    results.append({
+                        'name': snap.get('name', ''),
+                        'create_time': snap.get('create_time'),
+                        'volume': vol_name,
+                        'svm': svm_name,
+                        'cluster': cluster_name,
+                    })
+            return results
+        except Exception as exc:
+            logger.warning("ONTAP get_volume_snapshots error for %s: %s", self.ip_address, exc)
+            return []
 
 
 class NetAppStorageGRIDClient(StorageClient):
