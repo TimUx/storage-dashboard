@@ -444,6 +444,38 @@ class TestMetroClusterDisasterRecovery:
         assert diagram.index('nodeA1') < cluster_b_pos
         assert diagram.index('nodeB1') > cluster_a_pos
 
+    # ---- topology diagram layout (ISL switches inside site subgraphs) ----
+
+    def test_topology_diagram_isl_a_inside_site_a(self):
+        """ISL switch A must be defined inside the primary site subgraph."""
+        rel = self._make_rel(primary='FASMC1', secondary='FASMC2')
+        rel['primary_site'] = 'DC1'
+        rel['secondary_site'] = 'DC2'
+        diagram = ontap_metrocluster_logic.generate_topology_diagram(rel)
+        # ISL_A must appear before the secondary site subgraph closes
+        dc1_start = diagram.index('subgraph DC1')
+        dc2_start = diagram.index('subgraph DC2')
+        isl_a_pos = diagram.index('ISL_A')
+        assert dc1_start < isl_a_pos < dc2_start, \
+            'ISL_A must be defined inside the primary site subgraph, not outside'
+
+    def test_topology_diagram_isl_b_inside_site_b(self):
+        """ISL switch B must be defined inside the secondary site subgraph."""
+        rel = self._make_rel(primary='FASMC1', secondary='FASMC2')
+        rel['primary_site'] = 'DC1'
+        rel['secondary_site'] = 'DC2'
+        diagram = ontap_metrocluster_logic.generate_topology_diagram(rel)
+        dc2_start = diagram.index('subgraph DC2')
+        isl_b_pos = diagram.index('ISL_B')
+        assert isl_b_pos > dc2_start, \
+            'ISL_B must be defined inside the secondary site subgraph, not outside'
+
+    def test_topology_diagram_inter_site_link_is_isl(self):
+        """The only inter-site link must connect ISL_A to ISL_B."""
+        rel = self._make_rel()
+        diagram = ontap_metrocluster_logic.generate_topology_diagram(rel)
+        assert 'ISL_A <-->|"ISL"| ISL_B' in diagram
+
 
 # ---------------------------------------------------------------------------
 # NetApp StorageGRID
@@ -1051,8 +1083,75 @@ class TestPureFlashArrayActiveClusterDisasterRecovery:
 
 
 # ---------------------------------------------------------------------------
-# ONTAP SnapMirror – new inter-cluster filtering and svm_peers enrichment
+# Pure FlashArray – topology diagram layout
 # ---------------------------------------------------------------------------
+
+
+class TestPureFlashArrayTopologyDiagram:
+    """Verify generate_topology_diagram() uses the same [SiteA]|[Mediator]|[SiteB] layout
+    as the DataDomain/SnapMirror diagrams: all components inside their site boxes
+    and the Mediator contained in its own subgraph."""
+
+    @staticmethod
+    def _make_rel(primary='pure01', secondary='pure02',
+                  site_a='DC1', site_b='DC2', pod='prod-pod'):
+        return {
+            'primary_site': site_a,
+            'secondary_site': site_b,
+            'primary_cluster': primary,
+            'secondary_cluster': secondary,
+            'relationship_data': {'pod_name': pod},
+        }
+
+    def test_diagram_starts_with_graph_lr(self):
+        diagram = pure_flasharray_logic.generate_topology_diagram(self._make_rel())
+        assert diagram.startswith('graph LR')
+
+    def test_mediator_in_own_subgraph(self):
+        """Mediator must live inside a dedicated subgraph, not float outside."""
+        diagram = pure_flasharray_logic.generate_topology_diagram(self._make_rel())
+        assert 'subgraph MED_SITE' in diagram
+        assert 'Mediator' in diagram
+
+    def test_both_site_subgraphs_present(self):
+        rel = self._make_rel(site_a='SiteA', site_b='SiteB')
+        diagram = pure_flasharray_logic.generate_topology_diagram(rel)
+        assert 'SiteA' in diagram
+        assert 'SiteB' in diagram
+
+    def test_both_array_subgraphs_present(self):
+        rel = self._make_rel(primary='pure01', secondary='pure02')
+        diagram = pure_flasharray_logic.generate_topology_diagram(rel)
+        assert 'pure01' in diagram
+        assert 'pure02' in diagram
+
+    def test_activecluster_link_present(self):
+        rel = self._make_rel(pod='prod-pod')
+        diagram = pure_flasharray_logic.generate_topology_diagram(rel)
+        assert 'ActiveCluster' in diagram
+        assert 'prod-pod' in diagram
+        assert '<-->' in diagram
+
+    def test_heartbeat_links_present(self):
+        diagram = pure_flasharray_logic.generate_topology_diagram(self._make_rel())
+        assert diagram.count('Heartbeat') == 2
+
+    def test_mediator_not_floating_outside_subgraphs(self):
+        """The bare 'M(["Mediator"])' line must NOT appear outside a subgraph."""
+        diagram = pure_flasharray_logic.generate_topology_diagram(self._make_rel())
+        # The mediator node must be preceded by its subgraph declaration on an earlier line
+        lines = diagram.splitlines()
+        in_med_subgraph = False
+        mediator_node_found_in_subgraph = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('subgraph MED_SITE'):
+                in_med_subgraph = True
+            elif stripped.startswith('end') and in_med_subgraph:
+                in_med_subgraph = False
+            elif in_med_subgraph and stripped.startswith('M('):
+                mediator_node_found_in_subgraph = True
+        assert mediator_node_found_in_subgraph, 'Mediator node must be inside MED_SITE subgraph'
 
 from app.dr_vendor import ontap_snapmirror_logic
 

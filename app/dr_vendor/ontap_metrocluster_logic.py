@@ -398,6 +398,8 @@ def generate_topology_diagram(relationship):
     # This handles names like FASMC1C/FASMC2C that share letters (e.g. 'A' in 'FASMC')
     # and would be misclassified by a simple letter-based heuristic.
     def _node_cluster(node):
+        if not isinstance(node, dict):
+            return ''
         if isinstance(node.get('dr_home_port'), dict):
             return node['dr_home_port'].get('node', {}).get('name', '')
         return node.get('site', '')
@@ -422,6 +424,9 @@ def generate_topology_diagram(relationship):
             result.append(f'      {nid}[["Node: {nname}"]]')
         return result
 
+    # Each ISL switch lives inside its own site subgraph – matching the
+    # DataDomain/SnapMirror pattern where every component belongs to one of the
+    # two datacenter boxes.  The only inter-site link is ISL_A <--> ISL_B.
     lines = [
         'graph LR',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
@@ -438,6 +443,8 @@ def generate_topology_diagram(relationship):
         f'      {a_id}_vip(["Cluster Mgmt VIP"])',
         f'      {a_id}_svm[("{primary}-SVM")]',
         '    end',
+        f'    ISL_A(["FC/IP Switch\\nSite A"])',
+        f'    {a_id}_cluster <-->|"MetroCluster\\nSynchronous"| ISL_A',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
         f'    subgraph {b_id}_cluster["{secondary} (Secondary)"]',
@@ -453,12 +460,10 @@ def generate_topology_diagram(relationship):
         f'      {b_id}_vip(["Cluster Mgmt VIP"])',
         f'      {b_id}_svm[("{secondary}-SVM")]',
         '    end',
+        f'    ISL_B(["FC/IP Switch\\nSite B"])',
+        f'    ISL_B <-->|"MetroCluster\\nSynchronous"| {b_id}_cluster',
         '  end',
-        '  ISL_A(["FC/IP Switch\\nSite A"])',
-        '  ISL_B(["FC/IP Switch\\nSite B"])',
-        f'  {a_id}_cluster <-->|"MetroCluster\\nSynchronous"| ISL_A',
         '  ISL_A <-->|"ISL"| ISL_B',
-        f'  ISL_B <-->|"MetroCluster\\nSynchronous"| {b_id}_cluster',
     ]
     return '\n'.join(lines)
 

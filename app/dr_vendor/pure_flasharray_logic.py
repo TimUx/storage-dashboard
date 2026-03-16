@@ -378,8 +378,11 @@ def generate_commands(relationship, failover_direction='planned_failover'):
 def generate_topology_diagram(relationship):
     """Return a Mermaid diagram string showing the ActiveCluster topology.
 
-    Includes Datacenter A & B, FlashArray clusters, controllers (CT0/CT1),
-    management VIPs, replication link, and mediator.
+    Includes Datacenter A & B (each with FlashArray controllers and Mgmt VIP),
+    a Mediator box between the two sites, the ActiveCluster synchronous link,
+    and heartbeat connections from each array to the Mediator.  The layout
+    follows the same [Site A] | [Mediator] | [Site B] pattern used by the
+    DataDomain and SnapMirror diagrams.
     """
     site_a = relationship.get('primary_site', 'Datacenter A')
     site_b = relationship.get('secondary_site', 'Datacenter B')
@@ -400,6 +403,9 @@ def generate_topology_diagram(relationship):
         f'      {a_id}_vip(["Mgmt VIP"])',
         f'    end',
         '  end',
+        '  subgraph MED_SITE["Mediator"]',
+        '    M(["Mediator"])',
+        '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
         f'    subgraph {b_id}_cluster["{secondary}"]',
         f'      {b_id}_ct0[["CT0\\n(Controller)"]]',
@@ -407,7 +413,6 @@ def generate_topology_diagram(relationship):
         f'      {b_id}_vip(["Mgmt VIP"])',
         f'    end',
         '  end',
-        f'  M(["Mediator"])',
         f'  {a_id}_cluster <-->|"ActiveCluster\\n{pod_name}\\n(Synchronous)"| {b_id}_cluster',
         f'  {a_id}_cluster -.->|"Heartbeat"| M',
         f'  {b_id}_cluster -.->|"Heartbeat"| M',
