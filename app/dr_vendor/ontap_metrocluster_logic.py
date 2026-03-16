@@ -393,10 +393,24 @@ def generate_topology_diagram(relationship):
     a_id = _safe_id(primary)
     b_id = _safe_id(secondary)
 
-    # Build node lines for each site
-    a_nodes = [n for n in nodes if isinstance(n, dict) and 'A' in n.get('name', '').upper()]
-    b_nodes = [n for n in nodes if isinstance(n, dict) and 'B' in n.get('name', '').upper()]
-    # If we can't split by name, put first half in A, rest in B
+    # Build node lines for each site.
+    # Primary strategy: use dr_home_port.node.name which contains the cluster name.
+    # This handles names like FASMC1C/FASMC2C that share letters (e.g. 'A' in 'FASMC')
+    # and would be misclassified by a simple letter-based heuristic.
+    def _node_cluster(node):
+        if not isinstance(node, dict):
+            return ''
+        if isinstance(node.get('dr_home_port'), dict):
+            return node['dr_home_port'].get('node', {}).get('name', '')
+        return node.get('site', '')
+
+    a_nodes = [n for n in nodes if isinstance(n, dict) and _node_cluster(n) == primary]
+    b_nodes = [n for n in nodes if isinstance(n, dict) and _node_cluster(n) == secondary]
+    # Fallback: letter-based heuristic for classic A/B naming conventions
+    if not a_nodes and not b_nodes and nodes:
+        a_nodes = [n for n in nodes if isinstance(n, dict) and 'A' in n.get('name', '').upper()]
+        b_nodes = [n for n in nodes if isinstance(n, dict) and 'B' in n.get('name', '').upper()]
+    # Last resort: split by position
     if not a_nodes and not b_nodes and nodes:
         mid = max(1, len(nodes) // 2)
         a_nodes, b_nodes = nodes[:mid], nodes[mid:]
@@ -410,6 +424,12 @@ def generate_topology_diagram(relationship):
             result.append(f'      {nid}[["Node: {nname}"]]')
         return result
 
+    # ISL switches are contained nodes inside their site subgraphs – there are
+    # no explicit within-site edges between the cluster subgraph and the ISL
+    # switch.  This matches the StorageGRID/SnapMirror pattern where nodes are
+    # just grouped inside their site box and the single cross-site link between
+    # ISL_A and ISL_B is the only explicit connection that bridges the two
+    # datacenters.
     lines = [
         'graph LR',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
@@ -426,6 +446,7 @@ def generate_topology_diagram(relationship):
         f'      {a_id}_vip(["Cluster Mgmt VIP"])',
         f'      {a_id}_svm[("{primary}-SVM")]',
         '    end',
+        f'    ISL_A(["FC/IP Switch\\nSite A"])',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
         f'    subgraph {b_id}_cluster["{secondary} (Secondary)"]',
@@ -441,12 +462,9 @@ def generate_topology_diagram(relationship):
         f'      {b_id}_vip(["Cluster Mgmt VIP"])',
         f'      {b_id}_svm[("{secondary}-SVM")]',
         '    end',
+        f'    ISL_B(["FC/IP Switch\\nSite B"])',
         '  end',
-        '  ISL_A(["FC/IP Switch\\nSite A"])',
-        '  ISL_B(["FC/IP Switch\\nSite B"])',
-        f'  {a_id}_cluster <-->|"MetroCluster\\nSynchronous"| ISL_A',
-        '  ISL_A <-->|"ISL"| ISL_B',
-        f'  ISL_B <-->|"MetroCluster\\nSynchronous"| {b_id}_cluster',
+        '  ISL_A <-->|"MetroCluster\\nSynchronous\\n(ISL)"| ISL_B',
     ]
     return '\n'.join(lines)
 
