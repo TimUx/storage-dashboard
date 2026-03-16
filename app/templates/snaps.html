@@ -399,9 +399,9 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
 <div class="sn-modal-overlay" id="curl-modal">
     <div class="sn-modal">
         <button class="sn-modal-close" onclick="closeCurlModal()">✕</button>
-        <h3>🔍 Simulation – Rename-Operationen</h3>
-        <p style="font-size:.82rem;color:var(--sn-muted);margin-bottom:1rem;">
-            Die folgenden Befehle würden ausgeführt werden.  Keine Änderungen wurden vorgenommen.
+        <h3 id="curl-modal-title">🔍 Simulation – API-Operationen</h3>
+        <p id="curl-modal-desc" style="font-size:.82rem;color:var(--sn-muted);margin-bottom:1rem;">
+            Die folgenden Befehle würden ausgeführt werden. Keine Änderungen wurden vorgenommen.
         </p>
         <div id="curl-commands-container"></div>
         <button class="btn-secondary" onclick="closeCurlModal()" style="margin-top:.5rem;">Schließen</button>
@@ -749,23 +749,28 @@ async function saveTtl() {
 
         closeTtlModal();
         renderTable();
-        // Show curl simulation
-        showCurlModal(data.curl_commands || []);
+        // Show curl simulation (rename preview)
+        showCurlModal(data.curl_commands || [], '🔍 Simulation – Rename-Operationen',
+            'Die folgenden API-Aufrufe würden zur Umbenennung des Snapshots ausgeführt werden. Keine Änderungen wurden vorgenommen.');
     } catch(e) {
         alert('Netzwerkfehler: ' + e.message);
     }
 }
 
 // ─── CURL simulation modal ────────────────────────────────────────────────
-function showCurlModal(commands) {
+function showCurlModal(commands, title, desc) {
+    document.getElementById('curl-modal-title').textContent =
+        title || '🔍 Simulation – API-Operationen';
+    document.getElementById('curl-modal-desc').textContent =
+        desc  || 'Die folgenden Befehle würden ausgeführt werden. Keine Änderungen wurden vorgenommen.';
     const container = document.getElementById('curl-commands-container');
     if (!commands.length) {
-        container.innerHTML = '<p style="color:var(--sn-muted)">Keine Rename-Operationen notwendig.</p>';
+        container.innerHTML = '<p style="color:var(--sn-muted)">Keine API-Operationen notwendig.</p>';
     } else {
         container.innerHTML = commands.map(c => {
             const platform = c.platform === 'FlashArray'
                 ? `🔷 FlashArray – ${escHtml(c.array || '')}`
-                : `🔶 ONTAP – ${escHtml(c.cluster || '')} / ${escHtml(c.svm || '')}`;
+                : `🔶 ONTAP – ${escHtml(c.cluster || '')} / ${escHtml(c.svm || '')}${c.volume ? ' – ' + escHtml(c.volume) : ''}`;
             return `<div class="curl-platform-label">${platform}</div>
 <div class="curl-block">${escHtml(c.command)}</div>`;
         }).join('');
@@ -779,21 +784,20 @@ function closeCurlModal() {
 
 // ─── Delete / undo ────────────────────────────────────────────────────────
 async function markDelete(id) {
-    if (!confirm('Snapshot für Löschung vormerken? Er wird in 24 Stunden endgültig gelöscht.')) return;
+    // Show a preview popup with the delete API calls instead of executing them.
     try {
-        const resp = await fetch('/snaps/api/delete', {
+        const resp = await fetch('/snaps/api/delete-preview', {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({id}),
         });
         const data = await resp.json();
         if (!resp.ok) { alert('Fehler: ' + (data.error || resp.status)); return; }
-        const snap = _snapshots.find(s => s.id === id);
-        if (snap) {
-            snap.delete_marked  = true;
-            snap.delete_deadline = data.delete_deadline;
-        }
-        renderTable();
+        showCurlModal(
+            data.curl_commands || [],
+            '🗑️ Simulation – Lösch-Operationen',
+            'Die folgenden API-Aufrufe würden zur Löschung des Snapshots ausgeführt werden. Es wurde nichts gelöscht.'
+        );
     } catch(e) { alert('Fehler: ' + e.message); }
 }
 

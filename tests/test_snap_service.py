@@ -801,3 +801,150 @@ def test_build_rename_curl_uses_correct_patch_format():
     # Old name should be in the URL query parameter
     assert 'HDBSNAP-2026-03-13-073434' in cmd['command'], \
         "Old snapshot name must appear in the ?names= parameter"
+
+
+def test_build_rename_curl_ontap_per_volume():
+    """_build_rename_curl_commands emits one ONTAP command per volume.
+
+    The popup must show a command for every affected ONTAP volume so the
+    operator can copy the correct curl call.  Each command must:
+      - show the volume name in the platform label (returned as 'volume' key)
+      - include both a GET (find snapshot UUID) and a PATCH (rename) step
+      - set the new snapshot name and expiry_time
+    """
+    from app.routes.snaps import _build_rename_curl_commands
+    from unittest.mock import MagicMock
+    from datetime import datetime
+
+    rec = MagicMock()
+    rec.sid = 'ABP'
+    rec.ttl = datetime(2026, 3, 13, 19, 3, 49)   # old TTL → 2026-03-13-190349
+
+    locs = {
+        'flasharray_systems': [],
+        'ontap_clusters': [
+            {
+                'cluster': 'FASMC1',
+                'svm': 'nfs01',
+                'volumes': ['HANA_ABP', 'HANA_ABP_log', 'HANA_ABP_data'],
+            }
+        ],
+    }
+
+    new_ts = '2026-04-01-190349'
+    commands = _build_rename_curl_commands(rec, locs, new_ts)
+
+    # Must produce one command per volume
+    assert len(commands) == 3
+    vols = [c['volume'] for c in commands]
+    assert vols == ['HANA_ABP', 'HANA_ABP_log', 'HANA_ABP_data']
+
+    for cmd in commands:
+        assert cmd['platform'] == 'ONTAP'
+        assert cmd['cluster'] == 'FASMC1'
+        assert cmd['svm'] == 'nfs01'
+        # Must contain find step (GET)
+        assert 'HDBSNAP-2026-03-13-190349' in cmd['command'], \
+            "Command must reference the old TTL pattern to find the snapshot UUID"
+        # Must contain rename step (PATCH) with new name and expiry_time
+        assert 'ABP_HDBSNAP-2026-04-01-190349' in cmd['command'], \
+            "Command must set the new snapshot name"
+        assert '2026-04-01T19:03:49Z' in cmd['command'], \
+            "Command must set expiry_time in ISO format"
+
+
+def test_build_delete_curl_ontap_per_volume():
+    """_build_delete_curl_commands emits one ONTAP command per volume.
+
+    The popup must show delete commands for every affected ONTAP volume.
+    """
+    from app.routes.snaps import _build_delete_curl_commands
+    from unittest.mock import MagicMock
+    from datetime import datetime
+
+    rec = MagicMock()
+    rec.sid = 'ABP'
+    rec.ttl = datetime(2026, 3, 17, 19, 1, 19)   # TTL → 2026-03-17-190119
+
+    locs = {
+        'flasharray_systems': [],
+        'ontap_clusters': [
+            {
+                'cluster': 'FASMC1',
+                'svm': 'nfs01',
+                'volumes': ['HANA_ABP', 'HANA_ABP_log'],
+            }
+        ],
+    }
+
+    commands = _build_delete_curl_commands(rec, locs)
+
+    assert len(commands) == 2
+    vols = [c['volume'] for c in commands]
+    assert vols == ['HANA_ABP', 'HANA_ABP_log']
+
+    for cmd in commands:
+        assert cmd['platform'] == 'ONTAP'
+        # Must contain find step referencing current TTL
+        assert 'HDBSNAP-2026-03-17-190119' in cmd['command'], \
+            "Delete command must search by current TTL pattern"
+        # Must contain DELETE step
+        assert 'DELETE' in cmd['command']
+
+
+def test_delete_preview_endpoint(app, client):
+    """GET /snaps/api/delete-preview returns CURL commands without modifying the DB."""
+    from app import db
+    from app.models import SnapshotRecord
+    import json
+    from datetime import datetime
+
+    with app.app_context():
+        rec = SnapshotRecord(
+            sid='ABP',
+            creation_time=datetime(2026, 3, 13, 19, 3, 49),
+            ttl=datetime(2026, 3, 17, 19, 1, 19),
+            flasharray_present=True,
+            ontap_present=True,
+            storage_locations=json.dumps({
+                'flasharray_systems': [
+                    {'name': 'fa01', 'snapshot_names': ['ABP_data.HDBSNAP-2026-03-17-190119']}
+                ],
+                'ontap_clusters': [
+                    {'cluster': 'FASMC1', 'svm': 'nfs01', 'volumes': ['HANA_ABP']}
+                ],
+            }),
+        )
+        db.session.add(rec)
+        db.session.commit()
+        snap_id = rec.id
+
+    resp = client.post('/snaps/api/delete-preview',
+                       data=json.dumps({'id': snap_id}),
+                       content_type='application/json')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['success'] is True
+
+    cmds = data['curl_commands']
+    platforms = [c['platform'] for c in cmds]
+
+    # Both platforms present
+    assert 'FlashArray' in platforms, "FlashArray delete command must be present"
+    assert 'ONTAP' in platforms, "ONTAP delete command must be present"
+
+    # FlashArray command has both destroy + eradicate steps
+    fa_cmd = next(c for c in cmds if c['platform'] == 'FlashArray')
+    assert 'destroyed' in fa_cmd['command'], "FlashArray must include destroy step"
+    assert 'DELETE' in fa_cmd['command'], "FlashArray must include eradicate step"
+
+    # ONTAP command references volume name
+    ontap_cmd = next(c for c in cmds if c['platform'] == 'ONTAP')
+    assert ontap_cmd.get('volume') == 'HANA_ABP'
+    assert 'DELETE' in ontap_cmd['command']
+
+    # DB must NOT be modified
+    with app.app_context():
+        unchanged = SnapshotRecord.query.get(snap_id)
+        assert unchanged.delete_marked is False
+        assert unchanged.delete_deadline is None
