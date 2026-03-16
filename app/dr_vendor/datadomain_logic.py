@@ -375,7 +375,7 @@ def generate_commands(relationship, failover_direction='planned_failover'):
     dr_target = secondary
 
     # Build per-MTree command blocks for each failover direction.
-    def _planned_failover_cmds():
+    def build_planned_failover():
         cmds = [
             {'phase': 'pre-failover', 'description': 'Check replication status',
              'cli': 'replication status', 'target': primary},
@@ -400,7 +400,7 @@ def generate_commands(relationship, failover_direction='planned_failover'):
                          'cli': f'filesys show space {mt}', 'target': secondary})
         return cmds
 
-    def _failback_cmds():
+    def build_failback():
         cmds = [
             {'phase': 'pre-failback', 'description': 'Check primary DataDomain health',
              'cli': 'system show', 'target': primary},
@@ -416,7 +416,7 @@ def generate_commands(relationship, failover_direction='planned_failover'):
                      'cli': 'replication show', 'target': primary})
         return cmds
 
-    def _disaster_recovery_cmds():
+    def build_disaster_recovery():
         # Reference: https://www.dell.com/support/kbdoc/en-us/000317549/
         #   data-domain-best-practices-for-data-migration-on-powerprotect-
         #   data-domain-systems-using-mtree-replication
@@ -463,9 +463,9 @@ def generate_commands(relationship, failover_direction='planned_failover'):
         return cmds
 
     builders = {
-        'planned_failover': _planned_failover_cmds,
-        'failback': _failback_cmds,
-        'disaster_recovery': _disaster_recovery_cmds,
+        'planned_failover': build_planned_failover,
+        'failback': build_failback,
+        'disaster_recovery': build_disaster_recovery,
     }
     builder = builders.get(failover_direction, builders['planned_failover'])
     return builder()
