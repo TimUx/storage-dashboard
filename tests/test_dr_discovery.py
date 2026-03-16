@@ -1545,3 +1545,69 @@ class TestDRDiscoveryEngineDataDomainAlias:
         assert len(result) == 1
         assert result[0]['replication_type'] == 'datadomain-replication'
         assert result[0]['vendor'] == 'dell-datadomain'
+
+
+# ---------------------------------------------------------------------------
+# DellDataDomainClient._make_api_request parameter order regression
+# ---------------------------------------------------------------------------
+
+from unittest.mock import MagicMock, patch
+
+
+class TestDellDataDomainClientMakeApiRequest:
+    """Regression test for the _make_api_request parameter order bug.
+
+    Previously the signature was (endpoint, method='GET', headers=None, ssl_verify=None)
+    but all callers used (endpoint, headers, ssl_verify) positional args, so the
+    headers dict ended up in the ``method`` slot causing ``headers.upper()`` to raise
+    AttributeError on every call – silently caught and returning None, which prevented
+    DataDomain replication discovery and caused DD systems to vanish from the DR Plan.
+    """
+
+    def _make_client(self):
+        from app.api.storage_clients import DellDataDomainClient
+        client = DellDataDomainClient.__new__(DellDataDomainClient)
+        client.ip_address = '10.0.0.1'
+        client.resolved_address = '10.0.0.1'
+        client.base_url = 'https://10.0.0.1:3009'
+        client.token = 'test-token'
+        return client
+
+    def test_headers_dict_does_not_end_up_as_method(self):
+        """Passing (endpoint, headers, ssl_verify) must make a GET request, not crash."""
+        client = self._make_client()
+        auth_headers = {'X-DD-AUTH-TOKEN': 'test-token', 'Accept': 'application/json'}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'contexts': []}
+
+        with patch('app.api.storage_clients._local_session') as mock_session:
+            mock_session.get.return_value = mock_response
+            result = client._make_api_request(
+                '/rest/v1.0/dd-systems/0/replication/contexts',
+                auth_headers,
+                False,
+            )
+
+        # Must succeed and delegate to session.get (not crash with AttributeError)
+        assert result is not None
+        mock_session.get.assert_called_once()
+
+    def test_method_defaults_to_get_when_omitted(self):
+        """When method is not supplied the request must use GET."""
+        client = self._make_client()
+        auth_headers = {'X-DD-AUTH-TOKEN': 'test-token', 'Accept': 'application/json'}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}
+
+        with patch('app.api.storage_clients._local_session') as mock_session:
+            mock_session.get.return_value = mock_response
+            result = client._make_api_request('/api/v1/dd-systems/0/mtree-replications',
+                                               auth_headers, False)
+
+        assert result == {}
+        mock_session.get.assert_called_once()
+        mock_session.post.assert_not_called()
