@@ -102,7 +102,8 @@ def new_system():
                 api_password=request.form.get('api_password', '').strip() or None,
                 api_token=request.form.get('api_token', '').strip() or None,
                 pure1_array_name=request.form.get('pure1_array_name', '').strip() or None,
-                enabled=request.form.get('enabled') == 'on'
+                enabled=request.form.get('enabled') == 'on',
+                snaps_enabled=request.form.get('snaps_enabled') == 'on',
             )
             
             # Auto-discover system details
@@ -187,6 +188,7 @@ def edit_system(system_id):
             system.api_token = request.form.get('api_token', '').strip() or None
             system.pure1_array_name = request.form.get('pure1_array_name', '').strip() or None
             system.enabled = request.form.get('enabled') == 'on'
+            system.snaps_enabled = request.form.get('snaps_enabled') == 'on'
             
             # Handle tag assignment
             selected_tag_ids = request.form.getlist('tags')
@@ -568,6 +570,7 @@ def export_systems():
                 'api_password': system.api_password,  # Will be decrypted
                 'api_token': system.api_token,  # Will be decrypted
                 'enabled': system.enabled,
+                'snaps_enabled': system.snaps_enabled,
                 'cluster_type': system.cluster_type,
                 'node_count': system.node_count,
                 'site_count': system.site_count,
@@ -642,6 +645,7 @@ def import_systems():
                     api_password=system_data.get('api_password'),  # Will be encrypted
                     api_token=system_data.get('api_token'),  # Will be encrypted
                     enabled=system_data.get('enabled', True),
+                    snaps_enabled=system_data.get('snaps_enabled', True),
                     cluster_type=system_data.get('cluster_type'),
                     node_count=system_data.get('node_count'),
                     site_count=system_data.get('site_count'),
@@ -713,6 +717,7 @@ def export_backup():
                 'api_password': sys.api_password,
                 'api_token': sys.api_token,
                 'enabled': sys.enabled,
+                'snaps_enabled': sys.snaps_enabled,
                 'cluster_type': sys.cluster_type,
                 'node_count': sys.node_count,
                 'site_count': sys.site_count,
@@ -870,6 +875,7 @@ def import_backup():
                 api_password=sys_data.get('api_password'),
                 api_token=sys_data.get('api_token'),
                 enabled=sys_data.get('enabled', True),
+                snaps_enabled=sys_data.get('snaps_enabled', True),
                 cluster_type=sys_data.get('cluster_type'),
                 node_count=sys_data.get('node_count'),
                 site_count=sys_data.get('site_count'),

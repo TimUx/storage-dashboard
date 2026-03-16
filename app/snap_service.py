@@ -566,10 +566,10 @@ def _do_collect(app):
     from app.models import StorageSystem
 
     with app.app_context():
-        systems = StorageSystem.query.filter_by(enabled=True).all()
+        systems = StorageSystem.query.filter_by(enabled=True, snaps_enabled=True).all()
 
     if not systems:
-        logger.info("Snapshot collector: no enabled storage systems found, skipping.")
+        logger.info("Snapshot collector: no systems with snap collection enabled found, skipping.")
         return
 
     # Determine how many workers to use (16 minimum, up to 32)
