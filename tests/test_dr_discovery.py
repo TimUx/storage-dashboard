@@ -395,6 +395,55 @@ class TestMetroClusterDisasterRecovery:
         cli_commands = [c['cli'] for c in cmds]
         assert 'metrocluster operation show' in cli_commands
 
+    # ---- topology diagram node assignment ----
+
+    def test_topology_diagram_nodes_assigned_by_dr_home_port(self):
+        """Nodes must land in the correct cluster box based on dr_home_port.node.name.
+
+        Regression: node names like FASMC1C/FASMC2C all contain the letter 'A'
+        (from 'FASMC'), so the old letter-based heuristic put ALL nodes in the
+        primary cluster box.  The fix uses dr_home_port.node.name to identify
+        which cluster each node belongs to.
+        """
+        rel = self._make_rel(primary='FASMC1', secondary='FASMC2')
+        rel['relationship_data']['metrocluster']['nodes'] = [
+            {'name': 'FASMC1C', 'dr_home_port': {'node': {'name': 'FASMC1'}}},
+            {'name': 'FASMC1D', 'dr_home_port': {'node': {'name': 'FASMC1'}}},
+            {'name': 'FASMC2C', 'dr_home_port': {'node': {'name': 'FASMC2'}}},
+            {'name': 'FASMC2D', 'dr_home_port': {'node': {'name': 'FASMC2'}}},
+        ]
+        diagram = ontap_metrocluster_logic.generate_topology_diagram(rel)
+        # Primary cluster (FASMC1) box must contain FASMC1 nodes only
+        fasmc1_cluster_pos = diagram.index('FASMC1 (Primary)')
+        fasmc2_cluster_pos = diagram.index('FASMC2 (Secondary)')
+        fasmc1c_pos = diagram.index('FASMC1C')
+        fasmc1d_pos = diagram.index('FASMC1D')
+        fasmc2c_pos = diagram.index('FASMC2C')
+        fasmc2d_pos = diagram.index('FASMC2D')
+        assert fasmc1c_pos < fasmc2_cluster_pos, 'FASMC1C must appear before the FASMC2 subgraph'
+        assert fasmc1d_pos < fasmc2_cluster_pos, 'FASMC1D must appear before the FASMC2 subgraph'
+        assert fasmc2c_pos > fasmc1_cluster_pos, 'FASMC2C must appear after the FASMC1 subgraph start'
+        assert fasmc2d_pos > fasmc1_cluster_pos, 'FASMC2D must appear after the FASMC1 subgraph start'
+        # Secondary cluster (FASMC2) nodes must NOT appear inside the primary subgraph
+        primary_section = diagram[:fasmc2_cluster_pos]
+        assert 'FASMC2C' not in primary_section, 'FASMC2C must not be inside the FASMC1 cluster box'
+        assert 'FASMC2D' not in primary_section, 'FASMC2D must not be inside the FASMC1 cluster box'
+
+    def test_topology_diagram_letter_heuristic_fallback(self):
+        """When no dr_home_port is present, fall back to letter-based A/B splitting."""
+        rel = self._make_rel(primary='ClusterA', secondary='ClusterB')
+        rel['relationship_data']['metrocluster']['nodes'] = [
+            {'name': 'nodeA1'},
+            {'name': 'nodeA2'},
+            {'name': 'nodeB1'},
+            {'name': 'nodeB2'},
+        ]
+        diagram = ontap_metrocluster_logic.generate_topology_diagram(rel)
+        cluster_a_pos = diagram.index('ClusterA (Primary)')
+        cluster_b_pos = diagram.index('ClusterB (Secondary)')
+        assert diagram.index('nodeA1') < cluster_b_pos
+        assert diagram.index('nodeB1') > cluster_a_pos
+
 
 # ---------------------------------------------------------------------------
 # NetApp StorageGRID
