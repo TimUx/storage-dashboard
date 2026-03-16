@@ -2487,14 +2487,14 @@ class DellDataDomainClient(StorageClient):
             logger.error(traceback.format_exc())
             return None
     
-    def _make_api_request(self, endpoint, method='GET', headers=None, ssl_verify=None, data=None):
+    def _make_api_request(self, endpoint, headers=None, ssl_verify=None, method='GET', data=None):
         """Make an API request to DataDomain
         
         Args:
             endpoint: API endpoint path (e.g., '/rest/v1.0/dd-systems/0/ha')
-            method: HTTP method (GET, POST, PUT, DELETE)
             headers: HTTP headers (will add auth token)
             ssl_verify: SSL verification setting
+            method: HTTP method (GET, POST, PUT, DELETE)
             data: Request body data (for POST/PUT)
             
         Returns:
