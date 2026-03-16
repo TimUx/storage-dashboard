@@ -11,7 +11,8 @@ Für jedes System werden die **Authentifizierungsmethode**, typische **API-Aufru
 2. [NetApp ONTAP 9](#2-netapp-ontap-9)
 3. [NetApp StorageGRID 11](#3-netapp-storagegrid-11)
 4. [Dell DataDomain](#4-dell-datadomain)
-5. [Gemeinsamkeiten & Konventionen](#5-gemeinsamkeiten--konventionen)
+5. [Snapshot-Verwaltung API (`/snaps/`)](#5-snapshot-verwaltung-api-snaps)
+6. [Gemeinsamkeiten & Konventionen](#6-gemeinsamkeiten--konventionen)
 
 ---
 
@@ -732,7 +733,218 @@ curl -sk https://<DD>:3009/rest/v1.0/dd-systems/0/replication/contexts \
 
 ---
 
-## 5. Gemeinsamkeiten & Konventionen
+## 5. Snapshot-Verwaltung API (`/snaps/`)
+
+Das Storage Dashboard stellt unter `/snaps/` eine REST-API für die zentrale Verwaltung von HANA-Datenbank-Snapshots zur Verfügung. Die Endpunkte werden vom Frontend (`snaps.html`) genutzt und können auch direkt aufgerufen werden.
+
+> **Authentifizierung:** Kein Auth-Token erforderlich (kein `@login_required`); die Endpunkte sind über die normale Web-Session erreichbar.
+
+### Endpunktübersicht
+
+| Endpunkt | Methode | Beschreibung |
+|---------|---------|-------------|
+| `/snaps/` | GET | Snapshot-Übersichtsseite (HTML) |
+| `/snaps/api/list` | GET | Alle Snapshot-Datensätze mit Statistik |
+| `/snaps/api/update-ttl` | POST | TTL eines Snapshots ändern + CURL-Simulation |
+| `/snaps/api/delete` | POST | Snapshot für Löschung markieren (24h Deadline) |
+| `/snaps/api/undo-delete` | POST | Löschmarkierung aufheben |
+| `/snaps/api/comment` | POST | Operator-Kommentar speichern |
+| `/snaps/api/trigger-collect` | POST | Sofortigen Collector-Lauf auslösen |
+
+---
+
+### `GET /snaps/api/list`
+
+Gibt alle Snapshot-Datensätze mit Statistik zurück.
+
+**Query-Parameter (alle optional):**
+
+| Parameter | Typ | Beschreibung |
+|-----------|-----|-------------|
+| `sid` | string | Filtert nach exakter SID (case-insensitiv) |
+| `created_after` | ISO-8601 | Nur Snapshots erstellt nach diesem Datum |
+| `created_before` | ISO-8601 | Nur Snapshots erstellt vor diesem Datum |
+| `ttl_after` | ISO-8601 | Nur Snapshots mit TTL nach diesem Datum |
+| `ttl_before` | ISO-8601 | Nur Snapshots mit TTL vor diesem Datum |
+
+**Beispiel:**
+
+```bash
+# Alle Snapshots der SID ACP
+curl -s http://localhost:5000/snaps/api/list?sid=ACP | python3 -m json.tool
+
+# Snapshots älter als 5 Tage
+curl -s "http://localhost:5000/snaps/api/list?created_before=2026-03-11" | python3 -m json.tool
+```
+
+**Antwort (200 OK):**
+
+```json
+{
+  "snapshots": [
+    {
+      "id": 1,
+      "sid": "ACP",
+      "creation_time": "2026-03-15T04:00:00",
+      "ttl": "2026-03-18T04:00:00",
+      "flasharray_present": true,
+      "ontap_present": true,
+      "comment": "Vor Patching erstellt",
+      "delete_marked": false,
+      "delete_deadline": null,
+      "storage_locations": {
+        "flasharray_systems": [
+          {
+            "name": "fa-prod-dc1",
+            "snapshot_names": [
+              "ACP_1_data.HDBSNAP-2026-03-18-040000",
+              "ACP_1_log.HDBSNAP-2026-03-18-040000"
+            ]
+          }
+        ],
+        "ontap_clusters": [
+          {
+            "cluster": "ontap-prod-dc1",
+            "svm": "svm_hana",
+            "volumes": ["HANA_ACP", "HANA_ACP_log"]
+          }
+        ]
+      },
+      "last_seen": "2026-03-16T07:55:00"
+    }
+  ],
+  "stats": {
+    "total": 18,
+    "older_5_days": 9,
+    "older_10_days": 3,
+    "last_update": "2026-03-16T07:55:00",
+    "last_update_status": "success"
+  }
+}
+```
+
+---
+
+### `POST /snaps/api/update-ttl`
+
+Aktualisiert den TTL eines Snapshot-Datensatzes und gibt eine CURL-Simulation zurück, die zeigt, welche Rename-Befehle auf den Storage-Systemen ausgeführt werden müssten.
+
+**Request Body (JSON):**
+
+| Feld | Typ | Pflicht | Beschreibung |
+|------|-----|---------|-------------|
+| `id` | integer | ✔ | Snapshot-Datensatz-ID |
+| `new_ttl` | string | ✔ | Neuer TTL (ISO-8601 oder `DD.MM.YYYY HH:MM:SS`) |
+| `user` | string | — | Operatorname für Audit-Log (Standard: IP-Adresse) |
+
+**Beispiel:**
+
+```bash
+curl -s -X POST http://localhost:5000/snaps/api/update-ttl \
+  -H "Content-Type: application/json" \
+  -d '{"id": 1, "new_ttl": "2026-04-01 00:00:00", "user": "operator1"}' \
+  | python3 -m json.tool
+```
+
+**Antwort (200 OK):**
+
+```json
+{
+  "success": true,
+  "old_ttl": "2026-03-18T04:00:00",
+  "new_ttl": "2026-04-01T00:00:00",
+  "curl_commands": [
+    {
+      "platform": "FlashArray",
+      "array": "fa-prod-dc1",
+      "old_name": "ACP_1_data.HDBSNAP-2026-03-18-040000",
+      "new_name": "ACP_1_data.HDBSNAP-2026-04-01-000000",
+      "command": "curl -X PATCH https://fa-prod-dc1/api/volume-snapshots/{id} -H 'x-auth-token: <token>' -d '{\"name\":\"ACP_1_data.HDBSNAP-2026-04-01-000000\"}'"
+    },
+    {
+      "platform": "ONTAP",
+      "cluster": "ontap-prod-dc1",
+      "svm": "svm_hana",
+      "new_snap_name": "ACP_HDBSNAP-2026-04-01-000000",
+      "expiry_time": "2026-04-01T00:00:00Z",
+      "command": "curl -X PATCH https://ontap-prod-dc1/api/storage/volumes/{uuid}/snapshots/{snap_uuid} -u admin:<password> -d '{\"name\":\"ACP_HDBSNAP-2026-04-01-000000\",\"expiry_time\":\"2026-04-01T00:00:00Z\"}'"
+    }
+  ]
+}
+```
+
+---
+
+### `POST /snaps/api/delete`
+
+Markiert einen Snapshot für Löschung mit 24h Countdown.
+
+**Request Body (JSON):**
+
+| Feld | Typ | Pflicht | Beschreibung |
+|------|-----|---------|-------------|
+| `id` | integer | ✔ | Snapshot-Datensatz-ID |
+
+**Beispiel:**
+
+```bash
+curl -s -X POST http://localhost:5000/snaps/api/delete \
+  -H "Content-Type: application/json" \
+  -d '{"id": 5}' | python3 -m json.tool
+```
+
+**Antwort (200 OK):**
+
+```json
+{
+  "success": true,
+  "delete_deadline": "2026-03-17T08:00:00"
+}
+```
+
+---
+
+### `POST /snaps/api/undo-delete`
+
+Hebt eine Löschmarkierung auf.
+
+```bash
+curl -s -X POST http://localhost:5000/snaps/api/undo-delete \
+  -H "Content-Type: application/json" \
+  -d '{"id": 5}'
+```
+
+**Antwort (200 OK):** `{"success": true}`
+
+---
+
+### `POST /snaps/api/comment`
+
+Speichert einen Freitext-Kommentar für einen Snapshot-Datensatz.
+
+```bash
+curl -s -X POST http://localhost:5000/snaps/api/comment \
+  -H "Content-Type: application/json" \
+  -d '{"id": 1, "comment": "Vor Patching erstellt – bitte nicht löschen"}'
+```
+
+**Antwort (200 OK):** `{"success": true}`
+
+---
+
+### `POST /snaps/api/trigger-collect`
+
+Löst sofort einen Snapshot-Collector-Lauf aus (ohne auf das 15-Minuten-Intervall zu warten).
+
+```bash
+curl -s -X POST http://localhost:5000/snaps/api/trigger-collect
+```
+
+**Antwort (200 OK):** `{"success": true, "message": "Snapshot collection triggered"}`
+
+---
+
+## 6. Gemeinsamkeiten & Konventionen
 
 ### SSL/TLS-Zertifikatsverifizierung
 
@@ -776,4 +988,4 @@ Im Storage Dashboard werden alle Zugangsdaten (Benutzername, Passwort, API-Token
 
 ---
 
-*Dokumentation generiert aus dem Quellcode: `app/api/storage_clients.py`, `app/constants.py`*
+*Dokumentation generiert aus dem Quellcode: `app/api/storage_clients.py`, `app/constants.py`, `app/routes/snaps.py`*

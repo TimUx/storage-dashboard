@@ -1,0 +1,863 @@
+{% extends "base.html" %}
+
+{% block title %}Snapshots – Storage Dashboard{% endblock %}
+
+{% block styles %}
+/* ── Snaps Module Styles ── */
+:root {
+    --sn-blue:   var(--accent-color);
+    --sn-red:    var(--primary-color);
+    --sn-green:  var(--secondary-color);
+    --sn-border: #e1e8ed;
+    --sn-bg:     #f5f7fa;
+    --sn-white:  #ffffff;
+    --sn-text:   #333;
+    --sn-muted:  #6a6a6a;
+    --sn-warn:   #FFA500;
+    --sn-danger: #dc3545;
+    --sn-success:#28a745;
+}
+[data-theme="dark"] {
+    --sn-border: #2e3347;
+    --sn-bg:     #0f1117;
+    --sn-white:  #1a1d27;
+    --sn-text:   #e2e8f0;
+    --sn-muted:  #78909c;
+}
+
+.sn-container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+
+.sn-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--sn-white);
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    border-left: 4px solid var(--sn-blue);
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: .75rem;
+}
+.sn-header h2 { font-size: 1.4rem; color: var(--sn-blue); margin: 0; }
+.sn-header-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+
+/* Stats panel */
+.sn-stats {
+    background: var(--sn-white);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.07);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+    align-items: center;
+    border-top: 3px solid var(--sn-blue);
+}
+.sn-stat-item { display: flex; flex-direction: column; gap: 0.2rem; }
+.sn-stat-label { font-size: .75rem; color: var(--sn-muted); text-transform: uppercase; letter-spacing: .05em; }
+.sn-stat-value { font-size: 1.1rem; font-weight: 700; color: var(--sn-text); }
+.sn-stat-value.warn { color: var(--sn-warn); }
+
+/* Filters */
+.sn-filters {
+    background: var(--sn-white);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.07);
+    padding: .75rem 1.25rem;
+    margin-bottom: 1rem;
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.sn-filters label { font-size: .82rem; color: var(--sn-muted); white-space: nowrap; }
+.sn-filters input, .sn-filters select {
+    padding: .3rem .6rem;
+    border: 1px solid var(--sn-border);
+    border-radius: 5px;
+    font-size: .85rem;
+    background: var(--sn-bg);
+    color: var(--sn-text);
+}
+
+/* Table */
+.sn-table-wrap {
+    background: var(--sn-white);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.07);
+    overflow: auto;
+}
+table.sn-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .88rem;
+}
+table.sn-table th {
+    background: var(--sn-bg);
+    color: var(--sn-muted);
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    padding: .7rem .9rem;
+    border-bottom: 2px solid var(--sn-border);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+table.sn-table th:hover { color: var(--sn-blue); }
+table.sn-table th .sort-arrow { opacity: .4; margin-left: .25rem; }
+table.sn-table th.sort-asc .sort-arrow::after { content: '▲'; opacity: 1; }
+table.sn-table th.sort-desc .sort-arrow::after { content: '▼'; opacity: 1; }
+table.sn-table th .sort-arrow::after { content: '⇅'; }
+
+table.sn-table td {
+    padding: .65rem .9rem;
+    border-bottom: 1px solid var(--sn-border);
+    vertical-align: middle;
+    color: var(--sn-text);
+}
+table.sn-table tr:last-child td { border-bottom: none; }
+table.sn-table tr:hover > td { background: rgba(0,0,0,.03); }
+[data-theme="dark"] table.sn-table tr:hover > td { background: rgba(255,255,255,.03); }
+table.sn-table tr.delete-pending > td { opacity: .6; }
+
+/* Expand toggle */
+.expand-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: .9rem; color: var(--sn-muted);
+    padding: 0 .3rem;
+    transition: transform .2s;
+}
+.expand-btn.open { transform: rotate(90deg); }
+
+/* Expanded detail row */
+.sn-detail-row { display: none; }
+.sn-detail-row.open { display: table-row; }
+.sn-detail-cell {
+    background: var(--sn-bg);
+    padding: .75rem 1.25rem;
+    font-size: .82rem;
+    color: var(--sn-muted);
+}
+.sn-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: .5rem 1.5rem;
+}
+.sn-detail-section { margin-bottom: .5rem; }
+.sn-detail-section h4 { font-size: .78rem; color: var(--sn-blue); text-transform: uppercase; margin: 0 0 .3rem; }
+.sn-detail-section ul { margin: 0; padding-left: 1rem; }
+.sn-detail-section li { margin-bottom: .15rem; }
+
+/* Presence badges */
+.badge-ok   { color: var(--sn-success); font-weight: 700; }
+.badge-miss { color: var(--sn-danger); font-weight: 700; }
+
+/* Comment cell */
+td.comment-cell .comment-display { cursor: pointer; min-height: 1.2em; }
+td.comment-cell .comment-display:hover { background: rgba(0,0,0,.04); }
+td.comment-cell textarea.comment-input {
+    width: 100%;
+    padding: .2rem .4rem;
+    border: 1px solid var(--sn-blue);
+    border-radius: 3px;
+    font-size: .85rem;
+    background: var(--sn-white);
+    color: var(--sn-text);
+    resize: vertical;
+    display: none;
+    min-height: 2.5rem;
+}
+
+/* TTL cell */
+td.ttl-cell .ttl-display {
+    cursor: pointer;
+    padding: .15rem .3rem;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    white-space: nowrap;
+}
+td.ttl-cell .ttl-display:hover { background: rgba(0,0,0,.06); }
+td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
+
+/* Delete column */
+.btn-delete {
+    background: var(--sn-danger);
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: .3rem .6rem;
+    cursor: pointer;
+    font-size: .85rem;
+    transition: opacity .2s;
+}
+.btn-delete:hover { opacity: .8; }
+.btn-undo {
+    background: var(--sn-warn);
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: .3rem .6rem;
+    cursor: pointer;
+    font-size: .85rem;
+    white-space: nowrap;
+}
+.btn-undo:hover { opacity: .8; }
+.delete-timer {
+    font-size: .82rem;
+    color: var(--sn-danger);
+    font-weight: 600;
+    display: block;
+    margin-bottom: .2rem;
+}
+
+/* Buttons */
+.btn-primary {
+    background: var(--sn-blue);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: .45rem 1rem;
+    cursor: pointer;
+    font-size: .88rem;
+    transition: opacity .2s;
+}
+.btn-primary:hover { opacity: .85; }
+.btn-secondary {
+    background: transparent;
+    color: var(--sn-blue);
+    border: 1.5px solid var(--sn-blue);
+    border-radius: 6px;
+    padding: .4rem .9rem;
+    cursor: pointer;
+    font-size: .88rem;
+    transition: background .2s;
+}
+.btn-secondary:hover { background: var(--sn-blue); color: #fff; }
+
+/* Empty state */
+.sn-empty {
+    text-align: center;
+    padding: 3rem;
+    color: var(--sn-muted);
+    font-size: .95rem;
+}
+
+/* Loading */
+.sn-loading { text-align: center; padding: 2rem; color: var(--sn-muted); }
+
+/* Modal */
+.sn-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+.sn-modal-overlay.open { display: flex; }
+.sn-modal {
+    background: var(--sn-white);
+    border-radius: 10px;
+    padding: 1.5rem;
+    width: min(700px, 95vw);
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,.2);
+    position: relative;
+}
+.sn-modal h3 { color: var(--sn-blue); margin: 0 0 1rem; font-size: 1.1rem; }
+.sn-modal-close {
+    position: absolute;
+    top: .8rem;
+    right: 1rem;
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: var(--sn-muted);
+}
+.sn-modal-close:hover { color: var(--sn-danger); }
+.curl-block {
+    background: var(--sn-bg);
+    border: 1px solid var(--sn-border);
+    border-radius: 6px;
+    padding: .75rem 1rem;
+    font-family: monospace;
+    font-size: .78rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--sn-text);
+    margin-bottom: .75rem;
+}
+.curl-platform-label {
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--sn-muted);
+    margin-bottom: .25rem;
+    font-weight: 600;
+}
+
+/* TTL date-time picker */
+.ttl-picker-wrap { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .5rem; }
+.ttl-picker-wrap input[type="date"],
+.ttl-picker-wrap input[type="time"] {
+    padding: .35rem .6rem;
+    border: 1px solid var(--sn-border);
+    border-radius: 5px;
+    font-size: .9rem;
+    background: var(--sn-bg);
+    color: var(--sn-text);
+}
+{% endblock %}
+
+{% block content %}
+<div class="sn-container">
+
+    <!-- Header -->
+    <div class="sn-header">
+        <h2>📸 Snapshot-Übersicht</h2>
+        <div class="sn-header-actions">
+            <button class="btn-secondary" onclick="triggerCollect()">🔄 Aktualisieren</button>
+        </div>
+    </div>
+
+    <!-- Statistics panel -->
+    <div class="sn-stats" id="sn-stats">
+        <div class="sn-stat-item">
+            <span class="sn-stat-label">Informationen</span>
+            <span class="sn-stat-value" style="font-size:.8rem;color:var(--sn-muted)">Lade…</span>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="sn-filters">
+        <label>SID:</label>
+        <input type="text" id="filter-sid" placeholder="z.B. ACP" oninput="applyFilters()">
+        <label>Erstellt nach:</label>
+        <input type="date" id="filter-created-after" onchange="applyFilters()">
+        <label>Erstellt vor:</label>
+        <input type="date" id="filter-created-before" onchange="applyFilters()">
+        <label>TTL nach:</label>
+        <input type="date" id="filter-ttl-after" onchange="applyFilters()">
+        <label>TTL vor:</label>
+        <input type="date" id="filter-ttl-before" onchange="applyFilters()">
+        <button class="btn-secondary" onclick="clearFilters()">✕ Filter löschen</button>
+    </div>
+
+    <!-- Table -->
+    <div class="sn-table-wrap">
+        <table class="sn-table" id="sn-table">
+            <thead>
+                <tr>
+                    <th></th><!-- expand toggle -->
+                    <th data-col="sid">SID <span class="sort-arrow"></span></th>
+                    <th data-col="creation_time">Datum Uhrzeit <span class="sort-arrow"></span></th>
+                    <th data-col="ttl">TTL <span class="sort-arrow"></span></th>
+                    <th data-col="flasharray_present">DB <span class="sort-arrow"></span></th>
+                    <th data-col="ontap_present">NFS <span class="sort-arrow"></span></th>
+                    <th>Bemerkung</th>
+                    <th>Löschen</th>
+                </tr>
+            </thead>
+            <tbody id="sn-tbody">
+                <tr><td colspan="8" class="sn-loading">Lade Snapshots…</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+<!-- TTL edit modal -->
+<div class="sn-modal-overlay" id="ttl-modal">
+    <div class="sn-modal">
+        <button class="sn-modal-close" onclick="closeTtlModal()">✕</button>
+        <h3>TTL bearbeiten</h3>
+        <p id="ttl-modal-info" style="font-size:.85rem;color:var(--sn-muted);margin-bottom:.75rem;"></p>
+        <div class="ttl-picker-wrap">
+            <input type="date" id="ttl-date-input" />
+            <input type="time" id="ttl-time-input" step="1" />
+        </div>
+        <div style="margin-top:1rem;display:flex;gap:.75rem;">
+            <button class="btn-primary" onclick="saveTtl()">Speichern &amp; Vorschau</button>
+            <button class="btn-secondary" onclick="closeTtlModal()">Abbrechen</button>
+        </div>
+    </div>
+</div>
+
+<!-- CURL simulation modal -->
+<div class="sn-modal-overlay" id="curl-modal">
+    <div class="sn-modal">
+        <button class="sn-modal-close" onclick="closeCurlModal()">✕</button>
+        <h3>🔍 Simulation – Rename-Operationen</h3>
+        <p style="font-size:.82rem;color:var(--sn-muted);margin-bottom:1rem;">
+            Die folgenden Befehle würden ausgeführt werden.  Keine Änderungen wurden vorgenommen.
+        </p>
+        <div id="curl-commands-container"></div>
+        <button class="btn-secondary" onclick="closeCurlModal()" style="margin-top:.5rem;">Schließen</button>
+    </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────
+let _snapshots = [];          // raw data from API
+let _filtered  = [];          // after client-side filter
+let _sortCol   = 'sid';
+let _sortDir   = 'asc';
+let _ttlEditId = null;        // snapshot id being edited
+let _deleteTimers = {};       // intervalId per snapshot id
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    loadSnapshots();
+    // Set up column sort
+    document.querySelectorAll('table.sn-table th[data-col]').forEach(th => {
+        th.addEventListener('click', () => sortBy(th.dataset.col));
+    });
+    // Sort indicator initial state
+    updateSortIndicators();
+});
+
+// ─── Data loading ─────────────────────────────────────────────────────────
+async function loadSnapshots() {
+    try {
+        const resp = await fetch('/snaps/api/list');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        _snapshots = data.snapshots || [];
+        renderStats(data.stats || {});
+        applyFilters();
+    } catch (e) {
+        document.getElementById('sn-tbody').innerHTML =
+            `<tr><td colspan="8" class="sn-empty">Fehler beim Laden: ${e.message}</td></tr>`;
+    }
+}
+
+function renderStats(stats) {
+    const panel = document.getElementById('sn-stats');
+    const lastUpdate = stats.last_update
+        ? formatDt(stats.last_update)
+        : '–';
+    panel.innerHTML = `
+        <div class="sn-stat-item">
+            <span class="sn-stat-label">Informationen</span>
+        </div>
+        <div class="sn-stat-item">
+            <span class="sn-stat-label">Snaps gesamt</span>
+            <span class="sn-stat-value">${stats.total ?? 0}</span>
+        </div>
+        <div class="sn-stat-item">
+            <span class="sn-stat-label">Snaps &gt; 5 Tage</span>
+            <span class="sn-stat-value ${(stats.older_5_days ?? 0) > 0 ? 'warn' : ''}">${stats.older_5_days ?? 0}</span>
+        </div>
+        <div class="sn-stat-item">
+            <span class="sn-stat-label">Snaps &gt; 10 Tage</span>
+            <span class="sn-stat-value ${(stats.older_10_days ?? 0) > 0 ? 'warn' : ''}">${stats.older_10_days ?? 0}</span>
+        </div>
+        <div class="sn-stat-item">
+            <span class="sn-stat-label">Letzte Aktualisierung</span>
+            <span class="sn-stat-value" style="font-size:.85rem">${lastUpdate}</span>
+        </div>
+    `;
+}
+
+// ─── Filters ──────────────────────────────────────────────────────────────
+function applyFilters() {
+    const sidF    = document.getElementById('filter-sid').value.trim().toUpperCase();
+    const caAfter = document.getElementById('filter-created-after').value;
+    const caBefore= document.getElementById('filter-created-before').value;
+    const taAfter = document.getElementById('filter-ttl-after').value;
+    const taBefore= document.getElementById('filter-ttl-before').value;
+
+    _filtered = _snapshots.filter(s => {
+        if (sidF && s.sid !== sidF) return false;
+        if (caAfter  && s.creation_time && s.creation_time.slice(0,10) < caAfter)  return false;
+        if (caBefore && s.creation_time && s.creation_time.slice(0,10) > caBefore) return false;
+        if (taAfter  && s.ttl && s.ttl.slice(0,10) < taAfter)  return false;
+        if (taBefore && s.ttl && s.ttl.slice(0,10) > taBefore) return false;
+        return true;
+    });
+    renderTable();
+}
+
+function clearFilters() {
+    ['filter-sid','filter-created-after','filter-created-before','filter-ttl-after','filter-ttl-before']
+        .forEach(id => { document.getElementById(id).value = ''; });
+    applyFilters();
+}
+
+// ─── Sorting ──────────────────────────────────────────────────────────────
+function sortBy(col) {
+    if (_sortCol === col) {
+        _sortDir = _sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        _sortCol = col;
+        _sortDir = 'asc';
+    }
+    updateSortIndicators();
+    renderTable();
+}
+
+function updateSortIndicators() {
+    document.querySelectorAll('table.sn-table th[data-col]').forEach(th => {
+        th.classList.remove('sort-asc', 'sort-desc');
+        if (th.dataset.col === _sortCol) {
+            th.classList.add(_sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+        }
+    });
+}
+
+function sortedData() {
+    const col = _sortCol;
+    const dir = _sortDir === 'asc' ? 1 : -1;
+    return [..._filtered].sort((a, b) => {
+        let av = a[col] ?? '';
+        let bv = b[col] ?? '';
+        if (typeof av === 'boolean') av = av ? '1' : '0';
+        if (typeof bv === 'boolean') bv = bv ? '1' : '0';
+        return av < bv ? -dir : av > bv ? dir : 0;
+    });
+}
+
+// ─── Table rendering ──────────────────────────────────────────────────────
+function renderTable() {
+    const tbody = document.getElementById('sn-tbody');
+    const rows  = sortedData();
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="sn-empty">Keine Snapshots gefunden.</td></tr>';
+        return;
+    }
+
+    const now = Date.now();
+    let html = '';
+    for (const s of rows) {
+        const isPending = s.delete_marked && s.delete_deadline;
+        const rowClass  = isPending ? ' class="delete-pending"' : '';
+        const expandId  = `detail-${s.id}`;
+        const btnId     = `expand-btn-${s.id}`;
+
+        // TTL display
+        const ttlDisp = s.ttl ? formatDt(s.ttl) : '–';
+
+        // Delete column
+        let delCol;
+        if (isPending) {
+            const deadline = new Date(s.delete_deadline);
+            const hoursLeft = Math.max(0, Math.ceil((deadline - now) / 3600000));
+            delCol = `
+                <span class="delete-timer" id="timer-${s.id}">${hoursLeft}h</span>
+                <button class="btn-undo" onclick="undoDelete(${s.id})">↩ Rückgängig</button>`;
+        } else {
+            delCol = `<button class="btn-delete" onclick="markDelete(${s.id})" title="Löschen planen">✕</button>`;
+        }
+
+        // Storage locations detail
+        const locs = s.storage_locations || {};
+        const faSystems  = locs.flasharray_systems || [];
+        const ontapCls   = locs.ontap_clusters || [];
+        let detailHtml = '<div class="sn-detail-grid">';
+        if (faSystems.length) {
+            detailHtml += '<div class="sn-detail-section"><h4>FlashArray</h4><ul>';
+            for (const fa of faSystems) {
+                detailHtml += `<li><strong>${escHtml(fa.name)}</strong>`;
+                if (fa.snapshot_names && fa.snapshot_names.length) {
+                    detailHtml += '<ul>';
+                    for (const sn of fa.snapshot_names) {
+                        detailHtml += `<li>${escHtml(sn)}</li>`;
+                    }
+                    detailHtml += '</ul>';
+                }
+                detailHtml += '</li>';
+            }
+            detailHtml += '</ul></div>';
+        }
+        if (ontapCls.length) {
+            detailHtml += '<div class="sn-detail-section"><h4>ONTAP</h4><ul>';
+            for (const oc of ontapCls) {
+                detailHtml += `<li><strong>${escHtml(oc.cluster)}</strong>`;
+                if (oc.svm) detailHtml += ` / ${escHtml(oc.svm)}`;
+                if (oc.volumes && oc.volumes.length) {
+                    detailHtml += '<ul>';
+                    for (const v of oc.volumes) {
+                        detailHtml += `<li>${escHtml(v)}</li>`;
+                    }
+                    detailHtml += '</ul>';
+                }
+                detailHtml += '</li>';
+            }
+            detailHtml += '</ul></div>';
+        }
+        if (!faSystems.length && !ontapCls.length) {
+            detailHtml += '<span style="color:var(--sn-muted)">Keine Detail-Informationen vorhanden.</span>';
+        }
+        detailHtml += '</div>';
+
+        html += `
+        <tr${rowClass}>
+            <td><button class="expand-btn" id="${btnId}" onclick="toggleDetail(${s.id})" title="Details">▶</button></td>
+            <td><strong>${escHtml(s.sid)}</strong></td>
+            <td style="white-space:nowrap">${s.creation_time ? formatDt(s.creation_time) : '–'}</td>
+            <td class="ttl-cell">
+                <span class="ttl-display" onclick="openTtlModal(${s.id})" title="TTL bearbeiten">
+                    ${escHtml(ttlDisp)}<span class="ttl-edit-icon">✏️</span>
+                </span>
+            </td>
+            <td class="${s.flasharray_present ? 'badge-ok' : 'badge-miss'}" style="text-align:center">
+                ${s.flasharray_present ? '✔' : '✘'}
+            </td>
+            <td class="${s.ontap_present ? 'badge-ok' : 'badge-miss'}" style="text-align:center">
+                ${s.ontap_present ? '✔' : '✘'}
+            </td>
+            <td class="comment-cell" id="comment-cell-${s.id}">
+                <span class="comment-display" onclick="startEditComment(${s.id})" title="Bemerkung bearbeiten">${escHtml(s.comment) || '<span style="opacity:.4;font-style:italic">Hinzufügen…</span>'}</span>
+                <textarea class="comment-input" id="comment-input-${s.id}"
+                    onblur="saveComment(${s.id})"
+                    onkeydown="commentKeydown(event,${s.id})">${escHtml(s.comment || '')}</textarea>
+            </td>
+            <td>${delCol}</td>
+        </tr>
+        <tr class="sn-detail-row" id="${expandId}">
+            <td colspan="8" class="sn-detail-cell">${detailHtml}</td>
+        </tr>`;
+    }
+    tbody.innerHTML = html;
+
+    // Start countdown timers for delete-pending rows
+    for (const s of rows) {
+        if (s.delete_marked && s.delete_deadline) {
+            startTimer(s.id, s.delete_deadline);
+        }
+    }
+}
+
+// ─── Expand / collapse ────────────────────────────────────────────────────
+function toggleDetail(id) {
+    const row = document.getElementById(`detail-${id}`);
+    const btn = document.getElementById(`expand-btn-${id}`);
+    if (!row) return;
+    const isOpen = row.classList.contains('open');
+    row.classList.toggle('open', !isOpen);
+    btn.classList.toggle('open', !isOpen);
+}
+
+// ─── Comment editing ──────────────────────────────────────────────────────
+function startEditComment(id) {
+    const cell    = document.getElementById(`comment-cell-${id}`);
+    const display = cell.querySelector('.comment-display');
+    const input   = cell.querySelector('.comment-input');
+    display.style.display = 'none';
+    input.style.display = 'block';
+    input.focus();
+}
+
+function commentKeydown(e, id) {
+    if (e.key === 'Escape') cancelEditComment(id);
+    // Ctrl+Enter or Shift+Enter saves
+    if (e.key === 'Enter' && (e.ctrlKey || e.shiftKey)) {
+        e.preventDefault();
+        saveComment(id);
+    }
+}
+
+function cancelEditComment(id) {
+    const cell    = document.getElementById(`comment-cell-${id}`);
+    const display = cell.querySelector('.comment-display');
+    const input   = cell.querySelector('.comment-input');
+    const snap = _snapshots.find(s => s.id === id);
+    if (snap) input.value = snap.comment || '';
+    input.style.display = 'none';
+    display.style.display = '';
+}
+
+async function saveComment(id) {
+    const cell    = document.getElementById(`comment-cell-${id}`);
+    const display = cell.querySelector('.comment-display');
+    const input   = cell.querySelector('.comment-input');
+    const newComment = input.value.trim();
+    input.style.display = 'none';
+    display.style.display = '';
+    display.innerHTML = escHtml(newComment) || '<span style="opacity:.4;font-style:italic">Hinzufügen…</span>';
+
+    const snap = _snapshots.find(s => s.id === id);
+    if (snap) snap.comment = newComment;
+
+    try {
+        await fetch('/snaps/api/comment', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({id, comment: newComment}),
+        });
+    } catch(e) { console.error('saveComment error', e); }
+}
+
+// ─── TTL editing ──────────────────────────────────────────────────────────
+function openTtlModal(id) {
+    _ttlEditId = id;
+    const snap = _snapshots.find(s => s.id === id);
+    if (!snap) return;
+
+    document.getElementById('ttl-modal-info').textContent =
+        `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
+
+    if (snap.ttl) {
+        // Parse ISO to date/time fields
+        const d = new Date(snap.ttl + (snap.ttl.includes('T') ? '' : 'T00:00:00'));
+        document.getElementById('ttl-date-input').value = d.toISOString().slice(0,10);
+        document.getElementById('ttl-time-input').value = d.toISOString().slice(11,19);
+    } else {
+        document.getElementById('ttl-date-input').value = '';
+        document.getElementById('ttl-time-input').value = '00:00:00';
+    }
+    document.getElementById('ttl-modal').classList.add('open');
+}
+
+function closeTtlModal() {
+    document.getElementById('ttl-modal').classList.remove('open');
+    _ttlEditId = null;
+}
+
+async function saveTtl() {
+    if (!_ttlEditId) return;
+    const dateVal = document.getElementById('ttl-date-input').value;
+    const timeVal = document.getElementById('ttl-time-input').value || '00:00:00';
+    if (!dateVal) { alert('Bitte Datum eingeben.'); return; }
+
+    const newTtl = `${dateVal} ${timeVal}`;
+
+    try {
+        const resp = await fetch('/snaps/api/update-ttl', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({id: _ttlEditId, new_ttl: newTtl}),
+        });
+        const data = await resp.json();
+        if (!resp.ok) { alert('Fehler: ' + (data.error || resp.status)); return; }
+
+        // Update local state
+        const snap = _snapshots.find(s => s.id === _ttlEditId);
+        if (snap) snap.ttl = data.new_ttl;
+
+        closeTtlModal();
+        renderTable();
+        // Show curl simulation
+        showCurlModal(data.curl_commands || []);
+    } catch(e) {
+        alert('Netzwerkfehler: ' + e.message);
+    }
+}
+
+// ─── CURL simulation modal ────────────────────────────────────────────────
+function showCurlModal(commands) {
+    const container = document.getElementById('curl-commands-container');
+    if (!commands.length) {
+        container.innerHTML = '<p style="color:var(--sn-muted)">Keine Rename-Operationen notwendig.</p>';
+    } else {
+        container.innerHTML = commands.map(c => {
+            const platform = c.platform === 'FlashArray'
+                ? `🔷 FlashArray – ${escHtml(c.array || '')}`
+                : `🔶 ONTAP – ${escHtml(c.cluster || '')} / ${escHtml(c.svm || '')}`;
+            return `<div class="curl-platform-label">${platform}</div>
+<div class="curl-block">${escHtml(c.command)}</div>`;
+        }).join('');
+    }
+    document.getElementById('curl-modal').classList.add('open');
+}
+
+function closeCurlModal() {
+    document.getElementById('curl-modal').classList.remove('open');
+}
+
+// ─── Delete / undo ────────────────────────────────────────────────────────
+async function markDelete(id) {
+    if (!confirm('Snapshot für Löschung vormerken? Er wird in 24 Stunden endgültig gelöscht.')) return;
+    try {
+        const resp = await fetch('/snaps/api/delete', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({id}),
+        });
+        const data = await resp.json();
+        if (!resp.ok) { alert('Fehler: ' + (data.error || resp.status)); return; }
+        const snap = _snapshots.find(s => s.id === id);
+        if (snap) {
+            snap.delete_marked  = true;
+            snap.delete_deadline = data.delete_deadline;
+        }
+        renderTable();
+    } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+async function undoDelete(id) {
+    try {
+        const resp = await fetch('/snaps/api/undo-delete', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({id}),
+        });
+        if (!resp.ok) { alert('Fehler ' + resp.status); return; }
+        const snap = _snapshots.find(s => s.id === id);
+        if (snap) { snap.delete_marked = false; snap.delete_deadline = null; }
+        if (_deleteTimers[id]) { clearInterval(_deleteTimers[id]); delete _deleteTimers[id]; }
+        renderTable();
+    } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+// ─── Delete countdown timer ────────────────────────────────────────────────
+function startTimer(id, deadline) {
+    if (_deleteTimers[id]) clearInterval(_deleteTimers[id]);
+    _deleteTimers[id] = setInterval(() => {
+        const timerEl = document.getElementById(`timer-${id}`);
+        if (!timerEl) { clearInterval(_deleteTimers[id]); delete _deleteTimers[id]; return; }
+        const hoursLeft = Math.max(0, Math.ceil((new Date(deadline) - Date.now()) / 3600000));
+        timerEl.textContent = `${hoursLeft}h`;
+        if (hoursLeft <= 0) {
+            clearInterval(_deleteTimers[id]);
+            delete _deleteTimers[id];
+            loadSnapshots(); // Reload to remove deleted row
+        }
+    }, 60000); // update every minute
+}
+
+// ─── Manual trigger ───────────────────────────────────────────────────────
+async function triggerCollect() {
+    try {
+        await fetch('/snaps/api/trigger-collect', {method:'POST'});
+        setTimeout(loadSnapshots, 3000); // reload after 3s
+    } catch(e) { console.error(e); }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+function formatDt(iso) {
+    if (!iso) return '–';
+    try {
+        const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T'));
+        const pad = n => String(n).padStart(2,'0');
+        return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} `
+             + `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    } catch { return iso; }
+}
+
+function escHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+}
+
+function escAttr(s) {
+    return escHtml(s).replace(/'/g,'&#39;');
+}
+</script>
+{% endblock %}

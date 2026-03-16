@@ -136,3 +136,20 @@ class StorageClient(ABC):
         if evergreen_one_dashboard_active:
             response['evergreen_one_dashboard_active'] = True
         return response
+
+    def get_volume_snapshots(self):
+        """Return a list of volume snapshot dicts for this storage system.
+
+        Each dict must contain at minimum:
+            name (str)           – snapshot name as reported by the storage API
+            created (str|None)   – ISO-8601 creation timestamp (optional)
+
+        ONTAP implementations additionally include:
+            volume (str)         – parent volume name
+            svm (str)            – SVM name
+            cluster (str)        – cluster name
+
+        The default implementation returns an empty list so that vendor clients
+        that do not yet support snapshot collection degrade gracefully.
+        """
+        return []

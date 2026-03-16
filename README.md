@@ -10,17 +10,18 @@ Ein Python/Flask-basiertes Dashboard zur Überwachung von Storage-Systemen versc
 2. [Unterstützte Storage-Systeme](#2-unterstützte-storage-systeme)
 3. [Dashboard-Ansicht](#3-dashboard-ansicht)
 4. [Alerts-Seite](#4-alerts-seite)
-5. [System-Detailansicht](#5-system-detailansicht)
-6. [Kapazitätsreport](#6-kapazitätsreport)
-7. [Admin-Bereich](#7-admin-bereich)
-8. [Einstellungen](#8-einstellungen)
-9. [API & Swagger UI](#9-api--swagger-ui)
-10. [Systemanforderungen](#10-systemanforderungen)
-11. [Installation](#11-installation)
-12. [Admin-Benutzer erstellen](#12-admin-benutzer-erstellen)
-13. [CLI-Interface](#13-cli-interface)
-14. [Deployment](#14-deployment)
-15. [DR Planner – Disaster Recovery Operations](#15-dr-planner--disaster-recovery-operations)
+5. [Snapshot-Verwaltung](#5-snapshot-verwaltung)
+6. [System-Detailansicht](#6-system-detailansicht)
+7. [Kapazitätsreport](#7-kapazitätsreport)
+8. [Admin-Bereich](#8-admin-bereich)
+9. [Einstellungen](#9-einstellungen)
+10. [API & Swagger UI](#10-api--swagger-ui)
+11. [Systemanforderungen](#11-systemanforderungen)
+12. [Installation](#12-installation)
+13. [Admin-Benutzer erstellen](#13-admin-benutzer-erstellen)
+14. [CLI-Interface](#14-cli-interface)
+15. [Deployment](#15-deployment)
+16. [DR Planner – Disaster Recovery Operations](#16-dr-planner--disaster-recovery-operations)
 
 ---
 
@@ -35,6 +36,7 @@ Storage Dashboard überwacht Pure Storage, NetApp ONTAP, NetApp StorageGRID und 
 | **Multi-Vendor Support** | Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11, Dell DataDomain |
 | **Echtzeit-Dashboard** | Card- und Table-Ansicht aller Systeme mit farbkodierten Status-Badges |
 | **Alerts-Seite** | Konsolidierte Übersicht aller offenen Alerts aller Systeme inkl. ONTAP EMS Events |
+| **Snapshot-Verwaltung** | Automatische Erfassung von HANA DB-Snapshots (FlashArray + ONTAP), TTL-Verwaltung, Abgleich mit Storage |
 | **Kapazitätsreport** | Tabellarische und grafische Kapazitätsübersicht (5 Ansichten) mit 2-Jahres-Verlauf |
 | **System-Detailansicht** | Einzelsystem-Daten mit Capacity, Hardware-Status, Node-Infos und Alerts |
 | **Hintergrund-Polling** | Konfigurierbarer Hintergrunddienst (1–60 min) mit UI-seitigem Caching |
@@ -118,7 +120,56 @@ Das Dashboard ruft via `GET /api/support/ems/events?message.severity=emergency,a
 
 ---
 
-## 5. System-Detailansicht
+## 5. Snapshot-Verwaltung
+
+Die Snapshot-Verwaltung ist unter `/snaps/` erreichbar (📸 Snapshots in der Navbar, zwischen Alerts und Kapazitätsreport) und bietet eine zentrale Übersicht aller HANA-Datenbank-Snapshots, die auf Pure FlashArray- und NetApp ONTAP-Systemen gespeichert sind.
+
+### Übersicht
+
+Der Hintergrund-Collector erfasst alle 15 Minuten automatisch die aktuellen Snapshots aller konfigurierten Systeme und schreibt sie in die Datenbank. Bestehende Einträge werden aktualisiert, Snapshots die auf dem Storage nicht mehr existieren (manuell gelöscht oder umbenannt), werden automatisch aus der Datenbank entfernt – bei Einträgen mit Operator-Kommentar werden stattdessen die Präsenz-Flags auf ✘ gesetzt, sodass die Anmerkung erhalten bleibt.
+
+![Snapshot-Verwaltung – Übersicht](screenshots/snaps-overview.png)
+
+*Übersicht mit Statistik-Panel (18 Snapshots, davon 9 älter als 5 Tage), Filter-Leiste und sortierbare Tabelle mit automatischen DB/NFS-Präsenz-Badges (✔/✘)*
+
+### Detail-Ansicht (aufgeklappt)
+
+Durch Klick auf den ▶-Button wird eine Zeile aufgeklappt und zeigt die konkreten Storage-Objekte:
+
+![Snapshot-Detail mit FlashArray und ONTAP](screenshots/snaps-detail.png)
+
+*Detail-Ansicht: FlashArray-Snapshots auf zwei Arrays (fa-prod-dc1, fa-prod-dc2) mit LUN-Namen und ONTAP-Volumes (HANA_ACP, HANA_ACP_log) auf ontap-prod-dc1 / svm_hana*
+
+### Funktionen im Überblick
+
+| Funktion | Beschreibung |
+|---------|-------------|
+| **Automatische Erfassung** | Hintergrund-Collector (alle 15 Min.) liest FlashArray- und ONTAP-Snapshots via REST API |
+| **Abgleich mit Storage** | Bei jedem Lauf werden Datenbankeinträge, die nicht mehr auf dem Storage existieren, gelöscht oder als abwesend markiert |
+| **SID-Erkennung** | Extraktion der 3–5-stelligen SAP-SID aus dem Snapshot-Namen (z.B. `ACP_1_data.HDBSNAP-…` → SID `ACP`) |
+| **TTL-Anzeige & Bearbeitung** | Ablaufzeitstempel wird aus dem Snapshot-Namen extrahiert, per ✏️-Modal bearbeitbar; generiert CURL-Simulation für Rename |
+| **DB / NFS-Präsenz** | Automatisch befüllt: ✔ wenn FlashArray-Snapshot vorhanden, ✔ wenn ONTAP-Snapshot vorhanden |
+| **Operator-Kommentare** | Freitext-Bemerkung pro Snapshot, in-place editierbar |
+| **Lösch-Planung** | Lösch-Markierung mit 24h-Countdown und Rückgängig-Funktion |
+| **Filter** | Filterung nach SID, Erstellungsdatum (von/bis) und TTL (von/bis) |
+| **Sortierung** | Alle Spalten sortierbar (SID, Datum, TTL, DB, NFS) |
+| **Statistik-Panel** | Schnellüberblick: Snapshots gesamt, älter 5 Tage (orange), älter 10 Tage (rot), letzte Aktualisierung |
+| **Manueller Trigger** | 🔄-Button löst sofortigen Collector-Lauf aus |
+
+### Hintergrund-Collector
+
+Der Collector (`app/snap_service.py`) läuft als Daemon-Thread parallel zu den anderen Services:
+
+- **Intervall**: 15 Minuten (konfigurierbar via `SNAP_COLLECT_INTERVAL_SECONDS`)
+- **Quellen**: Pure FlashArray (REST API v2 `/volume-snapshots`) + NetApp ONTAP (`/storage/volumes/{uuid}/snapshots`)
+- **SID-Extraktion**: Regex-basiert aus Snapshot-Name (`ACP_1_data.HDBSNAP-…` → `ACP`)
+- **TTL-Extraktion**: Zeitstempel-Suffix `HDBSNAP-YYYY-MM-DD-HHMMSS` oder `vgSID.YYYY-MM-DD-HHMMSS`
+- **Aggregierung**: Mehrere FlashArray-LUN-Snapshots derselben SID + Zeitstempel werden zu einem Datensatz zusammengefasst
+- **Reconciliation**: Nach jedem Lauf werden veraltete DB-Einträge (nicht mehr auf Storage vorhanden) gelöscht oder als abwesend markiert
+
+---
+
+## 6. System-Detailansicht
 
 Erreichbar über den **Details**-Button einer Systemkarte oder direkt via `/systems/<id>/details`.
 
@@ -136,7 +187,7 @@ Erreichbar über den **Details**-Button einer Systemkarte oder direkt via `/syst
 
 ---
 
-## 6. Kapazitätsreport
+## 7. Kapazitätsreport
 
 Der Kapazitätsreport ist unter `/capacity/` erreichbar und bietet fünf Tabs.
 
@@ -185,7 +236,7 @@ Historische Kapazitätsgraphen (2 Jahre tägliche Datenpunkte) für alle Storage
 
 ---
 
-## 7. Admin-Bereich
+## 8. Admin-Bereich
 
 Der Admin-Bereich (`/admin`) ist durch Login geschützt und enthält Systemverwaltung, Einstellungen, Logs, Zertifikate und Tags.
 
@@ -218,7 +269,7 @@ Tags können in Gruppen organisiert werden (z.B. „Storage Art", „Landschaft"
 
 ---
 
-## 8. Einstellungen
+## 9. Einstellungen
 
 Erreichbar unter **Admin → Einstellungen** (`/admin/settings`). Die Einstellungen sind in sechs Tabs unterteilt.
 
@@ -260,7 +311,7 @@ Zeitzone und Hintergrund-Aktualisierungsintervall (1–60 Minuten).
 
 ---
 
-## 9. API & Swagger UI
+## 10. API & Swagger UI
 
 Das Dashboard stellt eine vollständige REST API bereit. Die interaktive Swagger UI ist unter `/admin/swagger` erreichbar.
 
@@ -293,7 +344,7 @@ Unter `/admin/docs` finden Sie eine detaillierte Einrichtungsanleitung für jede
 
 ---
 
-## 10. Systemanforderungen
+## 11. Systemanforderungen
 
 - **Betriebssystem**: Linux (SUSE 15, Ubuntu 22+, RHEL 8+, oder vergleichbar)
 - **Python**: 3.8 oder höher
@@ -304,7 +355,7 @@ Unter `/admin/docs` finden Sie eine detaillierte Einrichtungsanleitung für jede
 
 ---
 
-## 11. Installation
+## 12. Installation
 
 ### Option 1: Container-Deployment (Empfohlen)
 
@@ -358,7 +409,7 @@ python run.py
 
 ---
 
-## 12. Admin-Benutzer erstellen
+## 13. Admin-Benutzer erstellen
 
 Vor der ersten Nutzung muss ein Admin-Benutzer angelegt werden:
 
@@ -385,7 +436,7 @@ Der Admin-Bereich ist dann unter `http://localhost:5000/admin` erreichbar.
 
 ---
 
-## 13. CLI-Interface
+## 14. CLI-Interface
 
 ### Lokale CLI (`cli.py`)
 
@@ -428,7 +479,7 @@ python remote-cli.py export --format table
 
 ---
 
-## 14. Deployment
+## 15. Deployment
 
 ### Produktivumgebung mit Gunicorn
 
@@ -472,7 +523,7 @@ python cli.py migrate
 
 ---
 
-## 15. DR Planner – Disaster Recovery Operations
+## 16. DR Planner – Disaster Recovery Operations
 
 ### Überblick
 
@@ -610,4 +661,4 @@ Der DR Planner nutzt dieselbe PostgreSQL-Datenbank wie das gesamte Dashboard. Ne
 
 ---
 
-*Storage Dashboard v1.2 – Created by [Timo Braun](mailto:github@timobraun.de)*
+*Storage Dashboard v1.3 – Created by [Timo Braun](mailto:github@timobraun.de)*
