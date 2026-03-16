@@ -424,9 +424,12 @@ def generate_topology_diagram(relationship):
             result.append(f'      {nid}[["Node: {nname}"]]')
         return result
 
-    # Each ISL switch lives inside its own site subgraph – matching the
-    # DataDomain/SnapMirror pattern where every component belongs to one of the
-    # two datacenter boxes.  The only inter-site link is ISL_A <--> ISL_B.
+    # ISL switches are contained nodes inside their site subgraphs – there are
+    # no explicit within-site edges between the cluster subgraph and the ISL
+    # switch.  This matches the StorageGRID/SnapMirror pattern where nodes are
+    # just grouped inside their site box and the single cross-site link between
+    # ISL_A and ISL_B is the only explicit connection that bridges the two
+    # datacenters.
     lines = [
         'graph LR',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
@@ -444,7 +447,6 @@ def generate_topology_diagram(relationship):
         f'      {a_id}_svm[("{primary}-SVM")]',
         '    end',
         f'    ISL_A(["FC/IP Switch\\nSite A"])',
-        f'    {a_id}_cluster <-->|"MetroCluster\\nSynchronous"| ISL_A',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
         f'    subgraph {b_id}_cluster["{secondary} (Secondary)"]',
@@ -461,9 +463,8 @@ def generate_topology_diagram(relationship):
         f'      {b_id}_svm[("{secondary}-SVM")]',
         '    end',
         f'    ISL_B(["FC/IP Switch\\nSite B"])',
-        f'    ISL_B <-->|"MetroCluster\\nSynchronous"| {b_id}_cluster',
         '  end',
-        '  ISL_A <-->|"ISL"| ISL_B',
+        '  ISL_A <-->|"MetroCluster\\nSynchronous\\n(ISL)"| ISL_B',
     ]
     return '\n'.join(lines)
 

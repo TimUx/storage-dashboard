@@ -444,7 +444,7 @@ class TestMetroClusterDisasterRecovery:
         assert diagram.index('nodeA1') < cluster_b_pos
         assert diagram.index('nodeB1') > cluster_a_pos
 
-    # ---- topology diagram layout (ISL switches inside site subgraphs) ----
+    # ---- topology diagram layout (ISL switches inside site subgraphs, no within-site edges) ----
 
     def test_topology_diagram_isl_a_inside_site_a(self):
         """ISL switch A must be defined inside the primary site subgraph."""
@@ -470,11 +470,43 @@ class TestMetroClusterDisasterRecovery:
         assert isl_b_pos > dc2_start, \
             'ISL_B must be defined inside the secondary site subgraph, not outside'
 
-    def test_topology_diagram_inter_site_link_is_isl(self):
-        """The only inter-site link must connect ISL_A to ISL_B."""
+    def test_topology_diagram_no_within_site_cluster_to_isl_edges(self):
+        """There must be no explicit edges between the cluster subgraph and the ISL
+        switch nodes within a site.  The ISL switches are contained nodes only –
+        matching the StorageGRID/SnapMirror pattern where nodes are grouped inside
+        their site box without internal connection arrows."""
         rel = self._make_rel()
         diagram = ontap_metrocluster_logic.generate_topology_diagram(rel)
-        assert 'ISL_A <-->|"ISL"| ISL_B' in diagram
+        # Inspect every edge line; the only allowed edge is ISL_A <--> ISL_B
+        edge_lines = [l.strip() for l in diagram.splitlines() if '-->' in l]
+        for line in edge_lines:
+            assert line.startswith('ISL_A') and 'ISL_B' in line, (
+                f'Unexpected edge in MetroCluster topology diagram: {line!r}. '
+                'Only the cross-site ISL_A <--> ISL_B link is permitted.'
+            )
+
+    def test_topology_diagram_inter_site_link_is_isl_with_label(self):
+        """The cross-site link must connect ISL_A to ISL_B with the MetroCluster
+        Synchronous label – matching the descriptive label style of SnapMirror/DataDomain."""
+        rel = self._make_rel()
+        diagram = ontap_metrocluster_logic.generate_topology_diagram(rel)
+        assert 'ISL_A <-->|"MetroCluster\\nSynchronous\\n(ISL)"| ISL_B' in diagram
+
+    def test_topology_diagram_exactly_one_cross_site_link(self):
+        """There must be exactly one cross-site link (ISL_A <--> ISL_B).
+        No additional edges that span the two site subgraphs."""
+        rel = self._make_rel(primary='FASMC1', secondary='FASMC2')
+        rel['primary_site'] = 'DC1'
+        rel['secondary_site'] = 'DC2'
+        diagram = ontap_metrocluster_logic.generate_topology_diagram(rel)
+        # Collect all edge lines (lines containing -->  or <-->)
+        edge_lines = [l.strip() for l in diagram.splitlines() if '-->' in l]
+        # Only the ISL_A <--> ISL_B line should be a cross-site edge
+        cross_site = [l for l in edge_lines if 'ISL_A' in l and 'ISL_B' in l]
+        assert len(cross_site) == 1, f'Expected 1 cross-site link, found: {cross_site}'
+        # No other edge lines should exist
+        assert len(edge_lines) == 1, \
+            f'Expected 1 total edge line, found {len(edge_lines)}: {edge_lines}'
 
 
 # ---------------------------------------------------------------------------
