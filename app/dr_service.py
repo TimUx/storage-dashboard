@@ -51,8 +51,19 @@ def _is_dr_excluded(system) -> bool:
     - tag group "Storage Art", tag name "Backup" (storage type = backup)
 
     are outside the DR scope and must be ignored by the DR planner.
-    The check is case-insensitive and ignores surrounding whitespace.
+
+    Dell DataDomain systems are *never* excluded regardless of their tags –
+    DataDomain MTree replication is a first-class DR scenario and DataDomain
+    appliances are typically tagged as backup systems, which must not cause
+    them to be silently dropped from the DR planner.
+
+    The tag check is case-insensitive and ignores surrounding whitespace.
     """
+    # DataDomain systems are always included in DR scope
+    vendor = (getattr(system, 'vendor', '') or '').lower()
+    if vendor == 'dell-datadomain':
+        return False
+
     has_file_landscape = False
     has_backup_storage_art = False
     for tag in (system.tags or []):

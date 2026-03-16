@@ -5,6 +5,10 @@ ONTAP systems tagged with *both*
   Storage Art = "Backup" (tag group "Storage Art", tag name "Backup")
 must be excluded from the DR planner.  All other tag combinations must
 be included.
+
+Dell DataDomain systems (vendor='dell-datadomain') must NEVER be excluded
+regardless of their tags, because DataDomain MTree replication is a
+first-class DR scenario.
 """
 
 from types import SimpleNamespace
@@ -23,8 +27,11 @@ def _make_tag(name, group_name):
     return SimpleNamespace(name=name, group=group)
 
 
-def _make_system(*tags):
-    return SimpleNamespace(tags=list(tags))
+def _make_system(*tags, vendor=None):
+    ns = SimpleNamespace(tags=list(tags))
+    if vendor is not None:
+        ns.vendor = vendor
+    return ns
 
 
 # ---------------------------------------------------------------------------
@@ -152,3 +159,40 @@ class TestIsDrExcluded:
             _make_tag('File', ' Landschaft '),
             _make_tag('Backup', ' Storage Art '),
         )) is True
+
+
+# ---------------------------------------------------------------------------
+# DataDomain systems are NEVER excluded (vendor='dell-datadomain')
+# ---------------------------------------------------------------------------
+
+class TestDataDomainNeverExcluded:
+
+    def test_datadomain_no_tags_not_excluded(self):
+        assert _is_dr_excluded(_make_system(vendor='dell-datadomain')) is False
+
+    def test_datadomain_with_backup_tag_not_excluded(self):
+        assert _is_dr_excluded(_make_system(
+            _make_tag('Backup', 'Storage Art'),
+            vendor='dell-datadomain',
+        )) is False
+
+    def test_datadomain_with_file_landscape_not_excluded(self):
+        assert _is_dr_excluded(_make_system(
+            _make_tag('File', 'Landschaft'),
+            vendor='dell-datadomain',
+        )) is False
+
+    def test_datadomain_with_both_exclusion_tags_still_not_excluded(self):
+        """DataDomain systems with BOTH exclusion tags must still appear in the DR planner."""
+        assert _is_dr_excluded(_make_system(
+            _make_tag('File', 'Landschaft'),
+            _make_tag('Backup', 'Storage Art'),
+            vendor='dell-datadomain',
+        )) is False
+
+    def test_datadomain_uppercase_vendor_not_excluded(self):
+        assert _is_dr_excluded(_make_system(
+            _make_tag('File', 'Landschaft'),
+            _make_tag('Backup', 'Storage Art'),
+            vendor='DELL-DATADOMAIN',
+        )) is False
