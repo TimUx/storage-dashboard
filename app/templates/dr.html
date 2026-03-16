@@ -895,10 +895,7 @@ function setDirection(direction) {
 }
 
 function normalizeDiagram(def) {
-    // Convert LR/RL topology diagrams to TD for vertical layout
-    return def
-        .replace(/^graph\s+LR/m, 'graph TD')
-        .replace(/^graph\s+RL/m, 'graph TD');
+    return def;
 }
 
 function renderMermaid(elementId, definition) {

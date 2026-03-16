@@ -394,12 +394,18 @@ def generate_topology_diagram(relationship):
     b_id = _safe_id(secondary)
 
     # Build node lines for each site.
-    # Primary strategy: use dr_home_port.node.name which contains the cluster name.
-    # This handles names like FASMC1C/FASMC2C that share letters (e.g. 'A' in 'FASMC')
-    # and would be misclassified by a simple letter-based heuristic.
+    # Primary strategy: use the 'cluster' field set by storage_clients.py API
+    # collection, which directly contains the cluster name.  This correctly
+    # handles names like FASMC1C/FASMC2C that share the letters of 'FASMC'
+    # (e.g. the letter 'A') and would be misclassified by a simple letter-based
+    # heuristic.  Fall back to dr_home_port.node.name for legacy data formats.
     def _node_cluster(node):
         if not isinstance(node, dict):
             return ''
+        # Direct cluster name as stored by storage_clients.py
+        if node.get('cluster'):
+            return node['cluster']
+        # Legacy: dr_home_port.node.name from older data structures
         if isinstance(node.get('dr_home_port'), dict):
             return node['dr_home_port'].get('node', {}).get('name', '')
         return node.get('site', '')
