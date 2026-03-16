@@ -278,45 +278,57 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
 
     Returns a list of dicts with keys: platform, command.
     No actual API calls are made.
+
+    FlashArray rename (Pure Storage REST API 2.x, api/pure_swagger.json):
+        PATCH /api/<ver>/volume-snapshots?names=<full_snap_name>
+        Body: {"name": "<new_suffix>"}   ← suffix only, NOT the full name
+        The full snapshot name is ``{source_volume}.{suffix}``; the API renames
+        by setting the suffix portion via the ``name`` field in the request body.
+
+    ONTAP rename (ONTAP REST API, api/ontap_swagger.yaml):
+        PATCH /api/storage/volumes/{uuid}/snapshots/{snap_uuid}
+        Body: {"name": "<new_snap_name>", "expiry_time": "<ISO>"}
     """
+    import re
     commands = []
 
     # FlashArray rename commands
     for fa in locs.get('flasharray_systems', []):
         array_name = fa.get('name', 'fa-unknown')
         for snap_name in fa.get('snapshot_names', []):
-            # Replace timestamp suffix: find HDBSNAP-YYYY-MM-DD-HHMMSS pattern
-            import re
-            new_name = re.sub(
+            # Build the new suffix (only the part after the last '.')
+            # The suffix is the HDBSNAP-YYYY-MM-DD-HHMMSS portion.
+            # PATCH body must contain only the NEW SUFFIX, not the full name.
+            new_suffix = re.sub(
                 r'(HDBSNAP-)\d{4}-\d{2}-\d{2}-\d{6}',
                 r'\g<1>' + new_ts_str,
-                snap_name,
+                snap_name.split('.')[-1],   # extract current suffix from full name
             )
-            if new_name == snap_name:
-                # Also try generic timestamp replacement
-                new_name = re.sub(
-                    r'\d{4}-\d{2}-\d{2}-\d{6}$',
-                    new_ts_str,
-                    snap_name,
-                )
+            # Build the new full name for display (source_vol.new_suffix)
+            dot_idx = snap_name.rfind('.')
+            new_full_name = (snap_name[:dot_idx + 1] + new_suffix) if dot_idx != -1 else snap_name
             commands.append({
                 'platform': 'FlashArray',
                 'array': array_name,
+                # Correct API call per Pure Storage REST API 2.x schema:
+                #   PATCH /api/<ver>/volume-snapshots?names=<full_old_name>
+                #   Body: {"name": "<new_suffix>"}  (suffix only, not full name)
                 'command': (
-                    f"curl -X PATCH https://{array_name}/api/volume-snapshots/{{id}}"
+                    f"curl -X PATCH 'https://{array_name}/api/2.26/volume-snapshots"
+                    f"?names={snap_name}'"
                     f" -H 'x-auth-token: <token>'"
-                    f" -d '{{\"name\":\"{new_name}\"}}'"
+                    f" -H 'Content-Type: application/json'"
+                    f" -d '{{\"name\":\"{new_suffix}\"}}'"
                 ),
                 'old_name': snap_name,
-                'new_name': new_name,
+                'new_name': new_full_name,
             })
 
     # ONTAP rename commands
     for oc in locs.get('ontap_clusters', []):
         cluster = oc.get('cluster', 'ontap-unknown')
         svm = oc.get('svm', '')
-        new_expiry = new_ts_str.replace('-', '').replace('T', '')
-        # Convert YYYYMMDDHHMMSS → ISO
+        # Convert YYYY-MM-DD-HHMMSS → ISO-8601
         try:
             expiry_dt = datetime.strptime(new_ts_str, '%Y-%m-%d-%H%M%S')
             expiry_iso = expiry_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -332,6 +344,7 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
             'command': (
                 f"curl -X PATCH https://{cluster}/api/storage/volumes/{{uuid}}/snapshots/{{snap_uuid}}"
                 f" -u admin:<password>"
+                f" -H 'Content-Type: application/json'"
                 f" -d '{{\"name\":\"{ontap_snap_name}\",\"expiry_time\":\"{expiry_iso}\"}}'"
             ),
             'new_snap_name': ontap_snap_name,

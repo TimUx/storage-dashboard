@@ -973,10 +973,26 @@ class PureStorageClient(StorageClient):
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
     def get_volume_snapshots(self):
-        """Return volume snapshots from Pure FlashArray via REST API.
+        """Return active volume snapshots from Pure FlashArray via REST API.
 
-        Queries GET /api/<version>/volume-snapshots and returns a list of dicts
-        with at minimum: name, created.
+        Queries ``GET /api/<version>/volume-snapshots?destroyed=false`` and
+        returns a list of dicts with keys:
+
+            name         – full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
+            created      – ISO-8601 UTC string converted from epoch-milliseconds
+            suffix       – snapshot suffix only, e.g. ``HDBSNAP-2026-03-13-073434``
+                           (primary source for TTL extraction)
+            source_name  – name of the source volume, e.g. ``ABP_data``
+                           (used as SID-extraction fallback)
+
+        Schema reference (api/pure_swagger.json, ``VolumeSnapshot``):
+            ``created`` – int64 milliseconds since UNIX epoch (readOnly)
+            ``suffix``  – suffix appended to source_name to form ``name``
+            ``source``  – {id, name} reference to the parent volume (readOnly)
+            ``name``    – full snapshot name = source.name + "." + suffix
+
+        Pagination uses the ``continuation_token`` returned in each response.
+        Destroyed snapshots are excluded via ``?destroyed=false``.
         """
         try:
             if not self.token:
@@ -989,7 +1005,8 @@ class PureStorageClient(StorageClient):
 
             headers = {'x-auth-token': session_token, 'Content-Type': 'application/json'}
             results = []
-            params = {'limit': 1000, 'offset': 0}
+            # Start with first page; only fetch active (non-destroyed) snapshots.
+            params = {'limit': 1000, 'destroyed': 'false'}
             while True:
                 resp = _local_session.get(
                     f"{self.base_url}/api/{api_version}/volume-snapshots",
@@ -1005,11 +1022,29 @@ class PureStorageClient(StorageClient):
                 if not items:
                     break
                 for item in items:
+                    # 'created' is epoch milliseconds (int64) per the Pure
+                    # Storage REST API schema.  Convert to ISO-8601 UTC string.
+                    created_raw = item.get('created')
+                    created_iso = None
+                    if isinstance(created_raw, (int, float)) and created_raw:
+                        try:
+                            created_iso = datetime.fromtimestamp(
+                                created_raw / 1000.0, tz=timezone.utc
+                            ).strftime('%Y-%m-%dT%H:%M:%SZ')
+                        except Exception:
+                            pass
+                    elif isinstance(created_raw, str) and created_raw:
+                        # Already a string (future-proofing)
+                        created_iso = created_raw
                     results.append({
                         'name': item.get('name', ''),
-                        'created': item.get('created'),
+                        'created': created_iso,
+                        'suffix': item.get('suffix', '') or '',
+                        # 'source' is {id, name}; expose the name directly for
+                        # SID-extraction fallback in the snapshot service.
+                        'source_name': (item.get('source') or {}).get('name', '') or '',
                     })
-                # Check for continuation token (pagination)
+                # Advance to next page via continuation token
                 continuation = data.get('continuation_token')
                 if not continuation:
                     break

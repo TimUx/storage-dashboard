@@ -55,6 +55,13 @@ _MIN_SNAP_WORKERS = 16
 # ONTAP snapshot prefixes to ignore (automatic/scheduled snapshots).
 _ONTAP_IGNORE_PREFIXES = ('daily.', 'weekly.', 'monthly.', 'hourly.', '12-hourly.')
 
+# ONTAP volume name prefixes to skip entirely during snapshot collection.
+# Kubernetes/Trident CSI volumes (trident_pvc_*) are provisioned as NFS PVCs and
+# carry clone/lifecycle snapshots (e.g. "CLONE_...") that are not application
+# database snapshots.  Including them would create spurious SID entries (e.g.
+# "CLONE") in the snapshot dashboard.
+_ONTAP_IGNORE_VOLUME_PREFIXES = ('trident_pvc_',)
+
 # Regex to extract a 3–5 character SID from the beginning of a snapshot name.
 # Handles both "ACP_..." and "vgACP_..." style names.
 _SID_RE = re.compile(r'(?:vg)?([A-Z0-9]{3,5})(?:_|\.)', re.IGNORECASE)
@@ -111,6 +118,15 @@ def _collect_flasharray_snapshots(system):
     ActiveCluster arrays report the same snapshots on both controllers.
     Deduplication is handled downstream (keyed on sid + creation_time +
     snapshot_name).
+
+    Pure Storage API response fields used here (api/pure_swagger.json):
+        name        – full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
+        created     – ISO-8601 UTC string (epoch_ms already converted by the client)
+        suffix      – snapshot suffix only, e.g. ``HDBSNAP-2026-03-13-073434``
+                      Primary source for TTL extraction.
+        source_name – parent volume name, e.g. ``ABP_data``
+                      Used as SID-extraction fallback when the full snapshot
+                      name does not directly expose the SID.
     """
     from app.api import get_client
 
@@ -130,18 +146,29 @@ def _collect_flasharray_snapshots(system):
         results = []
         for snap in raw:
             name = snap.get('name', '') or ''
-            # Skip empty or non-database snapshot names
-            if 'HDBSNAP' not in name.upper() and not _SID_RE.match(name):
+            suffix = snap.get('suffix', '') or ''
+            source_name = snap.get('source_name', '') or ''
+
+            # Skip empty or non-database snapshot names.
+            # Accept if the suffix or full name contains HDBSNAP, or if the
+            # full name matches the SID regex.
+            hdbsnap_present = 'HDBSNAP' in suffix.upper() or 'HDBSNAP' in name.upper()
+            if not hdbsnap_present and not _SID_RE.match(name):
                 continue
 
+            # Extract SID: try the full snapshot name first, fall back to the
+            # source volume name (e.g. "ABP_data" → SID "ABP").
             sid = extract_sid(name)
+            if not sid and source_name:
+                sid = extract_sid(source_name)
             if not sid:
                 continue
 
-            # creation_time: prefer 'created' field; parse ISO string
-            created_raw = snap.get('created') or snap.get('creation_time') or ''
+            # creation_time: 'created' is already an ISO-8601 string (converted
+            # from epoch_ms by PureStorageClient.get_volume_snapshots).
+            created_raw = snap.get('created') or ''
             creation_time: datetime | None = None
-            if created_raw:
+            if isinstance(created_raw, str) and created_raw:
                 for fmt in ('%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S'):
                     try:
                         creation_time = datetime.strptime(
@@ -151,7 +178,11 @@ def _collect_flasharray_snapshots(system):
                     except ValueError:
                         pass
 
-            ttl = extract_ttl(name)
+            # TTL: prefer the suffix field (direct, unambiguous TTL source),
+            # fall back to the full snapshot name.
+            ttl = extract_ttl(suffix) if suffix else None
+            if ttl is None:
+                ttl = extract_ttl(name)
 
             results.append({
                 'sid': sid,
@@ -175,6 +206,9 @@ def _collect_ontap_snapshots(system):
     cluster_name, svm_name, volume_name.
 
     Automatic/scheduled snapshots (daily.*, weekly.*, etc.) are ignored.
+    Snapshots on Kubernetes/Trident CSI volumes (trident_pvc_*) are also
+    excluded because they carry clone lifecycle snapshots that do not
+    represent application database backups.
     """
     from app.api import get_client
 
@@ -194,6 +228,14 @@ def _collect_ontap_snapshots(system):
         results = []
         for snap in raw:
             snap_name = snap.get('name', '') or ''
+            volume_name = snap.get('volume', '') or snap.get('volume_name', '') or ''
+
+            # Skip Kubernetes/Trident CSI volumes (e.g. trident_pvc_<uuid>).
+            # These are NFS PVCs that carry clone/lifecycle snapshots which are
+            # not application database backups.
+            if any(volume_name.lower().startswith(p) for p in _ONTAP_IGNORE_VOLUME_PREFIXES):
+                continue
+
             # Ignore automatic snapshots
             if any(snap_name.lower().startswith(p) for p in _ONTAP_IGNORE_PREFIXES):
                 continue
@@ -201,7 +243,6 @@ def _collect_ontap_snapshots(system):
             sid = extract_sid(snap_name)
             if not sid:
                 # Also try extracting SID from the volume name
-                volume_name = snap.get('volume', '') or ''
                 sid = extract_sid(volume_name) if volume_name else None
             if not sid:
                 continue
@@ -227,7 +268,7 @@ def _collect_ontap_snapshots(system):
                 'ttl': ttl,
                 'cluster_name': snap.get('cluster') or system.name,
                 'svm_name': snap.get('svm') or snap.get('svm_name') or '',
-                'volume_name': snap.get('volume') or snap.get('volume_name') or '',
+                'volume_name': volume_name,
             })
 
         return results
