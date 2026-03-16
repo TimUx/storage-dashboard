@@ -15,7 +15,7 @@ _REPLICATION_TYPE_LABELS = {
     'metrocluster': 'ONTAP MetroCluster',
     'snapmirror': 'ONTAP SnapMirror',
     'storagegrid-multisite': 'StorageGRID',
-    'datadomain-replication': 'DataDomain',
+    'datadomain-replication': 'DataDomain Replication',
 }
 
 # State priority for aggregation (lower = worse)
