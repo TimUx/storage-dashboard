@@ -166,35 +166,35 @@ def build_topology(relationship):
 
 _WORKFLOW_STEPS = {
     'planned_failover': [
-        {'phase': 'pre-failover', 'step': 1, 'title': 'Verify MetroCluster health',
+        {'phase': 'pre-failover', 'step': 1, 'title': 'MetroCluster Status prüfen',
          'description': 'Run metrocluster check run and review the output for any errors.'},
-        {'phase': 'pre-failover', 'step': 2, 'title': 'Check replication state',
+        {'phase': 'pre-failover', 'step': 2, 'title': 'Replikationsstatus prüfen',
          'description': 'Confirm metrocluster show reports "configured" and all nodes are reachable.'},
-        {'phase': 'pre-failover', 'step': 3, 'title': 'Stop client I/O',
+        {'phase': 'pre-failover', 'step': 3, 'title': 'Client I/O stoppen',
          'description': 'Suspend application I/O to all volumes on the primary site SVMs.'},
-        {'phase': 'failover', 'step': 4, 'title': 'Initiate MetroCluster switchover',
+        {'phase': 'failover', 'step': 4, 'title': 'MetroCluster Switchover starten',
          'description': 'Execute a negotiated switchover from the primary to the secondary site.'},
-        {'phase': 'failover', 'step': 5, 'title': 'Verify switchover completion',
+        {'phase': 'failover', 'step': 5, 'title': 'Erfolgreichen Switchover prüfen',
          'description': 'Run metrocluster show to confirm operational state is "switchover".'},
-        {'phase': 'post-failover', 'step': 6, 'title': 'Bring SVMs online on secondary',
+        {'phase': 'post-failover', 'step': 6, 'title': 'SVMs auf dem Zielcluster starten',
          'description': 'Verify that all migrated SVMs are running on the secondary cluster.'},
-        {'phase': 'post-failover', 'step': 7, 'title': 'Update client connections',
+        {'phase': 'post-failover', 'step': 7, 'title': 'Client Verbindungen aktualisieren',
          'description': 'Redirect NFS/CIFS/iSCSI clients to the secondary site LIFs.'},
-        {'phase': 'post-failover', 'step': 8, 'title': 'Validate data integrity',
+        {'phase': 'post-failover', 'step': 8, 'title': 'Datenintegrität prüfen',
          'description': 'Run volume status checks and application smoke tests.'},
     ],
     'failback': [
-        {'phase': 'pre-failback', 'step': 1, 'title': 'Restore primary site',
+        {'phase': 'pre-failback', 'step': 1, 'title': 'Primären Standort wiederherstellen',
          'description': 'Confirm all primary site hardware is operational.'},
-        {'phase': 'pre-failback', 'step': 2, 'title': 'Verify MetroCluster switchback readiness',
+        {'phase': 'pre-failback', 'step': 2, 'title': 'MetroCluster Switchback-Bereitschaft prüfen',
          'description': 'Run metrocluster switchback -simulate to check for blockers.'},
-        {'phase': 'failback', 'step': 3, 'title': 'Execute switchback',
+        {'phase': 'failback', 'step': 3, 'title': 'Switchback durchführen',
          'description': 'Perform metrocluster switchback to return operations to the primary site.'},
-        {'phase': 'failback', 'step': 4, 'title': 'Verify switchback',
+        {'phase': 'failback', 'step': 4, 'title': 'Switchback prüfen',
          'description': 'Confirm metrocluster show shows "normal" operational state.'},
-        {'phase': 'post-failback', 'step': 5, 'title': 'Reconnect clients to primary',
+        {'phase': 'post-failback', 'step': 5, 'title': 'Clients mit primärem Standort verbinden',
          'description': 'Update client connections back to the primary site LIFs.'},
-        {'phase': 'post-failback', 'step': 6, 'title': 'Validate MetroCluster health',
+        {'phase': 'post-failback', 'step': 6, 'title': 'MetroCluster Status validieren',
          'description': 'Run metrocluster check run and confirm all checks pass.'},
     ],
     # Disaster recovery: forced switchover from the surviving site after a
@@ -202,45 +202,45 @@ _WORKFLOW_STEPS = {
     # https://docs.netapp.com/us-en/ontap-metrocluster/disaster-recovery/
     # task_perform_a_forced_switchover_after_a_disaster.html
     'disaster_recovery': [
-        {'phase': 'detection', 'step': 1, 'title': 'Disaster detected',
+        {'phase': 'detection', 'step': 1, 'title': 'Katastrophe erkannt',
          'description': (
              'Confirm the primary site is down and the surviving secondary site nodes are '
              'healthy.  Check connectivity and console output to rule out a partial failure.'
          )},
-        {'phase': 'pre-checks', 'step': 2, 'title': 'Run MetroCluster pre-checks',
+        {'phase': 'pre-checks', 'step': 2, 'title': 'MetroCluster Vorabprüfungen durchführen',
          'description': (
              'On the surviving site run metrocluster show, metrocluster node show, '
              'metrocluster check run, and metrocluster check show to assess cluster '
              'health and confirm the disaster switchover is required.'
          )},
-        {'phase': 'forced-switchover', 'step': 3, 'title': 'Forced switchover',
+        {'phase': 'forced-switchover', 'step': 3, 'title': 'Erzwungener Switchover',
          'description': (
              'Execute the forced disaster switchover to bring all data aggregates online '
              'on the surviving site: '
              'metrocluster switchover -forced-on-disaster true'
          )},
-        {'phase': 'verification', 'step': 4, 'title': 'Verify switchover completion',
+        {'phase': 'verification', 'step': 4, 'title': 'Erfolgreichen Switchover prüfen',
          'description': (
              'Confirm the switchover completed successfully by checking '
              'metrocluster operation show and metrocluster show.'
          )},
-        {'phase': 'aggregate-healing', 'step': 5, 'title': 'Aggregate healing (data aggregates)',
+        {'phase': 'aggregate-healing', 'step': 5, 'title': 'Aggregat-Heilung (Daten-Aggregate)',
          'description': (
              'Heal the data (non-root) aggregates to make them fully available: '
              'metrocluster heal -phase aggregates'
          )},
-        {'phase': 'aggregate-healing', 'step': 6, 'title': 'Root aggregate healing',
+        {'phase': 'aggregate-healing', 'step': 6, 'title': 'Root-Aggregat-Heilung',
          'description': (
              'Heal the root aggregates to complete recovery: '
              'metrocluster heal -phase root-aggregates'
          )},
-        {'phase': 'switchback', 'step': 7, 'title': 'Switchback (when site returns)',
+        {'phase': 'switchback', 'step': 7, 'title': 'Switchback (nach Wiederherstellung)',
          'description': (
              'When the failed site is restored and hardware is confirmed healthy, '
              'perform switchback to return operations to the primary site: '
              'metrocluster switchback'
          )},
-        {'phase': 'final-verification', 'step': 8, 'title': 'Final verification',
+        {'phase': 'final-verification', 'step': 8, 'title': 'Abschlussüberprüfung',
          'description': (
              'After switchback, run metrocluster node show and metrocluster show to '
              'confirm normal operational state.  All aggregates should be online on '

@@ -577,6 +577,154 @@ class TestDataDomainDiscovery:
         assert 'dd2' in destinations
         assert 'dd3' in destinations
 
+    def test_same_pair_multiple_mtrees_aggregated(self):
+        """Two MTree contexts for the same source→destination pair must produce
+        exactly ONE relationship entry with both contexts inside relationship_data.contexts."""
+        health = {
+            'mtree_replications': [
+                {
+                    'mode': 'SOURCE', 'state': 'NORMAL', 'connected': True,
+                    'source_host': 'dd1', 'destination_host': 'dd2',
+                    'source_mtree': '/data/col1/backup',
+                    'destination_mtree': '/data/col1/backup',
+                },
+                {
+                    'mode': 'SOURCE', 'state': 'NORMAL', 'connected': True,
+                    'source_host': 'dd1', 'destination_host': 'dd2',
+                    'source_mtree': '/data/col1/veeam',
+                    'destination_mtree': '/data/col1/veeam',
+                },
+            ]
+        }
+        result = datadomain_logic.discover_relationships('dd1', health)
+        # Must produce ONE relationship, not two
+        assert len(result) == 1
+        rel = result[0]
+        assert rel['primary_cluster'] == 'dd1'
+        assert rel['secondary_cluster'] == 'dd2'
+        # Both MTree contexts must be inside relationship_data.contexts
+        contexts = rel['relationship_data']['contexts']
+        assert len(contexts) == 2
+        src_mtrees = {c['source_mtree'] for c in contexts}
+        assert '/data/col1/backup' in src_mtrees
+        assert '/data/col1/veeam' in src_mtrees
+
+    def test_relationship_data_source_mtree_preserved(self):
+        """relationship_data.source.mtree must carry the first-seen MTree path
+        for backward compatibility with generate_commands."""
+        health = {
+            'mtree_replications': [
+                {
+                    'mode': 'SOURCE', 'state': 'NORMAL', 'connected': True,
+                    'source_host': 'dd1', 'destination_host': 'dd2',
+                    'source_mtree': '/data/col1/backup',
+                    'destination_mtree': '/data/col1/backup',
+                },
+            ]
+        }
+        result = datadomain_logic.discover_relationships('dd1', health)
+        assert result[0]['relationship_data']['source']['mtree'] == '/data/col1/backup'
+
+    def test_replication_targets_fallback(self):
+        """When mtree_replications and replication_status are both absent,
+        fall back to replication_targets (system replicates TO the target)."""
+        health = {
+            'replication_targets': [
+                {'host': 'dd2', 'state': 'NORMAL'},
+            ]
+        }
+        result = datadomain_logic.discover_relationships('dd1', health)
+        assert len(result) == 1
+        rel = result[0]
+        assert rel['replication_type'] == 'datadomain-replication'
+        assert rel['vendor'] == 'dell-datadomain'
+        assert rel['primary_cluster'] == 'dd1'
+        assert rel['secondary_cluster'] == 'dd2'
+        assert rel['replication_state'] == 'healthy'
+
+    def test_replication_sources_fallback(self):
+        """When mtree_replications and replication_status are both absent,
+        fall back to replication_sources (remote system replicates TO this one)."""
+        health = {
+            'replication_sources': [
+                {'host': 'dd1', 'state': 'NORMAL'},
+            ]
+        }
+        result = datadomain_logic.discover_relationships('dd2', health)
+        assert len(result) == 1
+        rel = result[0]
+        assert rel['primary_cluster'] == 'dd1'
+        assert rel['secondary_cluster'] == 'dd2'
+        assert rel['replication_type'] == 'datadomain-replication'
+
+    def test_replication_targets_with_unknown_state_is_degraded(self):
+        """A replication_targets entry whose state is not a healthy indicator
+        should result in a degraded replication_state."""
+        health = {
+            'replication_targets': [
+                {'host': 'dd2', 'state': 'DISCONNECTED'},
+            ]
+        }
+        result = datadomain_logic.discover_relationships('dd1', health)
+        assert len(result) == 1
+        assert result[0]['replication_state'] == 'degraded'
+
+    def test_replication_targets_missing_host_skipped(self):
+        """A replication_targets entry with no host must be silently skipped."""
+        health = {
+            'replication_targets': [
+                {'host': None, 'state': 'NORMAL'},
+                {'state': 'NORMAL'},  # no host key at all
+            ]
+        }
+        result = datadomain_logic.discover_relationships('dd1', health)
+        assert result == []
+
+    def test_worst_state_promotion_across_contexts(self):
+        """When two MTrees for the same pair have different states, the resulting
+        relationship_state must reflect the worst one (degraded > healthy)."""
+        health = {
+            'mtree_replications': [
+                {
+                    'mode': 'SOURCE', 'state': 'NORMAL', 'connected': True,
+                    'source_host': 'dd1', 'destination_host': 'dd2',
+                    'source_mtree': '/data/col1/backup',
+                    'destination_mtree': '/data/col1/backup',
+                },
+                {
+                    'mode': 'SOURCE', 'state': 'CONNECTING', 'connected': False,
+                    'source_host': 'dd1', 'destination_host': 'dd2',
+                    'source_mtree': '/data/col1/veeam',
+                    'destination_mtree': '/data/col1/veeam',
+                },
+            ]
+        }
+        result = datadomain_logic.discover_relationships('dd1', health)
+        assert len(result) == 1
+        # One healthy + one degraded context → whole pair is degraded
+        assert result[0]['replication_state'] == 'degraded'
+
+    def test_replication_targets_fallback_not_used_when_mtree_present(self):
+        """replication_targets fallback must NOT be used when mtree_replications
+        already provides data."""
+        health = {
+            'mtree_replications': [
+                {
+                    'mode': 'SOURCE', 'state': 'NORMAL', 'connected': True,
+                    'source_host': 'dd1', 'destination_host': 'dd2',
+                    'source_mtree': '/data/col1/backup',
+                    'destination_mtree': '/data/col1/backup',
+                },
+            ],
+            # This target points at dd3 – should be ignored because mtree_replications is present
+            'replication_targets': [
+                {'host': 'dd3', 'state': 'NORMAL'},
+            ]
+        }
+        result = datadomain_logic.discover_relationships('dd1', health)
+        assert len(result) == 1
+        assert result[0]['secondary_cluster'] == 'dd2'
+
 
 # ---------------------------------------------------------------------------
 # Pure FlashArray – pod-replica-links (async pod replication)
@@ -727,9 +875,10 @@ class TestPureFlashArrayActiveClusterDisasterRecovery:
         rel = self._make_rel()
         steps = pure_flasharray_logic.generate_workflow(rel, 'disaster_recovery')
         titles = ' '.join(s['title'].lower() for s in steps)
-        assert 'detection' in titles or 'failure' in titles
-        assert 'health' in titles or 'surviving' in titles
-        assert 'pod' in titles or 'replication' in titles
+        # Accept both English and German keywords (titles are localised to German)
+        assert 'detection' in titles or 'failure' in titles or 'ausfall' in titles or 'erkannt' in titles
+        assert 'health' in titles or 'surviving' in titles or 'status' in titles or 'verbleibenden' in titles
+        assert 'pod' in titles or 'replication' in titles or 'replikation' in titles
         assert 'volume' in titles
         assert 'host' in titles
         assert 'remote' in titles or 'support' in titles

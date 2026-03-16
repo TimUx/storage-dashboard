@@ -189,35 +189,35 @@ def build_topology(relationship):
 
 _WORKFLOW_STEPS = {
     'planned_failover': [
-        {'phase': 'pre-failover', 'step': 1, 'title': 'Verify SnapMirror health',
+        {'phase': 'pre-failover', 'step': 1, 'title': 'SnapMirror Status prüfen',
          'description': 'Run snapmirror show to confirm all relationships are in "snapmirrored" state.'},
-        {'phase': 'pre-failover', 'step': 2, 'title': 'Perform final SnapMirror update',
+        {'phase': 'pre-failover', 'step': 2, 'title': 'Letztes SnapMirror Update durchführen',
          'description': 'Trigger a manual update to minimise data loss before failover.'},
-        {'phase': 'pre-failover', 'step': 3, 'title': 'Quiesce SnapMirror relationships',
+        {'phase': 'pre-failover', 'step': 3, 'title': 'SnapMirror Beziehungen pausieren',
          'description': 'Quiesce the SnapMirror relationships to prevent further updates during failover.'},
-        {'phase': 'failover', 'step': 4, 'title': 'Break SnapMirror relationships',
+        {'phase': 'failover', 'step': 4, 'title': 'SnapMirror Beziehungen trennen',
          'description': 'Break the SnapMirror relationships to make the destination volumes read/write.'},
-        {'phase': 'failover', 'step': 5, 'title': 'Bring up destination SVM',
+        {'phase': 'failover', 'step': 5, 'title': 'Ziel-SVM starten',
          'description': 'Start the destination SVM and configure network interfaces.'},
-        {'phase': 'post-failover', 'step': 6, 'title': 'Mount destination volumes',
+        {'phase': 'post-failover', 'step': 6, 'title': 'Ziel-Volumes einhängen',
          'description': 'Mount volumes and verify exports/shares on the destination SVM.'},
-        {'phase': 'post-failover', 'step': 7, 'title': 'Redirect client connections',
+        {'phase': 'post-failover', 'step': 7, 'title': 'Client Verbindungen umleiten',
          'description': 'Update DNS or mount points so clients connect to the destination SVM.'},
-        {'phase': 'post-failover', 'step': 8, 'title': 'Validate data access',
+        {'phase': 'post-failover', 'step': 8, 'title': 'Datenzugriff prüfen',
          'description': 'Test application access to confirm data is readable and writeable.'},
     ],
     'failback': [
-        {'phase': 'pre-failback', 'step': 1, 'title': 'Re-establish SnapMirror from destination to source',
+        {'phase': 'pre-failback', 'step': 1, 'title': 'SnapMirror vom Ziel zur Quelle wiederherstellen',
          'description': 'Reverse the SnapMirror relationship so changes made at destination are replicated back.'},
-        {'phase': 'failback', 'step': 2, 'title': 'Resync source volumes',
+        {'phase': 'failback', 'step': 2, 'title': 'Quell-Volumes resynchronisieren',
          'description': 'Run snapmirror resync to initialise the reverse relationship.'},
-        {'phase': 'failback', 'step': 3, 'title': 'Quiesce and break reverse relationship',
+        {'phase': 'failback', 'step': 3, 'title': 'Umgekehrte Beziehung pausieren und trennen',
          'description': 'Once synced, quiesce and break the reverse relationship to return to normal direction.'},
-        {'phase': 'failback', 'step': 4, 'title': 'Restore original SnapMirror direction',
+        {'phase': 'failback', 'step': 4, 'title': 'Ursprüngliche SnapMirror-Richtung wiederherstellen',
          'description': 'Resync the original relationship to bring source volumes up to date.'},
-        {'phase': 'post-failback', 'step': 5, 'title': 'Redirect clients back to source',
+        {'phase': 'post-failback', 'step': 5, 'title': 'Clients zurück zur Quelle umleiten',
          'description': 'Update client connections to the original SVM on the primary site.'},
-        {'phase': 'post-failback', 'step': 6, 'title': 'Verify SnapMirror health',
+        {'phase': 'post-failback', 'step': 6, 'title': 'SnapMirror Status prüfen',
          'description': 'Confirm all relationships are in "snapmirrored" state with no lag.'},
     ],
     # Disaster recovery: unplanned failover from the surviving DR site after the
@@ -229,45 +229,45 @@ _WORKFLOW_STEPS = {
     # https://docs.netapp.com/us-en/ontap/data-protection/
     #   make-destination-volume-writeable-task.html
     'disaster_recovery': [
-        {'phase': 'detection', 'step': 1, 'title': 'Disaster detected',
+        {'phase': 'detection', 'step': 1, 'title': 'Katastrophe erkannt',
          'description': (
              'Confirm the primary site is unreachable.  Verify that the source cluster '
              'and its SVMs are not accessible before proceeding with the unplanned failover.'
          )},
-        {'phase': 'pre-checks', 'step': 2, 'title': 'Validate SnapMirror replication state',
+        {'phase': 'pre-checks', 'step': 2, 'title': 'SnapMirror Replikationsstatus prüfen',
          'description': (
              'On the DR cluster run snapmirror show and '
              'snapmirror show -fields status,health,lag-time to assess the replication '
              'state and lag of all relationships.  Note the last successful transfer time.'
          )},
-        {'phase': 'snapmirror-break', 'step': 3, 'title': 'Break SnapMirror relationships',
+        {'phase': 'snapmirror-break', 'step': 3, 'title': 'SnapMirror Beziehungen trennen',
          'description': (
              'Break the SnapMirror relationship(s) to make the destination volumes '
              'read/write.  Because the source is down, no quiesce step is possible: '
              'snapmirror break -destination-path <path>'
          )},
-        {'phase': 'activate-dr', 'step': 4, 'title': 'Activate DR SVM or volumes',
+        {'phase': 'activate-dr', 'step': 4, 'title': 'DR-SVM oder Volumes aktivieren',
          'description': (
              'For SVM DR: start the destination SVM with vserver start.  '
              'For volume SnapMirror: mount the destination volumes and set them online.  '
              'Verify all LIFs are up and serving data.'
          )},
-        {'phase': 'verify-storage', 'step': 5, 'title': 'Verify storage availability',
+        {'phase': 'verify-storage', 'step': 5, 'title': 'Speicherverfügbarkeit prüfen',
          'description': (
              'Confirm that all volumes are online and data is accessible.  '
              'Check aggregates, volumes, and LUNs on the DR cluster.'
          )},
-        {'phase': 'verify-network', 'step': 6, 'title': 'Verify network access',
+        {'phase': 'verify-network', 'step': 6, 'title': 'Netzwerkzugang prüfen',
          'description': (
              'Confirm that all required data LIFs are up and reachable from clients.  '
              'Verify DNS resolution and NFS/CIFS exports are correct.'
          )},
-        {'phase': 'serve-clients', 'step': 7, 'title': 'Serve clients from DR site',
+        {'phase': 'serve-clients', 'step': 7, 'title': 'Clients vom DR-Standort versorgen',
          'description': (
              'Redirect client connections (DNS, mount points, iSCSI targets) to the '
              'DR site.  Validate that applications can read and write data successfully.'
          )},
-        {'phase': 'reprotect', 'step': 8, 'title': 'Reprotect after primary recovery',
+        {'phase': 'reprotect', 'step': 8, 'title': 'Nach Wiederherstellung erneut schützen',
          'description': (
              'When the primary site returns, re-establish SnapMirror replication in the '
              'original direction to re-sync changes made at the DR site: '

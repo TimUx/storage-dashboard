@@ -231,18 +231,22 @@
 .env-test { background: rgba(255,165,0,.12); color: var(--dr-warn); }
 .env-unknown { background: rgba(106,106,106,.1); color: var(--dr-muted); }
 
-/* Diagram box */
+/* Diagram scaling – scale down to ≈75 % within their container boxes.   *
+ * Fullscreen modal overrides this with transform:none in .dr-modal-body.  */
+.diagram-container svg {
+    transform: scale(0.75);
+    transform-origin: top center;
+}
 .dr-diagram-box {
     background: var(--dr-bg);
     border-radius: 8px;
     border: 1px solid var(--dr-border);
     padding: 1rem;
-    min-height: 120px;
+    max-height: 500px;
     overflow: auto;
 }
 .dr-diagram-box .mermaid { display: block; text-align: center; }
 .dr-diagram-box svg { max-width: 100%; height: auto; }
-.dr-diagram-scroll { max-height: 420px; overflow: auto; }
 
 /* Fullscreen modal */
 .dr-modal-overlay {
@@ -295,7 +299,12 @@
     align-items: flex-start;
     justify-content: center;
 }
-.dr-modal-body svg { max-width: 100%; height: auto; }
+/* Fullscreen modal must show diagrams at full size without any scaling. */
+.dr-modal-body .diagram-container svg,
+.dr-modal-body svg {
+    transform: none !important;
+    max-width: 100%; height: auto;
+}
 
 .wf-phase { margin-bottom: 1rem; }
 .wf-phase-title {
@@ -525,6 +534,7 @@
                 <thead>
                     <tr>
                         <th>System</th>
+                        <th>Partner System</th>
                         <th>Hersteller</th>
                         <th>Replikationstyp</th>
                         <th>Prim&#xE4;rer Standort</th>
@@ -535,7 +545,7 @@
                     </tr>
                 </thead>
                 <tbody id="topologyBody">
-                    <tr><td colspan="8" class="dr-no-data">DR-Topologie wird geladen&#x2026;</td></tr>
+                    <tr><td colspan="9" class="dr-no-data">DR-Topologie wird geladen&#x2026;</td></tr>
                 </tbody>
             </table>
         </div>
@@ -564,7 +574,7 @@
                         <button class="dr-btn dr-btn-outline dr-btn-sm" onclick="openFullscreen('topoDiagram','Architekturdiagramm')">&#x26F6; Vollbild</button>
                     </div>
                     <div class="dr-section-body" style="padding:.75rem;">
-                        <div class="dr-diagram-box dr-diagram-scroll">
+                        <div class="dr-diagram-box diagram-container">
                             <div class="mermaid" id="topoDiagram">graph TD
   A["No data"] --&gt; B["Select a system"]</div>
                         </div>
@@ -577,7 +587,7 @@
                         <button class="dr-btn dr-btn-outline dr-btn-sm" onclick="openFullscreen('wfDiagram','Failover Ablaufdiagramm')">&#x26F6; Vollbild</button>
                     </div>
                     <div class="dr-section-body" style="padding:.75rem;">
-                        <div class="dr-diagram-box dr-diagram-scroll">
+                        <div class="dr-diagram-box diagram-container">
                             <div class="mermaid" id="wfDiagram">flowchart TD
   A["Select a system"]</div>
                         </div>
@@ -710,7 +720,7 @@ function loadBuildStatus() {
 function loadSystems() {
     var env = document.getElementById('envFilter').value;
     var tbody = document.getElementById('topologyBody');
-    tbody.innerHTML = '<tr><td colspan="8" class="dr-no-data">DR-Topologie wird geladen\u2026</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="dr-no-data">DR-Topologie wird geladen\u2026</td></tr>';
 
     fetch('/dr/api/systems?environment=' + encodeURIComponent(env))
         .then(function(r) { return r.json(); })
@@ -723,7 +733,7 @@ function loadSystems() {
             loadBuildStatus();
         })
         .catch(function(err) {
-            tbody.innerHTML = '<tr><td colspan="8" class="dr-no-data" style="color:var(--dr-danger);">Fehler beim Laden der DR-Topologie: ' + escHtml(err.message) + '</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="dr-no-data" style="color:var(--dr-danger);">Fehler beim Laden der DR-Topologie: ' + escHtml(err.message) + '</td></tr>';
         });
 }
 
@@ -745,13 +755,17 @@ function applySiteFilter() {
     renderCurrentTab();
 }
 
-// Helper: filter systems for a given tab by the current site filter
+// Helper: filter systems for a given tab by the current site filter.
+// If a direction "DC1 → DC2" is selected, show only systems whose primary_site
+// (= their physical DataCenter) matches the TARGET (DR) site – i.e. parts[1].
+// This reflects the disaster scenario: DC1 has failed, operators work on DC2 systems.
 function _filterSystems(systems) {
     if (!currentSiteFilter) return systems;
     var parts = currentSiteFilter.split(' \u2192 ');
     if (parts.length === 2) {
+        var targetDC = parts[1].trim();
         return systems.filter(function(sys) {
-            return sys.primary_site === parts[0] && sys.secondary_site === parts[1];
+            return sys.primary_site === targetDC;
         });
     }
     // Fallback: match either side
@@ -766,8 +780,7 @@ function renderTabs() {
 
     if (!tabKeys.length) {
         tabsEl.innerHTML = '';
-        document.getElementById('topologyBody').innerHTML =
-            '<tr><td colspan="8" class="dr-no-data">Keine DR-Beziehungen gefunden. Bitte einen DR-Rebuild ausl\u00f6sen, sobald Systeme konfiguriert sind.</td></tr>';
+        document.getElementById('topologyBody').innerHTML = '<tr><td colspan="9" class="dr-no-data">Keine DR-Beziehungen gefunden. Bitte einen DR-Rebuild ausl\u00f6sen, sobald Systeme konfiguriert sind.</td></tr>';
         return;
     }
 
@@ -810,13 +823,14 @@ function renderCurrentTab() {
 function renderSystemsTable(systems) {
     var tbody = document.getElementById('topologyBody');
     if (!systems.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="dr-no-data">Keine Systeme f\u00fcr diese Filterkombination gefunden.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="dr-no-data">Keine Systeme f\u00fcr diese Filterkombination gefunden.</td></tr>';
         return;
     }
     tbody.innerHTML = systems.map(function(sys) {
         var rowId = 'sys-row-' + sys.system_name.replace(/[^a-z0-9]/gi, '_');
         return '<tr id="' + escHtml(rowId) + '" onclick="openSystemDetails(\'' + escJs(sys.system_name) + '\',\'' + escJs(rowId) + '\')">'
             + '<td><strong>' + escHtml(sys.system_name) + '</strong></td>'
+            + '<td>' + escHtml(sys.partner_system || '\u2013') + '</td>'
             + '<td>' + escHtml(vendorLabel(sys.vendor)) + '</td>'
             + '<td><span class="rep-badge">' + escHtml(replLabel(sys.replication_type)) + '</span></td>'
             + '<td>' + escHtml(sys.primary_site || '\u2013') + '</td>'
@@ -964,18 +978,20 @@ function renderRelationships(relationships) {
             + '<td><span class="state-' + escHtml(rel.replication_state || 'unknown') + '">' + escHtml(stateLabel(rel.replication_state)) + '</span></td>'
             + '</tr>';
 
-        // Sub-relationships from relationship_data
+        // Sub-relationships / MTree contexts
+        // For DataDomain: relationship_data.contexts contains individual MTree entries.
+        // For SnapMirror / others: use standard context keys.
         var contexts = rd.contexts || rd.volumes || rd.snapmirror_relationships || rd.mtree_replications || [];
         if (Array.isArray(contexts) && contexts.length) {
             html += '<tr><td colspan="7" style="padding:.25rem .75rem;">'
                 + '<details><summary style="cursor:pointer;font-size:.78rem;color:var(--dr-muted);">'
-                + contexts.length + ' Unter-Beziehung(en) \u2013 zum Aufklappen klicken</summary>'
+                + contexts.length + ' Replikationskontext(e) \u2013 zum Aufklappen klicken</summary>'
                 + '<div style="overflow-x:auto;padding:.5rem 0;"><table class="rel-table" style="margin:0;">'
-                + '<thead><tr><th>Quelle / Pfad</th><th>Ziel / Pfad</th><th>Status</th></tr></thead><tbody>';
+                + '<thead><tr><th>Quelle</th><th>Ziel</th><th>Status</th></tr></thead><tbody>';
             contexts.slice(0, 30).forEach(function(ctx) {
-                var src = ctx.source_path || ctx.source_mtree || ctx.src_path || ctx.source_volume || ctx.source || '–';
-                var dst = ctx.destination_path || ctx.destination_mtree || ctx.dst_path || ctx.destination_volume || ctx.destination || '–';
-                var st = ctx.state || ctx.status || ctx.health_status || '–';
+                var src = ctx.source_mtree || ctx.source_path || ctx.src_path || ctx.source_volume || ctx.source || '\u2013';
+                var dst = ctx.destination_mtree || ctx.destination_path || ctx.dst_path || ctx.destination_volume || ctx.destination || '\u2013';
+                var st = ctx.state || ctx.status || ctx.health_status || '\u2013';
                 html += '<tr><td>' + escHtml(src) + '</td><td>' + escHtml(dst) + '</td><td>' + escHtml(st) + '</td></tr>';
             });
             if (contexts.length > 30) {
@@ -994,7 +1010,21 @@ function renderRunbook(runbookData) {
         el.innerHTML = '<div class="dr-no-data">Kein Runbook f\u00fcr dieses System / diese Richtung verf\u00fcgbar.</div>';
         return;
     }
-    var phaseOrder = ['pre-failover', 'failover', 'post-failover', 'pre-failback', 'failback', 'post-failback'];
+    // Full phase ordering covering all vendor DR directions incl. DataDomain disaster_recovery
+    var phaseOrder = [
+        'pre-failover', 'failover', 'post-failover',
+        'pre-failback', 'failback', 'post-failback',
+        // disaster_recovery phases (MetroCluster / SnapMirror / DataDomain)
+        'detection', 'pre-checks', 'forced-switchover', 'verification',
+        'aggregate-healing', 'switchback', 'final-verification',
+        'snapmirror-break', 'activate-dr', 'verify-storage', 'verify-network',
+        'serve-clients', 'reprotect',
+        // DataDomain disaster_recovery phases
+        'validation', 'break-replication', 'promote-mtree',
+        'validate-filesystem', 'switch-backup', 'recreate-replication',
+        // FlashArray
+        'support',
+    ];
     var sections = runbookData.runbook_data.slice().sort(function(a, b) {
         var ai = phaseOrder.indexOf(a.phase), bi = phaseOrder.indexOf(b.phase);
         return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
@@ -1017,7 +1047,21 @@ function renderCLICommands(commandSetData) {
         el.innerHTML = '<div style="color:#888;font-style:italic;">Keine CLI-Befehle f\u00fcr dieses System verf\u00fcgbar.</div>';
         return;
     }
-    var phaseOrder = ['pre-failover', 'failover', 'post-failover', 'pre-failback', 'failback', 'post-failback'];
+    // Full phase ordering covering all vendor DR directions incl. DataDomain disaster_recovery
+    var phaseOrder = [
+        'pre-failover', 'failover', 'post-failover',
+        'pre-failback', 'failback', 'post-failback',
+        // disaster_recovery phases (MetroCluster / SnapMirror / DataDomain / FlashArray)
+        'detection', 'pre-checks', 'forced-switchover', 'verification',
+        'aggregate-healing', 'switchback', 'final-verification',
+        'snapmirror-break', 'activate-dr', 'verify-storage', 'verify-network',
+        'serve-clients', 'reprotect',
+        // DataDomain disaster_recovery phases
+        'validation', 'break-replication', 'promote-mtree',
+        'validate-filesystem', 'switch-backup', 'recreate-replication',
+        // FlashArray
+        'support',
+    ];
     var byPhase = {};
     commandSetData.commands_data.forEach(function(cmd) {
         var p = cmd.phase || 'general';
@@ -1099,7 +1143,7 @@ function replLabel(t) {
     return {'activecluster':'ActiveCluster','metrocluster':'MetroCluster','snapmirror':'SnapMirror','storagegrid-multisite':'StorageGRID Multi-Site','datadomain-replication':'DD Replication'}[t] || t || '\u2013';
 }
 function stateLabel(s) {
-    return {'healthy':'\u2705 Gesund','degraded':'\u26A0\uFE0F Beeintr\u00e4chtigt','broken':'\u274C Ausgefallen','unknown':'\u2753 Unbekannt'}[s] || s || '\u2013';
+    return {'healthy':'\u2705 OK','degraded':'\u26A0\uFE0F Beeintr\u00e4chtigt','broken':'\u274C Ausgefallen','unknown':'\u2753 Unbekannt'}[s] || s || '\u2013';
 }
 function envLabel(e) {
     return {'production':'Produktion','test':'Test','unknown':'\u2013'}[e] || e || '\u2013';
@@ -1109,7 +1153,28 @@ function phaseLabel(p) {
         'pre-failover':'Pre-Failover Pr\u00fcfungen','failover':'Failover-Befehle',
         'post-failover':'Validierung / Post-Failover','pre-failback':'Pre-Failback Pr\u00fcfungen',
         'failback':'Failback-Befehle','post-failback':'Post-Failback / Wiederherstellung',
-        'all':'Alle Phasen','general':'Allgemein'
+        'all':'Alle Phasen','general':'Allgemein',
+        // disaster_recovery phases
+        'detection':'Katastrophenerkennung',
+        'pre-checks':'Vorabpr\u00fcfungen',
+        'forced-switchover':'Erzwungener Switchover',
+        'verification':'Verifizierung',
+        'aggregate-healing':'Aggregat-Heilung',
+        'switchback':'Switchback',
+        'final-verification':'Abschlusspr\u00fcfung',
+        'snapmirror-break':'SnapMirror Trennung',
+        'activate-dr':'DR-Aktivierung',
+        'verify-storage':'Speicher-Verifizierung',
+        'verify-network':'Netzwerk-Verifizierung',
+        'serve-clients':'Clients bedienen',
+        'reprotect':'Erneuter Schutz',
+        'validation':'Validierung',
+        'break-replication':'Replikation trennen',
+        'promote-mtree':'MTree aktivieren',
+        'validate-filesystem':'Dateisystem pr\u00fcfen',
+        'switch-backup':'Backup umschalten',
+        'recreate-replication':'Replikation neu einrichten',
+        'support':'Support'
     }[p] || p || '';
 }
 function tabIcon(label) {
