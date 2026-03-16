@@ -1504,3 +1504,44 @@ class TestDataDomainDisasterRecovery:
         diagram = datadomain_logic.generate_workflow_diagram(rel, 'disaster_recovery')
         for i in range(1, 7):
             assert f'S{i} --> S{i+1}' in diagram
+
+
+# ---------------------------------------------------------------------------
+# DRDiscoveryEngine vendor alias
+# ---------------------------------------------------------------------------
+
+from app.dr_generators import DRDiscoveryEngine
+
+
+class TestDRDiscoveryEngineDataDomainAlias:
+    """DRDiscoveryEngine must accept 'Dell DataDomain' as a vendor alias
+    in addition to the canonical 'dell-datadomain' identifier."""
+
+    _health = {
+        'mtree_replications': [
+            {
+                'mode': 'SOURCE',
+                'state': 'NORMAL',
+                'connected': True,
+                'source_host': 'dd01',
+                'destination_host': 'dd02',
+                'source_mtree': '/data/col1/backup',
+                'destination_mtree': '/data/col1/backup',
+            }
+        ]
+    }
+
+    def test_canonical_vendor_discovers_datadomain(self):
+        engine = DRDiscoveryEngine()
+        result = engine.discover('dd01', 'dell-datadomain', self._health)
+        assert len(result) == 1
+        assert result[0]['replication_type'] == 'datadomain-replication'
+        assert result[0]['vendor'] == 'dell-datadomain'
+
+    def test_display_vendor_name_discovers_datadomain(self):
+        """Vendor stored as 'Dell DataDomain' (display form) must also work."""
+        engine = DRDiscoveryEngine()
+        result = engine.discover('dd01', 'Dell DataDomain', self._health)
+        assert len(result) == 1
+        assert result[0]['replication_type'] == 'datadomain-replication'
+        assert result[0]['vendor'] == 'dell-datadomain'

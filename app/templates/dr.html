@@ -1140,7 +1140,7 @@ function vendorLabel(v) {
     return {'pure':'Pure Storage','netapp-ontap':'NetApp ONTAP','netapp-storagegrid':'NetApp StorageGRID','dell-datadomain':'Dell DataDomain'}[v] || v || '\u2013';
 }
 function replLabel(t) {
-    return {'activecluster':'ActiveCluster','metrocluster':'MetroCluster','snapmirror':'SnapMirror','storagegrid-multisite':'StorageGRID Multi-Site','datadomain-replication':'DD Replication'}[t] || t || '\u2013';
+    return {'activecluster':'ActiveCluster','metrocluster':'MetroCluster','snapmirror':'SnapMirror','storagegrid-multisite':'StorageGRID Multi-Site','datadomain-replication':'MTree Replication'}[t] || t || '\u2013';
 }
 function stateLabel(s) {
     return {'healthy':'\u2705 OK','degraded':'\u26A0\uFE0F Beeintr\u00e4chtigt','broken':'\u274C Ausgefallen','unknown':'\u2753 Unbekannt'}[s] || s || '\u2013';
@@ -1183,7 +1183,7 @@ function tabIcon(label) {
         'ONTAP MetroCluster':'\uD83D\uDD35',
         'ONTAP SnapMirror':'\uD83D\uDD04',
         'StorageGRID':'\uD83C\uDF10',
-        'DataDomain':'\uD83D\uDCBE',
+        'DataDomain Replication':'\uD83D\uDCBE',
     }[label] || '\uD83D\uDDC4\uFE0F';
 }
 </script>

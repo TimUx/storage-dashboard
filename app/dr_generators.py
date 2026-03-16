@@ -207,6 +207,7 @@ class DRDiscoveryEngine:
             'netapp-ontap': ['metrocluster', 'snapmirror'],
             'netapp-storagegrid': ['storagegrid-multisite'],
             'dell-datadomain': ['datadomain-replication'],
+            'Dell DataDomain': ['datadomain-replication'],
         }
 
         rep_types = vendor_type_map.get(vendor, [])
