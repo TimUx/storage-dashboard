@@ -61,17 +61,34 @@ def _resolve_secondary_dc(sys_dc_map, sname, primary_cluster, secondary_cluster)
     Returns the DataCenter tag of the partner cluster, 'unknown' when the
     partner exists in the relationship but has no DataCenter tag, or '' when
     no distinct partner cluster can be determined.
+
+    DataDomain APIs may return FQDNs (e.g. "ddp12.itscare.prod.dom") while
+    the inventory stores short hostnames (e.g. "ddp12").  Both the partner
+    identification and the DC lookup use the hostname portion (part before
+    the first dot) as a fallback for FQDN comparison and lookups.
     """
+    def _same_host(a, b):
+        if not a or not b:
+            return False
+        al, bl = a.lower(), b.lower()
+        if al == bl:
+            return True
+        return al.split('.')[0] == bl.split('.')[0]
+
     # Identify the partner cluster (the one that is NOT sname)
-    if secondary_cluster and secondary_cluster.lower() != sname.lower():
+    if secondary_cluster and not _same_host(secondary_cluster, sname):
         partner_cl = secondary_cluster
-    elif primary_cluster and primary_cluster.lower() != sname.lower():
+    elif primary_cluster and not _same_host(primary_cluster, sname):
         partner_cl = primary_cluster
     else:
         partner_cl = ''
 
     if partner_cl:
-        return sys_dc_map.get(partner_cl.lower(), 'unknown')
+        result = sys_dc_map.get(partner_cl.lower())
+        if result is None:
+            short_name = partner_cl.lower().split('.')[0]
+            result = sys_dc_map.get(short_name, 'unknown')
+        return result
     return ''
 
 
@@ -269,4 +286,31 @@ class TestSecondarySiteResolution:
         result = _resolve_secondary_dc(dc_map, 'fasmc1', 'fasmc1', 'FASMC2')
         assert result != 'FASMC2'
         assert result != 'fasmc2'
+        assert result == 'unknown'
+
+    def test_fqdn_secondary_cluster_resolved_via_short_hostname(self):
+        # DataDomain API returns FQDNs (e.g. "ddp12.itscare.prod.dom") while
+        # the inventory stores only the short hostname (e.g. "ddp12").
+        # The lookup must fall back to the hostname part (before the first dot).
+        dc_map = self._make_dc_map(('ddp11', 'DC1 [NTT]'), ('ddp12', 'DC2 [Equinix]'))
+        result = _resolve_secondary_dc(
+            dc_map, 'ddp11', 'ddp11.itscare.prod.dom', 'ddp12.itscare.prod.dom'
+        )
+        assert result == 'DC2 [Equinix]'
+
+    def test_fqdn_target_system_resolved_via_short_hostname(self):
+        # DataDomain TARGET (secondary) system: sname == secondary_cluster FQDN.
+        # Partner is the primary_cluster FQDN, must resolve to DC1 via short hostname.
+        dc_map = self._make_dc_map(('ddp11', 'DC1 [NTT]'), ('ddp12', 'DC2 [Equinix]'))
+        result = _resolve_secondary_dc(
+            dc_map, 'ddp12', 'ddp11.itscare.prod.dom', 'ddp12.itscare.prod.dom'
+        )
+        assert result == 'DC1 [NTT]'
+
+    def test_fqdn_partner_not_in_inventory_returns_unknown(self):
+        # FQDN partner: neither full FQDN nor short hostname in inventory → 'unknown'
+        dc_map = self._make_dc_map(('ddp11', 'DC1 [NTT]'))
+        result = _resolve_secondary_dc(
+            dc_map, 'ddp11', 'ddp11.itscare.prod.dom', 'ddp99.itscare.prod.dom'
+        )
         assert result == 'unknown'

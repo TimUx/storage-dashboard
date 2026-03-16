@@ -1507,8 +1507,163 @@ class TestDataDomainDisasterRecovery:
 
 
 # ---------------------------------------------------------------------------
-# DRDiscoveryEngine vendor alias
+# DataDomain topology diagram (Mermaid syntax validity)
 # ---------------------------------------------------------------------------
+
+class TestDataDomainTopologyDiagram:
+    """Verify that generate_topology_diagram() emits valid Mermaid syntax."""
+
+    def _make_rel(self, primary='dd1', secondary='dd2',
+                  site_a='DC1', site_b='DC2',
+                  mtree='/data/col1/backup'):
+        return {
+            'primary_site': site_a,
+            'secondary_site': site_b,
+            'primary_cluster': primary,
+            'secondary_cluster': secondary,
+            'relationship_data': {
+                'source': {'host': primary, 'mtree': mtree},
+                'destination': {'host': secondary, 'mtree': mtree},
+            },
+        }
+
+    def test_diagram_starts_with_graph_lr(self):
+        rel = self._make_rel()
+        diagram = datadomain_logic.generate_topology_diagram(rel)
+        assert diagram.startswith('graph LR')
+
+    def test_diagram_no_triple_closing_bracket(self):
+        """MTree node lines must end with ']]' not ']]]' (syntax error)."""
+        rel = self._make_rel(mtree='/data/col1/backup')
+        diagram = datadomain_logic.generate_topology_diagram(rel)
+        assert ']]]' not in diagram
+
+    def test_diagram_fqdn_primary_produces_valid_id(self):
+        """FQDN cluster names (dots) must be sanitised in Mermaid node IDs."""
+        rel = self._make_rel(primary='ddp11.itscare.prod.dom',
+                             secondary='ddp12.itscare.prod.dom')
+        diagram = datadomain_logic.generate_topology_diagram(rel)
+        # Dots should be replaced with underscores in node IDs
+        assert 'ddp11_itscare_prod_dom_mt' in diagram
+        assert 'ddp12_itscare_prod_dom_mt' in diagram
+        # Raw dots must not appear in node IDs (only in quoted labels)
+        lines = diagram.splitlines()
+        for line in lines:
+            # Skip label parts inside quotes – only check unquoted portions
+            unquoted = line.split('"')[0] if '"' in line else line
+            assert 'ddp11.itscare.prod.dom_' not in unquoted, (
+                f'Dot in Mermaid ID on line: {line!r}'
+            )
+
+    def test_diagram_contains_replication_link(self):
+        rel = self._make_rel()
+        diagram = datadomain_logic.generate_topology_diagram(rel)
+        assert 'MTree Replication' in diagram
+        assert '-->' in diagram
+
+    def test_diagram_contains_both_appliance_subgraphs(self):
+        rel = self._make_rel(primary='ddp11', secondary='ddp12')
+        diagram = datadomain_logic.generate_topology_diagram(rel)
+        assert 'ddp11 (Source)' in diagram
+        assert 'ddp12 (Destination)' in diagram
+
+
+# ---------------------------------------------------------------------------
+# DataDomain multi-MTree command generation
+# ---------------------------------------------------------------------------
+
+class TestDataDomainMultiMTreeCommands:
+    """Verify that generate_commands() covers all MTree contexts, not just the first."""
+
+    def _make_rel_multi(self, primary='dd1', secondary='dd2'):
+        return {
+            'system_name': primary,
+            'vendor': 'dell-datadomain',
+            'replication_type': 'datadomain-replication',
+            'primary_site': primary,
+            'secondary_site': secondary,
+            'primary_cluster': primary,
+            'secondary_cluster': secondary,
+            'replication_state': 'healthy',
+            'relationship_data': {
+                'source': {'host': primary, 'mtree': '/data/col1/backup'},
+                'destination': {'host': secondary, 'mtree': '/data/col1/backup'},
+                'mode': 'SOURCE',
+                'contexts': [
+                    {'source_mtree': '/data/col1/backup',
+                     'destination_mtree': '/data/col1/backup',
+                     'state': 'NORMAL', 'connected': True, 'mode': 'SOURCE'},
+                    {'source_mtree': '/data/col1/veeam',
+                     'destination_mtree': '/data/col1/veeam',
+                     'state': 'NORMAL', 'connected': True, 'mode': 'SOURCE'},
+                    {'source_mtree': '/data/col1/sql',
+                     'destination_mtree': '/data/col1/sql',
+                     'state': 'NORMAL', 'connected': True, 'mode': 'SOURCE'},
+                ],
+            },
+        }
+
+    def test_planned_failover_has_sync_for_every_mtree(self):
+        rel = self._make_rel_multi()
+        cmds = datadomain_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        for mt in ('/data/col1/backup', '/data/col1/veeam', '/data/col1/sql'):
+            assert any(mt in cli and 'replication sync' in cli for cli in cli_commands), (
+                f'replication sync missing for MTree {mt}'
+            )
+
+    def test_planned_failover_has_break_for_every_mtree(self):
+        rel = self._make_rel_multi()
+        cmds = datadomain_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        for mt in ('/data/col1/backup', '/data/col1/veeam', '/data/col1/sql'):
+            assert any(mt in cli and 'replication break' in cli for cli in cli_commands), (
+                f'replication break missing for MTree {mt}'
+            )
+
+    def test_disaster_recovery_has_break_for_every_mtree(self):
+        rel = self._make_rel_multi()
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        for mt in ('/data/col1/backup', '/data/col1/veeam', '/data/col1/sql'):
+            assert any(mt in cli and 'replication break' in cli for cli in cli_commands), (
+                f'replication break missing for MTree {mt} in disaster_recovery'
+            )
+
+    def test_disaster_recovery_no_sync_even_with_multiple_mtrees(self):
+        """replication sync must never appear in disaster_recovery, even with multiple MTrees."""
+        rel = self._make_rel_multi()
+        cmds = datadomain_logic.generate_commands(rel, 'disaster_recovery')
+        cli_commands = [c['cli'] for c in cmds]
+        assert not any('replication sync' in cli for cli in cli_commands)
+
+    def test_failback_has_replication_add_for_every_mtree(self):
+        rel = self._make_rel_multi()
+        cmds = datadomain_logic.generate_commands(rel, 'failback')
+        cli_commands = [c['cli'] for c in cmds]
+        for mt in ('/data/col1/backup', '/data/col1/veeam', '/data/col1/sql'):
+            assert any(mt in cli and 'replication add source' in cli for cli in cli_commands), (
+                f'replication add source missing for MTree {mt} in failback'
+            )
+
+    def test_single_mtree_fallback_still_works(self):
+        """Relationships with no contexts use relationship_data.source.mtree as fallback."""
+        rel = {
+            'primary_cluster': 'dd1',
+            'secondary_cluster': 'dd2',
+            'relationship_data': {
+                'source': {'host': 'dd1', 'mtree': '/data/col1/only'},
+                'destination': {'host': 'dd2', 'mtree': '/data/col1/only'},
+                # no 'contexts' key
+            },
+        }
+        cmds = datadomain_logic.generate_commands(rel, 'planned_failover')
+        cli_commands = [c['cli'] for c in cmds]
+        assert any('/data/col1/only' in cli and 'replication sync' in cli for cli in cli_commands)
+        assert any('/data/col1/only' in cli and 'replication break' in cli for cli in cli_commands)
+
+
+
 
 from app.dr_generators import DRDiscoveryEngine
 
