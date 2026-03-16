@@ -358,9 +358,9 @@
         <div class="navbar-links">
             <a href="/dashboard">📊 Dashboard</a>
             <a href="/alerts/"{% if open_alerts_count > 0 %} class="alerts-active"{% endif %}>🔔 Alerts{% if open_alerts_count > 0 %} <span class="alert-badge">{{ open_alerts_count }}</span>{% endif %}</a>
+            <a href="/snaps/">📸 Snapshots</a>
             <a href="/capacity/">📈 Kapazitätsreport</a>
             <a href="/dr/">🛡️ DR Planner</a>
-            <a href="/snaps/">📸 Snapshots</a>
             <a href="/admin">⚙️ Admin</a>
             {% if current_user.is_authenticated %}
             <a href="{{ url_for('admin.logout') }}">🚪 Abmelden</a>

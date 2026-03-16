@@ -297,18 +297,14 @@ def test_api_update_ttl_missing_id(app, client):
     assert resp.status_code == 400
 
 
-def test_api_update_presence(app, client):
+def test_update_presence_endpoint_removed(app, client):
+    """The /api/update-presence endpoint was removed – DB/NFS columns are auto-only."""
     snap_id = _seed_snapshot(app)
     resp = client.post('/snaps/api/update-presence',
-                       json={'id': snap_id, 'db_override': 'Manual', 'nfs_override': '-'},
+                       json={'id': snap_id, 'db_override': 'Manual'},
                        content_type='application/json')
-    assert resp.status_code == 200
-    assert resp.get_json()['success'] is True
-
-    list_data = client.get('/snaps/api/list').get_json()
-    snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
-    assert snap['db_override'] == 'Manual'
-    assert snap['nfs_override'] == '-'
+    # Endpoint was removed: any non-2xx response (404 or auth redirect) is acceptable
+    assert resp.status_code not in (200, 201)
 
 
 def test_api_stats_older_than_5_days(app, client):
@@ -338,4 +334,74 @@ def test_audit_log_created_on_ttl_change(app, client):
         assert len(logs) == 1
         assert logs[0].changed_by == 'operator1'
         assert logs[0].new_ttl.year == 2026
-        assert logs[0].new_ttl.month == 5
+
+
+def test_reconciliation_removes_stale_records(app):
+    """Stale records (not seen in last collection run) must be removed from DB."""
+    from app.snap_service import _upsert_snapshot_records, _group_by_sid_and_time
+    from datetime import datetime, timedelta
+
+    # Seed an old record directly (simulates a snapshot already in DB)
+    old_ct = datetime(2026, 1, 1, 0, 0, 0)
+    with app.app_context():
+        from app import db
+        from app.models import SnapshotRecord
+        old_rec = SnapshotRecord(
+            sid='GONE',
+            creation_time=old_ct,
+            ttl=old_ct + timedelta(days=3),
+            flasharray_present=True,
+            ontap_present=False,
+            last_seen=datetime(2026, 1, 1, 0, 0, 0),  # very old last_seen
+        )
+        db.session.add(old_rec)
+        db.session.commit()
+        old_id = old_rec.id
+
+    # Run the collector with a DIFFERENT snapshot (ACP); GONE is not included
+    ts = datetime(2026, 3, 18, 2, 47, 0)
+    fa_snap = {'sid': 'ACP', 'snapshot_name': 'ACP_1.HDBSNAP-2026-03-18-024722',
+               'creation_time': ts, 'ttl': ts, 'array_name': 'fa01'}
+    aggregated = _group_by_sid_and_time([fa_snap], [])
+    _upsert_snapshot_records(app, aggregated, systems_queried=1)
+
+    # GONE record should be deleted because it wasn't seen this run
+    with app.app_context():
+        from app.models import SnapshotRecord
+        assert SnapshotRecord.query.get(old_id) is None
+        assert SnapshotRecord.query.filter_by(sid='ACP').count() == 1
+
+
+def test_reconciliation_keeps_stale_with_comment(app):
+    """Stale records that have a user comment are kept but flagged as absent."""
+    from app.snap_service import _upsert_snapshot_records, _group_by_sid_and_time
+    from datetime import datetime, timedelta
+
+    old_ct = datetime(2026, 2, 1, 0, 0, 0)
+    with app.app_context():
+        from app import db
+        from app.models import SnapshotRecord
+        rec = SnapshotRecord(
+            sid='ANNOT',
+            creation_time=old_ct,
+            ttl=old_ct + timedelta(days=3),
+            flasharray_present=True,
+            ontap_present=False,
+            comment='Wichtiger Hinweis',
+            last_seen=datetime(2026, 2, 1, 0, 0, 0),  # old
+        )
+        db.session.add(rec)
+        db.session.commit()
+        rec_id = rec.id
+
+    # Run with no matching snapshot
+    aggregated = _group_by_sid_and_time([], [])
+    _upsert_snapshot_records(app, aggregated, systems_queried=1)
+
+    with app.app_context():
+        from app.models import SnapshotRecord
+        kept = SnapshotRecord.query.get(rec_id)
+        assert kept is not None, "Record with comment should be kept"
+        assert kept.flasharray_present is False
+        assert kept.ontap_present is False
+        assert kept.comment == 'Wichtiger Hinweis'

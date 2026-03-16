@@ -406,18 +406,29 @@ def _group_by_sid_and_time(all_fa_snaps, all_ontap_snaps):
 # ---------------------------------------------------------------------------
 
 def _upsert_snapshot_records(app, aggregated, systems_queried):
-    """Persist aggregated snapshot records to PostgreSQL.
+    """Persist aggregated snapshot records to PostgreSQL and reconcile stale entries.
 
-    Uses an upsert pattern: existing records (matched by sid + creation_time)
-    are updated for presence flags, TTL and storage_locations.  Fields
-    controlled by the user (comment, db_override, nfs_override, delete_marked,
-    delete_deadline) are never overwritten by the collector.
+    Reconciliation logic
+    --------------------
+    Every record updated during this run has its ``last_seen`` timestamp set to
+    ``run_start``.  After all upserts are complete, any record whose
+    ``last_seen`` is *older* than ``run_start`` was NOT seen in this collection
+    cycle, which means the snapshot was deleted or renamed on the storage
+    system since the previous run.
+
+    Stale records are removed from the database with one exception: records
+    that carry a user comment are set to ``flasharray_present=False`` /
+    ``ontap_present=False`` instead of being deleted so that the operator's
+    annotation is preserved until they explicitly delete the row.
+
+    Fields controlled by the user (comment, delete_marked, delete_deadline)
+    are never overwritten by the collector.
     """
     from app import db
     from app.models import SnapshotRecord, SnapshotCollectorMetadata, SnapshotAuditLog
 
     with app.app_context():
-        start = datetime.utcnow()
+        run_start = datetime.utcnow()
         stored = 0
         try:
             for rec_data in aggregated:
@@ -432,7 +443,7 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                     existing.flasharray_present = rec_data['flasharray_present']
                     existing.ontap_present = rec_data['ontap_present']
                     existing.storage_locations = rec_data['storage_locations']
-                    existing.last_seen = datetime.utcnow()
+                    existing.last_seen = run_start
                     # Only update TTL if not already user-modified (no audit log entries mean it's still original)
                     if rec_data.get('ttl') and not SnapshotAuditLog.query.filter_by(snapshot_id=existing.id).first():
                         existing.ttl = rec_data['ttl']
@@ -444,15 +455,43 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                         flasharray_present=rec_data['flasharray_present'],
                         ontap_present=rec_data['ontap_present'],
                         storage_locations=rec_data['storage_locations'],
-                        last_seen=datetime.utcnow(),
+                        last_seen=run_start,
                     )
                     db.session.add(new_rec)
                     stored += 1
 
+            # ------------------------------------------------------------------
+            # Reconciliation: remove (or mark absent) records that were not seen
+            # in this collection cycle.
+            # ------------------------------------------------------------------
+            stale = SnapshotRecord.query.filter(
+                SnapshotRecord.last_seen < run_start,
+            ).all()
+            removed = 0
+            marked_absent = 0
+            for rec in stale:
+                if rec.comment:
+                    # Preserve operator annotations – just clear presence flags
+                    rec.flasharray_present = False
+                    rec.ontap_present = False
+                    rec.storage_locations = None
+                    rec.last_seen = run_start  # reset so it isn't stale next run
+                    marked_absent += 1
+                else:
+                    db.session.delete(rec)
+                    removed += 1
+
+            if removed or marked_absent:
+                logger.info(
+                    "Snapshot collector: reconciliation removed %d stale records, "
+                    "marked %d absent (had comments)",
+                    removed, marked_absent,
+                )
+
             # Write collector run metadata
             meta = SnapshotCollectorMetadata(
-                run_at=datetime.utcnow(),
-                duration_seconds=(datetime.utcnow() - start).total_seconds(),
+                run_at=run_start,
+                duration_seconds=(datetime.utcnow() - run_start).total_seconds(),
                 systems_queried=systems_queried,
                 snapshots_stored=stored,
                 status='success',
@@ -468,8 +507,8 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
             # Write error metadata
             try:
                 meta = SnapshotCollectorMetadata(
-                    run_at=datetime.utcnow(),
-                    duration_seconds=(datetime.utcnow() - start).total_seconds(),
+                    run_at=run_start,
+                    duration_seconds=(datetime.utcnow() - run_start).total_seconds(),
                     systems_queried=systems_queried,
                     snapshots_stored=0,
                     status='error',

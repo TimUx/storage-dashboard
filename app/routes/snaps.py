@@ -237,40 +237,6 @@ def api_comment():
 
 
 # ---------------------------------------------------------------------------
-# API – update DB/NFS override
-# ---------------------------------------------------------------------------
-
-@bp.route('/api/update-presence', methods=['POST'])
-def api_update_presence():
-    """Update the user-editable DB or NFS override text for a snapshot.
-
-    Request JSON:
-        id          (int)  – snapshot record ID
-        db_override (str)  – new text for the DB column (optional)
-        nfs_override (str) – new text for the NFS column (optional)
-    """
-    from app import db
-    from app.models import SnapshotRecord
-
-    data = request.get_json(force=True) or {}
-    snap_id = data.get('id')
-    if not snap_id:
-        return jsonify({'error': 'id required'}), 400
-
-    rec = SnapshotRecord.query.get(snap_id)
-    if not rec:
-        return jsonify({'error': 'Snapshot not found'}), 404
-
-    if 'db_override' in data:
-        rec.db_override = data['db_override'] or None
-    if 'nfs_override' in data:
-        rec.nfs_override = data['nfs_override'] or None
-
-    db.session.commit()
-    return jsonify({'success': True})
-
-
-# ---------------------------------------------------------------------------
 # API – trigger manual collection
 # ---------------------------------------------------------------------------
 

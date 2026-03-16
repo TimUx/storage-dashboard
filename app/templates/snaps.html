@@ -159,29 +159,6 @@ table.sn-table tr.delete-pending > td { opacity: .6; }
 .badge-ok   { color: var(--sn-success); font-weight: 700; }
 .badge-miss { color: var(--sn-danger); font-weight: 700; }
 
-/* Editable cell */
-td.editable-cell {
-    position: relative;
-    min-width: 60px;
-}
-td.editable-cell .cell-display {
-    cursor: pointer;
-    padding: .15rem .3rem;
-    border-radius: 3px;
-    display: inline-block;
-}
-td.editable-cell .cell-display:hover { background: rgba(0,0,0,.06); }
-td.editable-cell input.cell-input {
-    width: 100%;
-    padding: .2rem .4rem;
-    border: 1px solid var(--sn-blue);
-    border-radius: 3px;
-    font-size: .85rem;
-    background: var(--sn-white);
-    color: var(--sn-text);
-    display: none;
-}
-
 /* Comment cell */
 td.comment-cell .comment-display { cursor: pointer; min-height: 1.2em; }
 td.comment-cell .comment-display:hover { background: rgba(0,0,0,.04); }
@@ -569,12 +546,6 @@ function renderTable() {
         const expandId  = `detail-${s.id}`;
         const btnId     = `expand-btn-${s.id}`;
 
-        // DB / NFS columns
-        const dbVal  = s.db_override  !== null && s.db_override  !== undefined ? s.db_override  : (s.flasharray_present ? '✔' : '✘');
-        const nfsVal = s.nfs_override !== null && s.nfs_override !== undefined ? s.nfs_override : (s.ontap_present      ? '✔' : '✘');
-        const dbClass  = !s.db_override  ? (s.flasharray_present ? 'badge-ok' : 'badge-miss') : '';
-        const nfsClass = !s.nfs_override ? (s.ontap_present      ? 'badge-ok' : 'badge-miss') : '';
-
         // TTL display
         const ttlDisp = s.ttl ? formatDt(s.ttl) : '–';
 
@@ -641,19 +612,11 @@ function renderTable() {
                     ${escHtml(ttlDisp)}<span class="ttl-edit-icon">✏️</span>
                 </span>
             </td>
-            <td class="editable-cell" id="db-cell-${s.id}">
-                <span class="cell-display ${dbClass}" onclick="startEditCell('db',${s.id})">${escHtml(dbVal)}</span>
-                <input class="cell-input" id="db-input-${s.id}"
-                    onblur="saveCell('db',${s.id})"
-                    onkeydown="cellKeydown(event,'db',${s.id})"
-                    value="${escAttr(s.db_override !== null && s.db_override !== undefined ? s.db_override : '')}">
+            <td class="${s.flasharray_present ? 'badge-ok' : 'badge-miss'}" style="text-align:center">
+                ${s.flasharray_present ? '✔' : '✘'}
             </td>
-            <td class="editable-cell" id="nfs-cell-${s.id}">
-                <span class="cell-display ${nfsClass}" onclick="startEditCell('nfs',${s.id})">${escHtml(nfsVal)}</span>
-                <input class="cell-input" id="nfs-input-${s.id}"
-                    onblur="saveCell('nfs',${s.id})"
-                    onkeydown="cellKeydown(event,'nfs',${s.id})"
-                    value="${escAttr(s.nfs_override !== null && s.nfs_override !== undefined ? s.nfs_override : '')}">
+            <td class="${s.ontap_present ? 'badge-ok' : 'badge-miss'}" style="text-align:center">
+                ${s.ontap_present ? '✔' : '✘'}
             </td>
             <td class="comment-cell" id="comment-cell-${s.id}">
                 <span class="comment-display" onclick="startEditComment(${s.id})" title="Bemerkung bearbeiten">${escHtml(s.comment) || '<span style="opacity:.4;font-style:italic">Hinzufügen…</span>'}</span>
@@ -685,67 +648,6 @@ function toggleDetail(id) {
     const isOpen = row.classList.contains('open');
     row.classList.toggle('open', !isOpen);
     btn.classList.toggle('open', !isOpen);
-}
-
-// ─── Editable cells (DB / NFS) ────────────────────────────────────────────
-function startEditCell(type, id) {
-    const display = document.querySelector(`#${type}-cell-${id} .cell-display`);
-    const input   = document.getElementById(`${type}-input-${id}`);
-    if (!input) return;
-    display.style.display = 'none';
-    input.style.display = 'block';
-    input.focus();
-    input.select();
-}
-
-function cellKeydown(e, type, id) {
-    if (e.key === 'Enter') { e.preventDefault(); saveCell(type, id); }
-    if (e.key === 'Escape') { cancelEditCell(type, id); }
-}
-
-function cancelEditCell(type, id) {
-    const snap = _snapshots.find(s => s.id === id);
-    const input   = document.getElementById(`${type}-input-${id}`);
-    const display = document.querySelector(`#${type}-cell-${id} .cell-display`);
-    if (snap) {
-        input.value = snap[`${type}_override`] !== null && snap[`${type}_override`] !== undefined
-            ? snap[`${type}_override`] : '';
-    }
-    input.style.display = 'none';
-    display.style.display = '';
-}
-
-async function saveCell(type, id) {
-    const input   = document.getElementById(`${type}-input-${id}`);
-    const display = document.querySelector(`#${type}-cell-${id} .cell-display`);
-    if (!input) return;
-    const newVal = input.value.trim();
-    input.style.display = 'none';
-    display.style.display = '';
-
-    // Update local state
-    const snap = _snapshots.find(s => s.id === id);
-    if (snap) snap[`${type}_override`] = newVal || null;
-
-    // Update display
-    const isFA = type === 'db';
-    const auto = isFA
-        ? (snap ? snap.flasharray_present : false)
-        : (snap ? snap.ontap_present : false);
-    const dispVal = newVal || (auto ? '✔' : '✘');
-    display.textContent = dispVal;
-    display.className = 'cell-display' + (!newVal ? (auto ? ' badge-ok' : ' badge-miss') : '');
-
-    // Persist
-    try {
-        const body = {id};
-        body[`${type}_override`] = newVal || null;
-        await fetch('/snaps/api/update-presence', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify(body),
-        });
-    } catch(e) { console.error('saveCell error', e); }
 }
 
 // ─── Comment editing ──────────────────────────────────────────────────────
