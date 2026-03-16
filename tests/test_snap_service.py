@@ -84,8 +84,25 @@ def test_extract_sid_5char():
 def test_extract_sid_no_match():
     from app.snap_service import extract_sid
     assert extract_sid('') is None
-    # A name with no underscore or dot separator cannot be matched
+    # Names that don't start with 3+ consecutive alphanumeric chars return None
     assert extract_sid('no-separator-name') is None
+
+
+def test_extract_sid_ora_prefix():
+    """ORA_ prefix is skipped; the actual SID is the token after the underscore."""
+    from app.snap_service import extract_sid
+    assert extract_sid('ORA_WQ4') == 'WQ4'
+    assert extract_sid('ORA_WQ1') == 'WQ1'
+    assert extract_sid('ORA_WQ2') == 'WQ2'
+    assert extract_sid('ORA_WQ4_archivelog') == 'WQ4'
+
+
+def test_extract_sid_hana_prefix():
+    """HANA_ prefix is skipped; the actual SID is the token after the underscore."""
+    from app.snap_service import extract_sid
+    assert extract_sid('HANA_ABP') == 'ABP'
+    assert extract_sid('HANA_AFT') == 'AFT'
+    assert extract_sid('HANA_ABP_data.HDBSNAP-2026-03-13-073434') == 'ABP'
 
 
 def test_extract_ttl_hdbsnap():
@@ -556,44 +573,48 @@ def test_collect_fa_snaps_ttl_from_suffix():
 
 
 # ---------------------------------------------------------------------------
-# Bug fix: ONTAP Trident/Kubernetes volume exclusion
+# ONTAP volume allow-list filtering
 # ---------------------------------------------------------------------------
 
-def test_collect_ontap_snaps_excludes_trident_volumes():
-    """_collect_ontap_snapshots must ignore snapshots on trident_pvc_* volumes.
+def test_collect_ontap_snaps_only_hana_ora_volumes():
+    """_collect_ontap_snapshots must only process HANA_ and ORA_ volumes.
 
-    Kubernetes Trident CSI volumes carry clone/lifecycle snapshots whose names
-    (e.g. "CLONE_...") match the SID regex, producing spurious SID entries
-    like "CLONE" in the snapshot dashboard.
+    Covers the full matrix of volumes that must be excluded:
+      - nfs03_root           → NFS root volume, SID would be "NFS03"
+      - old_trident_pvc_*    → renamed Trident PVCs, SID would be "OLD"
+      - trident_pvc_*        → active Trident PVCs, SID would be "CLONE" etc.
+      - infrastr_vol01       → infrastructure volume, no relevant SID
+
+    And the volumes that must be included:
+      - HANA_ABP             → SID ABP
+      - ORA_WQ4              → SID WQ4
     """
     from unittest.mock import MagicMock, patch
     from app.snap_service import _collect_ontap_snapshots
 
     mock_raw = [
-        # Legitimate application snapshot on an HANA volume
-        {
-            'name': 'ABP_HDBSNAP-2026-03-13-193449',
-            'create_time': '2026-03-13T19:34:49Z',
-            'volume': 'HANA_ABP',
-            'svm': 'svm1',
-            'cluster': 'FASMC1',
-        },
-        # Trident PVC volume – must be excluded
-        {
-            'name': 'CLONE_20250218201813',
-            'create_time': '2025-02-18T20:18:13Z',
-            'volume': 'trident_pvc_ca7f7c70_d4d5_4fdb_8a84_b14d0e3f4be6',
-            'svm': 'svm1',
-            'cluster': 'FASMC1',
-        },
-        # Another Trident volume variant – also excluded
-        {
-            'name': 'CLONE_20250218201813',
-            'create_time': '2025-02-18T20:18:13Z',
-            'volume': 'trident_pvc_bc348446_2d9e_4fb5_96f4_e8027bd023a3_2810',
-            'svm': 'svm1',
-            'cluster': 'FASMC1',
-        },
+        # Must be included
+        {'name': 'ABP_HDBSNAP-2026-03-13-193449', 'create_time': '2026-03-13T19:34:49Z',
+         'volume': 'HANA_ABP', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'ORA_WQ4_snap1', 'create_time': '2026-03-16T11:13:12Z',
+         'volume': 'ORA_WQ4', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        # Must be excluded – NFS root volume
+        {'name': 'nfs03_root_snap', 'create_time': '2026-03-16T00:25:04Z',
+         'volume': 'nfs03_root', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        # Must be excluded – renamed old Trident PVCs
+        {'name': 'snap1', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'old_trident_pvc_influxdb', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'snap2', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'old_trident_pvc_old', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'snap3', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'old_trident_pvc_navida', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        # Must be excluded – active Trident PVCs
+        {'name': 'CLONE_20250218201813', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'trident_pvc_ca7f7c70_d4d5_4fdb_8a84_b14d0e3f4be6',
+         'svm': 'svm1', 'cluster': 'FASMC1'},
+        # Must be excluded – unrelated infrastructure volume
+        {'name': 'infra_snap', 'create_time': '2026-03-16T00:00:00Z',
+         'volume': 'infrastr_vol01', 'svm': 'svm1', 'cluster': 'FASMC1'},
     ]
 
     system = MagicMock()
@@ -604,11 +625,58 @@ def test_collect_ontap_snaps_excludes_trident_volumes():
         mock_client = MagicMock()
         mock_client.get_volume_snapshots.return_value = mock_raw
         mock_get_client.return_value = mock_client
-
         result = _collect_ontap_snapshots(system)
 
     sids = [r['sid'] for r in result]
-    # Only the HANA_ABP snapshot should appear
+    volumes = [r['volume_name'] for r in result]
+
+    # Correct snapshots present
+    assert 'ABP' in sids, "HANA_ABP snapshot must be included"
+    assert 'WQ4' in sids, "ORA_WQ4 snapshot must be included"
+
+    # Bad SIDs must not appear
+    for bad in ('NFS03', 'OLD', 'CLONE'):
+        assert bad not in sids, f"Volume producing spurious SID '{bad}' must be excluded"
+
+    # Exact count: only the two DB volumes
+    assert len(result) == 2
+
+    # Correct SID extracted from ORA_ prefix
+    ora_result = next(r for r in result if r['volume_name'] == 'ORA_WQ4')
+    assert ora_result['sid'] == 'WQ4', "SID must be WQ4, not ORA"
+
+
+def test_collect_ontap_snaps_excludes_trident_volumes():
+    """_collect_ontap_snapshots excludes trident_pvc_* volumes (superseded by allow-list).
+
+    Kept for regression: Trident PVC volumes are not in the HANA_/ORA_ allow-list
+    so they are excluded automatically.
+    """
+    from unittest.mock import MagicMock, patch
+    from app.snap_service import _collect_ontap_snapshots
+
+    mock_raw = [
+        {'name': 'ABP_HDBSNAP-2026-03-13-193449', 'create_time': '2026-03-13T19:34:49Z',
+         'volume': 'HANA_ABP', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'CLONE_20250218201813', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'trident_pvc_ca7f7c70_d4d5_4fdb_8a84_b14d0e3f4be6',
+         'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'CLONE_20250218201813', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'trident_pvc_bc348446_2d9e_4fb5_96f4_e8027bd023a3_2810',
+         'svm': 'svm1', 'cluster': 'FASMC1'},
+    ]
+
+    system = MagicMock()
+    system.vendor = 'netapp-ontap'
+    system.name = 'FASMC1'
+
+    with patch('app.api.get_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.get_volume_snapshots.return_value = mock_raw
+        mock_get_client.return_value = mock_client
+        result = _collect_ontap_snapshots(system)
+
+    sids = [r['sid'] for r in result]
     assert 'CLONE' not in sids, "Trident PVC clone snapshot must be excluded"
     assert 'ABP' in sids, "Legitimate HANA snapshot must be included"
     assert len(result) == 1

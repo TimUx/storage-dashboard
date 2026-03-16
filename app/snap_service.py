@@ -55,16 +55,27 @@ _MIN_SNAP_WORKERS = 16
 # ONTAP snapshot prefixes to ignore (automatic/scheduled snapshots).
 _ONTAP_IGNORE_PREFIXES = ('daily.', 'weekly.', 'monthly.', 'hourly.', '12-hourly.')
 
-# ONTAP volume name prefixes to skip entirely during snapshot collection.
-# Kubernetes/Trident CSI volumes (trident_pvc_*) are provisioned as NFS PVCs and
-# carry clone/lifecycle snapshots (e.g. "CLONE_...") that are not application
-# database snapshots.  Including them would create spurious SID entries (e.g.
-# "CLONE") in the snapshot dashboard.
-_ONTAP_IGNORE_VOLUME_PREFIXES = ('trident_pvc_',)
+# Allow-list of ONTAP volume name prefixes that qualify for snapshot collection.
+# Only snapshots on volumes whose names start with one of these prefixes represent
+# application database backups (SAP HANA, Oracle) and belong in the dashboard.
+# Every other volume – NFS root/infrastructure volumes, Kubernetes/Trident PVCs
+# (trident_pvc_*, old_trident_pvc_*, …), monitoring volumes, etc. – is excluded.
+_ONTAP_INCLUDE_VOLUME_PREFIXES = ('HANA_', 'ORA_')
 
-# Regex to extract a 3–5 character SID from the beginning of a snapshot name.
-# Handles both "ACP_..." and "vgACP_..." style names.
-_SID_RE = re.compile(r'(?:vg)?([A-Z0-9]{3,5})(?:_|\.)', re.IGNORECASE)
+# Known application-type prefix tokens that appear before the actual SID in some
+# volume and snapshot naming conventions:
+#   HANA_ABP        → app prefix HANA, SID ABP
+#   ORA_WQ4         → app prefix ORA,  SID WQ4
+#   HANA_ABP_data   → app prefix HANA, SID ABP (info after second underscore ignored)
+# These tokens are NOT SAP/Oracle SIDs themselves; the real SID follows the first
+# underscore.  They must match _ONTAP_INCLUDE_VOLUME_PREFIXES (without trailing _).
+_SID_APP_PREFIXES = frozenset(('HANA', 'ORA'))
+
+# Regex to extract a 3–5 character SID from the beginning of a snapshot or volume
+# name.  Handles "ACP_…", "vgACP_…", and bare-SID strings ("WQ4" at end of input).
+# The `$` alternative allows matching a SID that is not followed by `_` or `.`
+# (e.g. when matching the remainder after stripping an app-type prefix).
+_SID_RE = re.compile(r'(?:vg)?([A-Z0-9]{3,5})(?:_|\.|$)', re.IGNORECASE)
 
 # Regex to extract timestamp from snapshot name (YYYY-MM-DD-HHMMSS).
 _TS_RE = re.compile(r'(\d{4}-\d{2}-\d{2}-\d{6})')
@@ -83,11 +94,30 @@ def extract_sid(name: str) -> str | None:
     """Extract a 3–5 character SID from a snapshot or volume name.
 
     Returns the SID string (upper-cased) or None if not found.
+
+    Naming conventions handled:
+
+    * ``ACP_1_data.HDBSNAP-…``   → SID ``ACP``  (plain SID prefix)
+    * ``vgAQP_1.2026-…``         → SID ``AQP``  (vg-prefixed LVM volume)
+    * ``HANA_ABP``               → SID ``ABP``  (app prefix HANA skipped)
+    * ``HANA_ABP_data``          → SID ``ABP``  (app prefix HANA skipped)
+    * ``ORA_WQ4``                → SID ``WQ4``  (app prefix ORA skipped)
+    * ``ORA_WQ4_archivelog``     → SID ``WQ4``  (app prefix ORA skipped)
+
+    If the first matched token is a known application-type prefix (see
+    ``_SID_APP_PREFIXES``), the function skips it and extracts the SID from
+    the remainder of the string.
     """
     m = _SID_RE.match(name.strip())
-    if m:
-        return m.group(1).upper()
-    return None
+    if not m:
+        return None
+    candidate = m.group(1).upper()
+    if candidate in _SID_APP_PREFIXES:
+        # Skip the app-type prefix and extract the actual SID from the rest.
+        rest = name[m.end():]
+        m2 = _SID_RE.match(rest)
+        return m2.group(1).upper() if m2 else None
+    return candidate
 
 
 def extract_ttl(name: str) -> datetime | None:
@@ -206,9 +236,13 @@ def _collect_ontap_snapshots(system):
     cluster_name, svm_name, volume_name.
 
     Automatic/scheduled snapshots (daily.*, weekly.*, etc.) are ignored.
-    Snapshots on Kubernetes/Trident CSI volumes (trident_pvc_*) are also
-    excluded because they carry clone lifecycle snapshots that do not
-    represent application database backups.
+
+    Only snapshots on volumes whose names start with a prefix listed in
+    ``_ONTAP_INCLUDE_VOLUME_PREFIXES`` (``HANA_``, ``ORA_``) are collected.
+    All other volumes – NFS root/infrastructure volumes, Kubernetes Trident
+    PVCs (``trident_pvc_*``), renamed PVCs (``old_trident_pvc_*``), monitoring
+    volumes, etc. – are excluded because they are not application database
+    backups.
     """
     from app.api import get_client
 
@@ -230,10 +264,12 @@ def _collect_ontap_snapshots(system):
             snap_name = snap.get('name', '') or ''
             volume_name = snap.get('volume', '') or snap.get('volume_name', '') or ''
 
-            # Skip Kubernetes/Trident CSI volumes (e.g. trident_pvc_<uuid>).
-            # These are NFS PVCs that carry clone/lifecycle snapshots which are
-            # not application database backups.
-            if any(volume_name.lower().startswith(p) for p in _ONTAP_IGNORE_VOLUME_PREFIXES):
+            # Allow-list: only process volumes with a known application prefix.
+            # This excludes NFS root/infrastructure volumes, Kubernetes/Trident
+            # PVCs (trident_pvc_*, old_trident_pvc_*, …) and any other volume
+            # that is not a HANA or Oracle database volume.
+            if not any(volume_name.upper().startswith(p.upper())
+                       for p in _ONTAP_INCLUDE_VOLUME_PREFIXES):
                 continue
 
             # Ignore automatic snapshots
