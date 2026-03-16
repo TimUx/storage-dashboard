@@ -1165,9 +1165,9 @@ class TestPureFlashArrayTopologyDiagram:
             'relationship_data': {'pod_name': pod},
         }
 
-    def test_diagram_starts_with_graph_lr(self):
+    def test_diagram_starts_with_graph_td(self):
         diagram = pure_flasharray_logic.generate_topology_diagram(self._make_rel())
-        assert diagram.startswith('graph LR')
+        assert diagram.startswith('graph TD')
 
     def test_mediator_in_own_subgraph(self):
         """Mediator must live inside a dedicated subgraph, not float outside."""
@@ -1737,10 +1737,10 @@ class TestDataDomainTopologyDiagram:
             },
         }
 
-    def test_diagram_starts_with_graph_lr(self):
+    def test_diagram_starts_with_graph_td(self):
         rel = self._make_rel()
         diagram = datadomain_logic.generate_topology_diagram(rel)
-        assert diagram.startswith('graph LR')
+        assert diagram.startswith('graph TD')
 
     def test_diagram_no_triple_closing_bracket(self):
         """MTree node lines must end with ']]' not ']]]' (syntax error)."""

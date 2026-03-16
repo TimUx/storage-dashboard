@@ -496,9 +496,11 @@ def generate_topology_diagram(relationship):
     mtree_label = f'MTree Replication\\n{mtree}' if mtree else 'MTree Replication'
 
     lines = [
-        'graph LR',
+        'graph TD',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
+        f'    direction LR',
         f'    subgraph {a_id}_appliance["{primary} (Source)"]',
+        f'      direction LR',
         f'      {a_id}_na[["Node-A\\n(Controller)"]]',
         f'      {a_id}_nb[["Node-B\\n(Controller)"]]',
         f'      {a_id}_vip(["Mgmt VIP"])',
@@ -508,7 +510,9 @@ def generate_topology_diagram(relationship):
         f'    BCK_A -->|"Backup"| {a_id}_appliance',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
+        f'    direction LR',
         f'    subgraph {b_id}_appliance["{secondary} (Destination)"]',
+        f'      direction LR',
         f'      {b_id}_na[["Node-A\\n(Controller)"]]',
         f'      {b_id}_nb[["Node-B\\n(Controller)"]]',
         f'      {b_id}_vip(["Mgmt VIP"])',

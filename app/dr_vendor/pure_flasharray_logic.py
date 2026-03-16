@@ -395,9 +395,11 @@ def generate_topology_diagram(relationship):
     b_id = _safe_id(secondary)
 
     lines = [
-        'graph LR',
+        'graph TD',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
+        f'    direction LR',
         f'    subgraph {a_id}_cluster["{primary}"]',
+        f'      direction LR',
         f'      {a_id}_ct0[["CT0\\n(Controller)"]]',
         f'      {a_id}_ct1[["CT1\\n(Controller)"]]',
         f'      {a_id}_vip(["Mgmt VIP"])',
@@ -407,7 +409,9 @@ def generate_topology_diagram(relationship):
         '    M(["Mediator"])',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
+        f'    direction LR',
         f'    subgraph {b_id}_cluster["{secondary}"]',
+        f'      direction LR',
         f'      {b_id}_ct0[["CT0\\n(Controller)"]]',
         f'      {b_id}_ct1[["CT1\\n(Controller)"]]',
         f'      {b_id}_vip(["Mgmt VIP"])',

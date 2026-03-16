@@ -231,11 +231,10 @@
 .env-test { background: rgba(255,165,0,.12); color: var(--dr-warn); }
 .env-unknown { background: rgba(106,106,106,.1); color: var(--dr-muted); }
 
-/* Diagram scaling – scale down to 50 % within their container boxes.    *
- * Fullscreen modal also uses 50 % so diagrams are not excessively large. */
+/* Diagrams fill their container at natural size. */
 .diagram-container svg {
-    transform: scale(0.5);
-    transform-origin: top center;
+    max-width: 100%;
+    height: auto;
 }
 .dr-diagram-box {
     background: var(--dr-bg);
@@ -299,11 +298,9 @@
     align-items: flex-start;
     justify-content: center;
 }
-/* Fullscreen modal: scale diagrams to 50 % so they are not too large. */
+/* Fullscreen modal: diagrams fill available space at natural size. */
 .dr-modal-body .diagram-container svg,
 .dr-modal-body svg {
-    transform: scale(0.5) !important;
-    transform-origin: top center !important;
     max-width: 100%; height: auto;
 }
 
