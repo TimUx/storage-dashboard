@@ -437,9 +437,11 @@ def generate_topology_diagram(relationship):
     # ISL_A and ISL_B is the only explicit connection that bridges the two
     # datacenters.
     lines = [
-        'graph LR',
+        'graph TD',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
+        f'    direction LR',
         f'    subgraph {a_id}_cluster["{primary} (Primary)"]',
+        f'      direction LR',
     ]
     if a_nodes:
         lines += _node_lines(a_nodes, a_id)
@@ -455,7 +457,9 @@ def generate_topology_diagram(relationship):
         f'    ISL_A(["FC/IP Switch\\nSite A"])',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
+        f'    direction LR',
         f'    subgraph {b_id}_cluster["{secondary} (Secondary)"]',
+        f'      direction LR',
     ]
     if b_nodes:
         lines += _node_lines(b_nodes, b_id)

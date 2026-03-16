@@ -176,13 +176,15 @@ def generate_topology_diagram(relationship):
     grid = relationship.get('primary_cluster') or 'Grid'
 
     lines = [
-        'graph LR',
+        'graph TD',
         f'  subgraph {_safe_id(site_a)}["{site_a}"]',
+        f'    direction LR',
         f'    SGADM_A["Admin Node A\\n{grid}"]',
         f'    SGSN_A["Storage Nodes\\n{site_a}"]',
         f'    SGLB_A["Load Balancer\\n{site_a}"]',
         '  end',
         f'  subgraph {_safe_id(site_b)}["{site_b}"]',
+        f'    direction LR',
         f'    SGADM_B["Admin Node B\\n{grid}"]',
         f'    SGSN_B["Storage Nodes\\n{site_b}"]',
         f'    SGLB_B["Load Balancer\\n{site_b}"]',
