@@ -84,8 +84,25 @@ def test_extract_sid_5char():
 def test_extract_sid_no_match():
     from app.snap_service import extract_sid
     assert extract_sid('') is None
-    # A name with no underscore or dot separator cannot be matched
+    # Names that don't start with 3+ consecutive alphanumeric chars return None
     assert extract_sid('no-separator-name') is None
+
+
+def test_extract_sid_ora_prefix():
+    """ORA_ prefix is skipped; the actual SID is the token after the underscore."""
+    from app.snap_service import extract_sid
+    assert extract_sid('ORA_WQ4') == 'WQ4'
+    assert extract_sid('ORA_WQ1') == 'WQ1'
+    assert extract_sid('ORA_WQ2') == 'WQ2'
+    assert extract_sid('ORA_WQ4_archivelog') == 'WQ4'
+
+
+def test_extract_sid_hana_prefix():
+    """HANA_ prefix is skipped; the actual SID is the token after the underscore."""
+    from app.snap_service import extract_sid
+    assert extract_sid('HANA_ABP') == 'ABP'
+    assert extract_sid('HANA_AFT') == 'AFT'
+    assert extract_sid('HANA_ABP_data.HDBSNAP-2026-03-13-073434') == 'ABP'
 
 
 def test_extract_ttl_hdbsnap():
@@ -438,3 +455,496 @@ def test_do_collect_skips_snaps_disabled_systems(app):
 
     assert 'sys-snaps-on' in queried_names
     assert 'sys-snaps-off' not in queried_names
+
+
+# ---------------------------------------------------------------------------
+# Bug fix: FlashArray epoch-ms timestamp handling
+# ---------------------------------------------------------------------------
+
+def test_collect_fa_snaps_epoch_ms_created():
+    """_collect_flasharray_snapshots must handle integer epoch-ms 'created' field.
+
+    The Pure Storage REST API returns ``created`` as an int64 millisecond
+    timestamp.  Before the fix, calling ``.replace()`` on the integer caused
+    an AttributeError which silently returned [].
+    """
+    from unittest.mock import MagicMock, patch
+    from app.snap_service import _collect_flasharray_snapshots
+
+    # Simulate what PureStorageClient.get_volume_snapshots() now returns after
+    # the epoch-ms → ISO conversion fix.
+    mock_raw = [
+        {
+            'name': 'ABP_data.HDBSNAP-2026-03-13-073434',
+            'created': '2026-03-13T07:34:34Z',   # already converted to ISO string
+            'suffix': 'HDBSNAP-2026-03-13-073434',
+            'source_name': 'ABP_data',
+        },
+    ]
+
+    system = MagicMock()
+    system.vendor = 'pure'
+    system.name = 'fa01'
+
+    with patch('app.api.get_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.get_volume_snapshots.return_value = mock_raw
+        mock_get_client.return_value = mock_client
+
+        result = _collect_flasharray_snapshots(system)
+
+    assert len(result) == 1
+    snap = result[0]
+    assert snap['sid'] == 'ABP'
+    assert snap['ttl'] is not None
+    assert snap['ttl'].year == 2026
+    assert snap['ttl'].month == 3
+    assert snap['ttl'].day == 13
+    assert snap['creation_time'] is not None
+    assert snap['array_name'] == 'fa01'
+
+
+def test_collect_fa_snaps_sid_from_source_name():
+    """SID is extracted from source_name when snapshot name alone gives no SID.
+
+    If the Pure Storage API returns only the bare suffix as the snapshot name
+    (e.g. ``HDBSNAP-2026-03-13-073434`` without a volume prefix), the SID
+    regex finds no match.  The fallback to ``source_name`` (e.g. ``ABP_data``)
+    must then yield the correct SID "ABP".
+    """
+    from unittest.mock import MagicMock, patch
+    from app.snap_service import _collect_flasharray_snapshots
+
+    mock_raw = [
+        {
+            # Bare suffix as name: _SID_RE won't match because there is no
+            # 3-5 uppercase char block followed by '_' or '.' at the start.
+            'name': 'HDBSNAP-2026-03-13-073434',
+            'created': '2026-03-13T07:34:34Z',
+            'suffix': 'HDBSNAP-2026-03-13-073434',
+            'source_name': 'ABP_data',   # SID extracted here as fallback
+        },
+    ]
+
+    system = MagicMock()
+    system.vendor = 'pure'
+    system.name = 'fa01'
+
+    with patch('app.api.get_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.get_volume_snapshots.return_value = mock_raw
+        mock_get_client.return_value = mock_client
+
+        result = _collect_flasharray_snapshots(system)
+
+    assert len(result) == 1
+    assert result[0]['sid'] == 'ABP'
+
+
+def test_collect_fa_snaps_ttl_from_suffix():
+    """TTL is extracted from the 'suffix' field (primary source)."""
+    from unittest.mock import MagicMock, patch
+    from app.snap_service import _collect_flasharray_snapshots
+
+    mock_raw = [
+        {
+            'name': 'ABP_data.HDBSNAP-2026-04-01-120000',
+            'created': '2026-03-01T00:00:00Z',
+            'suffix': 'HDBSNAP-2026-04-01-120000',
+            'source_name': 'ABP_data',
+        },
+    ]
+
+    system = MagicMock()
+    system.vendor = 'pure'
+    system.name = 'fa01'
+
+    with patch('app.api.get_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.get_volume_snapshots.return_value = mock_raw
+        mock_get_client.return_value = mock_client
+
+        result = _collect_flasharray_snapshots(system)
+
+    assert len(result) == 1
+    ttl = result[0]['ttl']
+    assert ttl.year == 2026 and ttl.month == 4 and ttl.day == 1
+    assert ttl.hour == 12 and ttl.minute == 0
+
+
+# ---------------------------------------------------------------------------
+# ONTAP volume allow-list filtering
+# ---------------------------------------------------------------------------
+
+def test_collect_ontap_snaps_only_hana_ora_volumes():
+    """_collect_ontap_snapshots must only process HANA_ and ORA_ volumes.
+
+    Covers the full matrix of volumes that must be excluded:
+      - nfs03_root           → NFS root volume, SID would be "NFS03"
+      - old_trident_pvc_*    → renamed Trident PVCs, SID would be "OLD"
+      - trident_pvc_*        → active Trident PVCs, SID would be "CLONE" etc.
+      - infrastr_vol01       → infrastructure volume, no relevant SID
+
+    And the volumes that must be included:
+      - HANA_ABP             → SID ABP
+      - ORA_WQ4              → SID WQ4
+    """
+    from unittest.mock import MagicMock, patch
+    from app.snap_service import _collect_ontap_snapshots
+
+    mock_raw = [
+        # Must be included
+        {'name': 'ABP_HDBSNAP-2026-03-13-193449', 'create_time': '2026-03-13T19:34:49Z',
+         'volume': 'HANA_ABP', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'ORA_WQ4_snap1', 'create_time': '2026-03-16T11:13:12Z',
+         'volume': 'ORA_WQ4', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        # Must be excluded – NFS root volume
+        {'name': 'nfs03_root_snap', 'create_time': '2026-03-16T00:25:04Z',
+         'volume': 'nfs03_root', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        # Must be excluded – renamed old Trident PVCs
+        {'name': 'snap1', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'old_trident_pvc_influxdb', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'snap2', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'old_trident_pvc_old', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'snap3', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'old_trident_pvc_navida', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        # Must be excluded – active Trident PVCs
+        {'name': 'CLONE_20250218201813', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'trident_pvc_ca7f7c70_d4d5_4fdb_8a84_b14d0e3f4be6',
+         'svm': 'svm1', 'cluster': 'FASMC1'},
+        # Must be excluded – unrelated infrastructure volume
+        {'name': 'infra_snap', 'create_time': '2026-03-16T00:00:00Z',
+         'volume': 'infrastr_vol01', 'svm': 'svm1', 'cluster': 'FASMC1'},
+    ]
+
+    system = MagicMock()
+    system.vendor = 'netapp-ontap'
+    system.name = 'FASMC1'
+
+    with patch('app.api.get_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.get_volume_snapshots.return_value = mock_raw
+        mock_get_client.return_value = mock_client
+        result = _collect_ontap_snapshots(system)
+
+    sids = [r['sid'] for r in result]
+    volumes = [r['volume_name'] for r in result]
+
+    # Correct snapshots present
+    assert 'ABP' in sids, "HANA_ABP snapshot must be included"
+    assert 'WQ4' in sids, "ORA_WQ4 snapshot must be included"
+
+    # Bad SIDs must not appear
+    for bad in ('NFS03', 'OLD', 'CLONE'):
+        assert bad not in sids, f"Volume producing spurious SID '{bad}' must be excluded"
+
+    # Exact count: only the two DB volumes
+    assert len(result) == 2
+
+    # Correct SID extracted from ORA_ prefix
+    ora_result = next(r for r in result if r['volume_name'] == 'ORA_WQ4')
+    assert ora_result['sid'] == 'WQ4', "SID must be WQ4, not ORA"
+
+
+def test_collect_ontap_snaps_excludes_trident_volumes():
+    """_collect_ontap_snapshots excludes trident_pvc_* volumes (superseded by allow-list).
+
+    Kept for regression: Trident PVC volumes are not in the HANA_/ORA_ allow-list
+    so they are excluded automatically.
+    """
+    from unittest.mock import MagicMock, patch
+    from app.snap_service import _collect_ontap_snapshots
+
+    mock_raw = [
+        {'name': 'ABP_HDBSNAP-2026-03-13-193449', 'create_time': '2026-03-13T19:34:49Z',
+         'volume': 'HANA_ABP', 'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'CLONE_20250218201813', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'trident_pvc_ca7f7c70_d4d5_4fdb_8a84_b14d0e3f4be6',
+         'svm': 'svm1', 'cluster': 'FASMC1'},
+        {'name': 'CLONE_20250218201813', 'create_time': '2025-02-18T20:18:13Z',
+         'volume': 'trident_pvc_bc348446_2d9e_4fb5_96f4_e8027bd023a3_2810',
+         'svm': 'svm1', 'cluster': 'FASMC1'},
+    ]
+
+    system = MagicMock()
+    system.vendor = 'netapp-ontap'
+    system.name = 'FASMC1'
+
+    with patch('app.api.get_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.get_volume_snapshots.return_value = mock_raw
+        mock_get_client.return_value = mock_client
+        result = _collect_ontap_snapshots(system)
+
+    sids = [r['sid'] for r in result]
+    assert 'CLONE' not in sids, "Trident PVC clone snapshot must be excluded"
+    assert 'ABP' in sids, "Legitimate HANA snapshot must be included"
+    assert len(result) == 1
+
+
+def test_get_volume_snapshots_converts_epoch_ms():
+    """PureStorageClient.get_volume_snapshots must convert epoch-ms to ISO string."""
+    from app.api.storage_clients import PureStorageClient
+    from unittest.mock import MagicMock, patch
+
+    client = PureStorageClient('fa01', 443, None, None, 'fake-token')
+
+    # epoch_ms for 2026-03-13T07:34:34Z
+    epoch_ms = 1773387274000
+
+    api_response = {
+        'items': [
+            {
+                'name': 'ABP_data.HDBSNAP-2026-03-13-073434',
+                'created': epoch_ms,
+                'suffix': 'HDBSNAP-2026-03-13-073434',
+                'source': {'id': 'abc', 'name': 'ABP_data'},
+            }
+        ],
+        'continuation_token': None,
+    }
+
+    with patch.object(client, 'detect_api_version', return_value='2.26'), \
+         patch.object(client, 'authenticate', return_value='session-token'):
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = api_response
+
+        mock_resp2 = MagicMock()
+        mock_resp2.status_code = 200
+        mock_resp2.json.return_value = {'items': [], 'continuation_token': None}
+
+        mock_logout = MagicMock()
+        mock_logout.status_code = 200
+
+        with patch('app.api.storage_clients._local_session') as mock_session:
+            mock_session.get.side_effect = [mock_resp, mock_resp2]
+            mock_session.post.return_value = mock_logout
+
+            results = client.get_volume_snapshots()
+
+    assert len(results) == 1
+    snap = results[0]
+    # created must be an ISO string, not an integer
+    assert isinstance(snap['created'], str), "created must be an ISO string"
+    assert '2026-03-13' in snap['created']
+    assert snap['suffix'] == 'HDBSNAP-2026-03-13-073434'
+    assert snap['source_name'] == 'ABP_data'
+
+
+def test_get_volume_snapshots_filters_destroyed():
+    """PureStorageClient.get_volume_snapshots must request destroyed=false."""
+    from app.api.storage_clients import PureStorageClient
+    from unittest.mock import MagicMock, patch
+
+    client = PureStorageClient('fa01', 443, None, None, 'fake-token')
+
+    with patch.object(client, 'detect_api_version', return_value='2.26'), \
+         patch.object(client, 'authenticate', return_value='session-token'):
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {'items': [], 'continuation_token': None}
+
+        mock_logout = MagicMock()
+        mock_logout.status_code = 200
+
+        with patch('app.api.storage_clients._local_session') as mock_session:
+            mock_session.get.return_value = mock_resp
+            mock_session.post.return_value = mock_logout
+
+            client.get_volume_snapshots()
+
+        params = mock_session.get.call_args.kwargs.get('params', {})
+        assert params.get('destroyed') == 'false', \
+            "API call must include destroyed=false to exclude pending-eradication snapshots"
+
+
+def test_build_rename_curl_uses_correct_patch_format():
+    """_build_rename_curl_commands must use the correct Pure Storage PATCH format.
+
+    Per api/pure_swagger.json:
+      PATCH /api/<ver>/volume-snapshots?names=<full_name>
+      Body: {"name": "<new_suffix>"}  ← suffix only, not the full VOL.SUFFIX name
+    """
+    from app.routes.snaps import _build_rename_curl_commands
+    from unittest.mock import MagicMock
+
+    rec = MagicMock()
+    rec.sid = 'ABP'
+
+    locs = {
+        'flasharray_systems': [
+            {
+                'name': 'fa01',
+                'snapshot_names': ['ABP_data.HDBSNAP-2026-03-13-073434'],
+            }
+        ],
+        'ontap_clusters': [],
+    }
+
+    new_ts = '2026-04-01-120000'
+    commands = _build_rename_curl_commands(rec, locs, new_ts)
+
+    assert len(commands) == 1
+    cmd = commands[0]
+    assert cmd['platform'] == 'FlashArray'
+    # URL must use ?names= query parameter, not /id path segment
+    assert '?names=' in cmd['command'], "PATCH must use ?names= query param"
+    # Body must contain only the new suffix (not the full VOL.SUFFIX name)
+    assert '"HDBSNAP-2026-04-01-120000"' in cmd['command'], \
+        "PATCH body must set the new suffix"
+    # The suffix must NOT be prefixed with 'ABP_data.' in the body
+    assert '"ABP_data.HDBSNAP' not in cmd['command'], \
+        "PATCH body must contain suffix only, not full snapshot name"
+    # Old name should be in the URL query parameter
+    assert 'HDBSNAP-2026-03-13-073434' in cmd['command'], \
+        "Old snapshot name must appear in the ?names= parameter"
+
+
+def test_build_rename_curl_ontap_per_volume():
+    """_build_rename_curl_commands emits one ONTAP command per volume.
+
+    The popup must show a command for every affected ONTAP volume so the
+    operator can copy the correct curl call.  Each command must:
+      - show the volume name in the platform label (returned as 'volume' key)
+      - include both a GET (find snapshot UUID) and a PATCH (rename) step
+      - set the new snapshot name and expiry_time
+    """
+    from app.routes.snaps import _build_rename_curl_commands
+    from unittest.mock import MagicMock
+    from datetime import datetime
+
+    rec = MagicMock()
+    rec.sid = 'ABP'
+    rec.ttl = datetime(2026, 3, 13, 19, 3, 49)   # old TTL → 2026-03-13-190349
+
+    locs = {
+        'flasharray_systems': [],
+        'ontap_clusters': [
+            {
+                'cluster': 'FASMC1',
+                'svm': 'nfs01',
+                'volumes': ['HANA_ABP', 'HANA_ABP_log', 'HANA_ABP_data'],
+            }
+        ],
+    }
+
+    new_ts = '2026-04-01-190349'
+    commands = _build_rename_curl_commands(rec, locs, new_ts)
+
+    # Must produce one command per volume
+    assert len(commands) == 3
+    vols = [c['volume'] for c in commands]
+    assert vols == ['HANA_ABP', 'HANA_ABP_log', 'HANA_ABP_data']
+
+    for cmd in commands:
+        assert cmd['platform'] == 'ONTAP'
+        assert cmd['cluster'] == 'FASMC1'
+        assert cmd['svm'] == 'nfs01'
+        # Must contain find step (GET)
+        assert 'HDBSNAP-2026-03-13-190349' in cmd['command'], \
+            "Command must reference the old TTL pattern to find the snapshot UUID"
+        # Must contain rename step (PATCH) with new name and expiry_time
+        assert 'ABP_HDBSNAP-2026-04-01-190349' in cmd['command'], \
+            "Command must set the new snapshot name"
+        assert '2026-04-01T19:03:49Z' in cmd['command'], \
+            "Command must set expiry_time in ISO format"
+
+
+def test_build_delete_curl_ontap_per_volume():
+    """_build_delete_curl_commands emits one ONTAP command per volume.
+
+    The popup must show delete commands for every affected ONTAP volume.
+    """
+    from app.routes.snaps import _build_delete_curl_commands
+    from unittest.mock import MagicMock
+    from datetime import datetime
+
+    rec = MagicMock()
+    rec.sid = 'ABP'
+    rec.ttl = datetime(2026, 3, 17, 19, 1, 19)   # TTL → 2026-03-17-190119
+
+    locs = {
+        'flasharray_systems': [],
+        'ontap_clusters': [
+            {
+                'cluster': 'FASMC1',
+                'svm': 'nfs01',
+                'volumes': ['HANA_ABP', 'HANA_ABP_log'],
+            }
+        ],
+    }
+
+    commands = _build_delete_curl_commands(rec, locs)
+
+    assert len(commands) == 2
+    vols = [c['volume'] for c in commands]
+    assert vols == ['HANA_ABP', 'HANA_ABP_log']
+
+    for cmd in commands:
+        assert cmd['platform'] == 'ONTAP'
+        # Must contain find step referencing current TTL
+        assert 'HDBSNAP-2026-03-17-190119' in cmd['command'], \
+            "Delete command must search by current TTL pattern"
+        # Must contain DELETE step
+        assert 'DELETE' in cmd['command']
+
+
+def test_delete_preview_endpoint(app, client):
+    """GET /snaps/api/delete-preview returns CURL commands without modifying the DB."""
+    from app import db
+    from app.models import SnapshotRecord
+    import json
+    from datetime import datetime
+
+    with app.app_context():
+        rec = SnapshotRecord(
+            sid='ABP',
+            creation_time=datetime(2026, 3, 13, 19, 3, 49),
+            ttl=datetime(2026, 3, 17, 19, 1, 19),
+            flasharray_present=True,
+            ontap_present=True,
+            storage_locations=json.dumps({
+                'flasharray_systems': [
+                    {'name': 'fa01', 'snapshot_names': ['ABP_data.HDBSNAP-2026-03-17-190119']}
+                ],
+                'ontap_clusters': [
+                    {'cluster': 'FASMC1', 'svm': 'nfs01', 'volumes': ['HANA_ABP']}
+                ],
+            }),
+        )
+        db.session.add(rec)
+        db.session.commit()
+        snap_id = rec.id
+
+    resp = client.post('/snaps/api/delete-preview',
+                       data=json.dumps({'id': snap_id}),
+                       content_type='application/json')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['success'] is True
+
+    cmds = data['curl_commands']
+    platforms = [c['platform'] for c in cmds]
+
+    # Both platforms present
+    assert 'FlashArray' in platforms, "FlashArray delete command must be present"
+    assert 'ONTAP' in platforms, "ONTAP delete command must be present"
+
+    # FlashArray command has both destroy + eradicate steps
+    fa_cmd = next(c for c in cmds if c['platform'] == 'FlashArray')
+    assert 'destroyed' in fa_cmd['command'], "FlashArray must include destroy step"
+    assert 'DELETE' in fa_cmd['command'], "FlashArray must include eradicate step"
+
+    # ONTAP command references volume name
+    ontap_cmd = next(c for c in cmds if c['platform'] == 'ONTAP')
+    assert ontap_cmd.get('volume') == 'HANA_ABP'
+    assert 'DELETE' in ontap_cmd['command']
+
+    # DB must NOT be modified
+    with app.app_context():
+        unchanged = SnapshotRecord.query.get(snap_id)
+        assert unchanged.delete_marked is False
+        assert unchanged.delete_deadline is None

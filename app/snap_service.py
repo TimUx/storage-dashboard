@@ -55,9 +55,27 @@ _MIN_SNAP_WORKERS = 16
 # ONTAP snapshot prefixes to ignore (automatic/scheduled snapshots).
 _ONTAP_IGNORE_PREFIXES = ('daily.', 'weekly.', 'monthly.', 'hourly.', '12-hourly.')
 
-# Regex to extract a 3–5 character SID from the beginning of a snapshot name.
-# Handles both "ACP_..." and "vgACP_..." style names.
-_SID_RE = re.compile(r'(?:vg)?([A-Z0-9]{3,5})(?:_|\.)', re.IGNORECASE)
+# Allow-list of ONTAP volume name prefixes that qualify for snapshot collection.
+# Only snapshots on volumes whose names start with one of these prefixes represent
+# application database backups (SAP HANA, Oracle) and belong in the dashboard.
+# Every other volume – NFS root/infrastructure volumes, Kubernetes/Trident PVCs
+# (trident_pvc_*, old_trident_pvc_*, …), monitoring volumes, etc. – is excluded.
+_ONTAP_INCLUDE_VOLUME_PREFIXES = ('HANA_', 'ORA_')
+
+# Known application-type prefix tokens that appear before the actual SID in some
+# volume and snapshot naming conventions:
+#   HANA_ABP        → app prefix HANA, SID ABP
+#   ORA_WQ4         → app prefix ORA,  SID WQ4
+#   HANA_ABP_data   → app prefix HANA, SID ABP (info after second underscore ignored)
+# These tokens are NOT SAP/Oracle SIDs themselves; the real SID follows the first
+# underscore.  They must match _ONTAP_INCLUDE_VOLUME_PREFIXES (without trailing _).
+_SID_APP_PREFIXES = frozenset(('HANA', 'ORA'))
+
+# Regex to extract a 3–5 character SID from the beginning of a snapshot or volume
+# name.  Handles "ACP_…", "vgACP_…", and bare-SID strings ("WQ4" at end of input).
+# The `$` alternative allows matching a SID that is not followed by `_` or `.`
+# (e.g. when matching the remainder after stripping an app-type prefix).
+_SID_RE = re.compile(r'(?:vg)?([A-Z0-9]{3,5})(?:_|\.|$)', re.IGNORECASE)
 
 # Regex to extract timestamp from snapshot name (YYYY-MM-DD-HHMMSS).
 _TS_RE = re.compile(r'(\d{4}-\d{2}-\d{2}-\d{6})')
@@ -76,11 +94,30 @@ def extract_sid(name: str) -> str | None:
     """Extract a 3–5 character SID from a snapshot or volume name.
 
     Returns the SID string (upper-cased) or None if not found.
+
+    Naming conventions handled:
+
+    * ``ACP_1_data.HDBSNAP-…``   → SID ``ACP``  (plain SID prefix)
+    * ``vgAQP_1.2026-…``         → SID ``AQP``  (vg-prefixed LVM volume)
+    * ``HANA_ABP``               → SID ``ABP``  (app prefix HANA skipped)
+    * ``HANA_ABP_data``          → SID ``ABP``  (app prefix HANA skipped)
+    * ``ORA_WQ4``                → SID ``WQ4``  (app prefix ORA skipped)
+    * ``ORA_WQ4_archivelog``     → SID ``WQ4``  (app prefix ORA skipped)
+
+    If the first matched token is a known application-type prefix (see
+    ``_SID_APP_PREFIXES``), the function skips it and extracts the SID from
+    the remainder of the string.
     """
     m = _SID_RE.match(name.strip())
-    if m:
-        return m.group(1).upper()
-    return None
+    if not m:
+        return None
+    candidate = m.group(1).upper()
+    if candidate in _SID_APP_PREFIXES:
+        # Skip the app-type prefix and extract the actual SID from the rest.
+        rest = name[m.end():]
+        m2 = _SID_RE.match(rest)
+        return m2.group(1).upper() if m2 else None
+    return candidate
 
 
 def extract_ttl(name: str) -> datetime | None:
@@ -111,6 +148,15 @@ def _collect_flasharray_snapshots(system):
     ActiveCluster arrays report the same snapshots on both controllers.
     Deduplication is handled downstream (keyed on sid + creation_time +
     snapshot_name).
+
+    Pure Storage API response fields used here (api/pure_swagger.json):
+        name        – full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
+        created     – ISO-8601 UTC string (epoch_ms already converted by the client)
+        suffix      – snapshot suffix only, e.g. ``HDBSNAP-2026-03-13-073434``
+                      Primary source for TTL extraction.
+        source_name – parent volume name, e.g. ``ABP_data``
+                      Used as SID-extraction fallback when the full snapshot
+                      name does not directly expose the SID.
     """
     from app.api import get_client
 
@@ -130,18 +176,29 @@ def _collect_flasharray_snapshots(system):
         results = []
         for snap in raw:
             name = snap.get('name', '') or ''
-            # Skip empty or non-database snapshot names
-            if 'HDBSNAP' not in name.upper() and not _SID_RE.match(name):
+            suffix = snap.get('suffix', '') or ''
+            source_name = snap.get('source_name', '') or ''
+
+            # Skip empty or non-database snapshot names.
+            # Accept if the suffix or full name contains HDBSNAP, or if the
+            # full name matches the SID regex.
+            hdbsnap_present = 'HDBSNAP' in suffix.upper() or 'HDBSNAP' in name.upper()
+            if not hdbsnap_present and not _SID_RE.match(name):
                 continue
 
+            # Extract SID: try the full snapshot name first, fall back to the
+            # source volume name (e.g. "ABP_data" → SID "ABP").
             sid = extract_sid(name)
+            if not sid and source_name:
+                sid = extract_sid(source_name)
             if not sid:
                 continue
 
-            # creation_time: prefer 'created' field; parse ISO string
-            created_raw = snap.get('created') or snap.get('creation_time') or ''
+            # creation_time: 'created' is already an ISO-8601 string (converted
+            # from epoch_ms by PureStorageClient.get_volume_snapshots).
+            created_raw = snap.get('created') or ''
             creation_time: datetime | None = None
-            if created_raw:
+            if isinstance(created_raw, str) and created_raw:
                 for fmt in ('%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S'):
                     try:
                         creation_time = datetime.strptime(
@@ -151,7 +208,11 @@ def _collect_flasharray_snapshots(system):
                     except ValueError:
                         pass
 
-            ttl = extract_ttl(name)
+            # TTL: prefer the suffix field (direct, unambiguous TTL source),
+            # fall back to the full snapshot name.
+            ttl = extract_ttl(suffix) if suffix else None
+            if ttl is None:
+                ttl = extract_ttl(name)
 
             results.append({
                 'sid': sid,
@@ -175,6 +236,13 @@ def _collect_ontap_snapshots(system):
     cluster_name, svm_name, volume_name.
 
     Automatic/scheduled snapshots (daily.*, weekly.*, etc.) are ignored.
+
+    Only snapshots on volumes whose names start with a prefix listed in
+    ``_ONTAP_INCLUDE_VOLUME_PREFIXES`` (``HANA_``, ``ORA_``) are collected.
+    All other volumes – NFS root/infrastructure volumes, Kubernetes Trident
+    PVCs (``trident_pvc_*``), renamed PVCs (``old_trident_pvc_*``), monitoring
+    volumes, etc. – are excluded because they are not application database
+    backups.
     """
     from app.api import get_client
 
@@ -194,6 +262,16 @@ def _collect_ontap_snapshots(system):
         results = []
         for snap in raw:
             snap_name = snap.get('name', '') or ''
+            volume_name = snap.get('volume', '') or snap.get('volume_name', '') or ''
+
+            # Allow-list: only process volumes with a known application prefix.
+            # This excludes NFS root/infrastructure volumes, Kubernetes/Trident
+            # PVCs (trident_pvc_*, old_trident_pvc_*, …) and any other volume
+            # that is not a HANA or Oracle database volume.
+            if not any(volume_name.upper().startswith(p.upper())
+                       for p in _ONTAP_INCLUDE_VOLUME_PREFIXES):
+                continue
+
             # Ignore automatic snapshots
             if any(snap_name.lower().startswith(p) for p in _ONTAP_IGNORE_PREFIXES):
                 continue
@@ -201,7 +279,6 @@ def _collect_ontap_snapshots(system):
             sid = extract_sid(snap_name)
             if not sid:
                 # Also try extracting SID from the volume name
-                volume_name = snap.get('volume', '') or ''
                 sid = extract_sid(volume_name) if volume_name else None
             if not sid:
                 continue
@@ -227,7 +304,7 @@ def _collect_ontap_snapshots(system):
                 'ttl': ttl,
                 'cluster_name': snap.get('cluster') or system.name,
                 'svm_name': snap.get('svm') or snap.get('svm_name') or '',
-                'volume_name': snap.get('volume') or snap.get('volume_name') or '',
+                'volume_name': volume_name,
             })
 
         return results

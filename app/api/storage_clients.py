@@ -972,11 +972,229 @@ class PureStorageClient(StorageClient):
             logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
-    def get_volume_snapshots(self):
-        """Return volume snapshots from Pure FlashArray via REST API.
+    def _authenticated_session(self):
+        """Return (api_version, session_token, ssl_verify, headers) or raise.
 
-        Queries GET /api/<version>/volume-snapshots and returns a list of dicts
-        with at minimum: name, created.
+        Callers that need a single-operation authenticated session use this
+        helper so that login/logout are handled in one place.
+
+        Raises:
+            RuntimeError: if no API token is configured, or if login is
+                          rejected by the array.
+        """
+        if not self.token:
+            raise RuntimeError("No API token configured for FlashArray")
+        ssl_verify = get_ssl_verify(self.resolved_address)
+        api_version = self.detect_api_version()
+        session_token = self.authenticate(api_version)
+        if not session_token:
+            raise RuntimeError(
+                f"Authentication failed for FlashArray {self.ip_address}"
+            )
+        headers = {
+            'x-auth-token': session_token,
+            'Content-Type': 'application/json',
+        }
+        return api_version, session_token, ssl_verify, headers
+
+    def _logout(self, api_version, headers, ssl_verify):
+        """Best-effort logout – errors are suppressed."""
+        try:
+            _local_session.post(
+                f"{self.base_url}/api/{api_version}/logout",
+                headers=headers,
+                verify=ssl_verify,
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+    def rename_volume_snapshot(self, snap_full_name: str, new_suffix: str) -> bool:
+        """Rename a volume snapshot by replacing its suffix.
+
+        Uses the Pure Storage REST API 2.x rename operation:
+
+            PATCH /api/<ver>/volume-snapshots?names=<snap_full_name>
+            Body: {"name": "<new_suffix>"}
+
+        Per ``api/pure_swagger.json`` (PATCH /api/2.26/volume-snapshots):
+            - The ``names`` query parameter takes the **full** snapshot name
+              (``{source_volume}.{old_suffix}``).
+            - The request body ``name`` field sets the **new suffix only**
+              (not the full name). The array rebuilds the full name as
+              ``{source_volume}.{new_suffix}`` automatically.
+
+        Args:
+            snap_full_name: Full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
+            new_suffix:     New suffix to assign, e.g. ``HDBSNAP-2026-04-01-120000``
+
+        Returns:
+            True on success (HTTP 200), False on failure.
+        """
+        try:
+            api_version, _session_token, ssl_verify, headers = self._authenticated_session()
+            try:
+                resp = _local_session.patch(
+                    f"{self.base_url}/api/{api_version}/volume-snapshots",
+                    headers=headers,
+                    params={'names': snap_full_name},
+                    json={'name': new_suffix},
+                    verify=ssl_verify,
+                    timeout=30,
+                )
+                if resp.status_code == 200:
+                    logger.info(
+                        "FlashArray %s: renamed snapshot %s → suffix %s",
+                        self.ip_address, snap_full_name, new_suffix,
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        "FlashArray %s: rename snapshot %s failed (HTTP %d): %s",
+                        self.ip_address, snap_full_name, resp.status_code,
+                        resp.text[:200],
+                    )
+                    return False
+            finally:
+                self._logout(api_version, headers, ssl_verify)
+        except Exception as exc:
+            logger.warning(
+                "FlashArray rename_volume_snapshot error for %s / %s: %s",
+                self.ip_address, snap_full_name, exc,
+            )
+            return False
+
+    def destroy_volume_snapshot(self, snap_full_name: str) -> bool:
+        """Mark a volume snapshot as destroyed (pending eradication).
+
+        This is the **first step** of the two-step deletion workflow:
+
+            Step 1 – Destroy (this method):
+                PATCH /api/<ver>/volume-snapshots?names=<snap_full_name>
+                Body: {"destroyed": true}
+
+            Step 2 – Eradicate (see :py:meth:`eradicate_volume_snapshot`):
+                DELETE /api/<ver>/volume-snapshots?names=<snap_full_name>
+
+        After destruction the snapshot enters a ``time_remaining`` countdown
+        (default 24 h on most arrays) during which it can be recovered by
+        calling PATCH with ``{"destroyed": false}``.  Once eradicated via
+        DELETE it is permanently gone and cannot be recovered.
+
+        Per ``api/pure_swagger.json`` (PATCH /api/2.26/volume-snapshots):
+            ``destroyed=true`` starts the eradication countdown.
+
+        Args:
+            snap_full_name: Full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
+
+        Returns:
+            True on success (HTTP 200), False on failure.
+        """
+        try:
+            api_version, _session_token, ssl_verify, headers = self._authenticated_session()
+            try:
+                resp = _local_session.patch(
+                    f"{self.base_url}/api/{api_version}/volume-snapshots",
+                    headers=headers,
+                    params={'names': snap_full_name},
+                    json={'destroyed': True},
+                    verify=ssl_verify,
+                    timeout=30,
+                )
+                if resp.status_code == 200:
+                    logger.info(
+                        "FlashArray %s: destroyed snapshot %s (pending eradication)",
+                        self.ip_address, snap_full_name,
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        "FlashArray %s: destroy snapshot %s failed (HTTP %d): %s",
+                        self.ip_address, snap_full_name, resp.status_code,
+                        resp.text[:200],
+                    )
+                    return False
+            finally:
+                self._logout(api_version, headers, ssl_verify)
+        except Exception as exc:
+            logger.warning(
+                "FlashArray destroy_volume_snapshot error for %s / %s: %s",
+                self.ip_address, snap_full_name, exc,
+            )
+            return False
+
+    def eradicate_volume_snapshot(self, snap_full_name: str) -> bool:
+        """Permanently eradicate a previously destroyed volume snapshot.
+
+        This is the **second step** of the two-step deletion workflow (see
+        :py:meth:`destroy_volume_snapshot` for step 1).
+
+            DELETE /api/<ver>/volume-snapshots?names=<snap_full_name>
+
+        Per ``api/pure_swagger.json`` (DELETE /api/2.26/volume-snapshots):
+            The snapshot must already be in the destroyed/pending-eradication
+            state (``destroyed=true``).  Calling DELETE on an active snapshot
+            returns an error.  Once eradicated the snapshot cannot be recovered.
+
+        Args:
+            snap_full_name: Full snapshot name (must already be destroyed).
+
+        Returns:
+            True on success (HTTP 200), False on failure.
+        """
+        try:
+            api_version, _session_token, ssl_verify, headers = self._authenticated_session()
+            try:
+                resp = _local_session.delete(
+                    f"{self.base_url}/api/{api_version}/volume-snapshots",
+                    headers=headers,
+                    params={'names': snap_full_name},
+                    verify=ssl_verify,
+                    timeout=30,
+                )
+                if resp.status_code == 200:
+                    logger.info(
+                        "FlashArray %s: eradicated snapshot %s",
+                        self.ip_address, snap_full_name,
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        "FlashArray %s: eradicate snapshot %s failed (HTTP %d): %s",
+                        self.ip_address, snap_full_name, resp.status_code,
+                        resp.text[:200],
+                    )
+                    return False
+            finally:
+                self._logout(api_version, headers, ssl_verify)
+        except Exception as exc:
+            logger.warning(
+                "FlashArray eradicate_volume_snapshot error for %s / %s: %s",
+                self.ip_address, snap_full_name, exc,
+            )
+            return False
+
+    def get_volume_snapshots(self):
+        """Return active volume snapshots from Pure FlashArray via REST API.
+
+        Queries ``GET /api/<version>/volume-snapshots?destroyed=false`` and
+        returns a list of dicts with keys:
+
+            name         – full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
+            created      – ISO-8601 UTC string converted from epoch-milliseconds
+            suffix       – snapshot suffix only, e.g. ``HDBSNAP-2026-03-13-073434``
+                           (primary source for TTL extraction)
+            source_name  – name of the source volume, e.g. ``ABP_data``
+                           (used as SID-extraction fallback)
+
+        Schema reference (api/pure_swagger.json, ``VolumeSnapshot``):
+            ``created`` – int64 milliseconds since UNIX epoch (readOnly)
+            ``suffix``  – suffix appended to source_name to form ``name``
+            ``source``  – {id, name} reference to the parent volume (readOnly)
+            ``name``    – full snapshot name = source.name + "." + suffix
+
+        Pagination uses the ``continuation_token`` returned in each response.
+        Destroyed snapshots are excluded via ``?destroyed=false``.
         """
         try:
             if not self.token:
@@ -989,7 +1207,8 @@ class PureStorageClient(StorageClient):
 
             headers = {'x-auth-token': session_token, 'Content-Type': 'application/json'}
             results = []
-            params = {'limit': 1000, 'offset': 0}
+            # Start with first page; only fetch active (non-destroyed) snapshots.
+            params = {'limit': 1000, 'destroyed': 'false'}
             while True:
                 resp = _local_session.get(
                     f"{self.base_url}/api/{api_version}/volume-snapshots",
@@ -1005,11 +1224,29 @@ class PureStorageClient(StorageClient):
                 if not items:
                     break
                 for item in items:
+                    # 'created' is epoch milliseconds (int64) per the Pure
+                    # Storage REST API schema.  Convert to ISO-8601 UTC string.
+                    created_raw = item.get('created')
+                    created_iso = None
+                    if isinstance(created_raw, (int, float)) and created_raw:
+                        try:
+                            created_iso = datetime.fromtimestamp(
+                                created_raw / 1000.0, tz=timezone.utc
+                            ).strftime('%Y-%m-%dT%H:%M:%SZ')
+                        except Exception:
+                            pass
+                    elif isinstance(created_raw, str) and created_raw:
+                        # Already a string (future-proofing)
+                        created_iso = created_raw
                     results.append({
                         'name': item.get('name', ''),
-                        'created': item.get('created'),
+                        'created': created_iso,
+                        'suffix': item.get('suffix', '') or '',
+                        # 'source' is {id, name}; expose the name directly for
+                        # SID-extraction fallback in the snapshot service.
+                        'source_name': (item.get('source') or {}).get('name', '') or '',
                     })
-                # Check for continuation token (pagination)
+                # Advance to next page via continuation token
                 continuation = data.get('continuation_token')
                 if not continuation:
                     break

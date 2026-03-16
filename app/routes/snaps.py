@@ -180,6 +180,37 @@ def api_delete():
     })
 
 
+@bp.route('/api/delete-preview', methods=['POST'])
+def api_delete_preview():
+    """Return the CURL commands that *would* delete a snapshot, without any DB change.
+
+    This endpoint is used by the frontend to show operators the exact API calls
+    that will be executed when a snapshot is eventually deleted.
+    No storage API calls are made; no database state is modified.
+
+    Request JSON:
+        id (int) – snapshot record ID
+
+    Response JSON:
+        curl_commands (list) – list of command dicts (platform, command, …)
+    """
+    from app.models import SnapshotRecord
+
+    data = request.get_json(force=True) or {}
+    snap_id = data.get('id')
+    if not snap_id:
+        return jsonify({'error': 'id required'}), 400
+
+    rec = SnapshotRecord.query.get(snap_id)
+    if not rec:
+        return jsonify({'error': 'Snapshot not found'}), 404
+
+    locs = rec.get_storage_locations()
+    curl_commands = _build_delete_curl_commands(rec, locs)
+
+    return jsonify({'success': True, 'curl_commands': curl_commands})
+
+
 @bp.route('/api/undo-delete', methods=['POST'])
 def api_undo_delete():
     """Cancel a pending deletion.
@@ -278,64 +309,172 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
 
     Returns a list of dicts with keys: platform, command.
     No actual API calls are made.
+
+    FlashArray rename (Pure Storage REST API 2.x, api/pure_swagger.json):
+        PATCH /api/<ver>/volume-snapshots?names=<full_snap_name>
+        Body: {"name": "<new_suffix>"}   ← suffix only, NOT the full name
+        The full snapshot name is ``{source_volume}.{suffix}``; the API renames
+        by setting the suffix portion via the ``name`` field in the request body.
+
+    ONTAP rename (ONTAP REST API, api/ontap_swagger.yaml) – one command per volume:
+        Step 1 – Find snapshot UUID:
+            GET  /api/storage/volumes/{vol_uuid}/snapshots?name=*HDBSNAP-{old_ts}
+        Step 2 – Rename and update expiry_time:
+            PATCH /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}
+            Body: {"name": "<new_snap_name>", "expiry_time": "<ISO>"}
     """
+    import re
     commands = []
 
     # FlashArray rename commands
     for fa in locs.get('flasharray_systems', []):
         array_name = fa.get('name', 'fa-unknown')
         for snap_name in fa.get('snapshot_names', []):
-            # Replace timestamp suffix: find HDBSNAP-YYYY-MM-DD-HHMMSS pattern
-            import re
-            new_name = re.sub(
+            # Build the new suffix (only the part after the last '.')
+            # The suffix is the HDBSNAP-YYYY-MM-DD-HHMMSS portion.
+            # PATCH body must contain only the NEW SUFFIX, not the full name.
+            new_suffix = re.sub(
                 r'(HDBSNAP-)\d{4}-\d{2}-\d{2}-\d{6}',
                 r'\g<1>' + new_ts_str,
-                snap_name,
+                snap_name.split('.')[-1],   # extract current suffix from full name
             )
-            if new_name == snap_name:
-                # Also try generic timestamp replacement
-                new_name = re.sub(
-                    r'\d{4}-\d{2}-\d{2}-\d{6}$',
-                    new_ts_str,
-                    snap_name,
-                )
+            # Build the new full name for display (source_vol.new_suffix)
+            dot_idx = snap_name.rfind('.')
+            new_full_name = (snap_name[:dot_idx + 1] + new_suffix) if dot_idx != -1 else snap_name
             commands.append({
                 'platform': 'FlashArray',
                 'array': array_name,
+                # Correct API call per Pure Storage REST API 2.x schema:
+                #   PATCH /api/<ver>/volume-snapshots?names=<full_old_name>
+                #   Body: {"name": "<new_suffix>"}  (suffix only, not full name)
                 'command': (
-                    f"curl -X PATCH https://{array_name}/api/volume-snapshots/{{id}}"
+                    f"curl -X PATCH 'https://{array_name}/api/2.26/volume-snapshots"
+                    f"?names={snap_name}'"
                     f" -H 'x-auth-token: <token>'"
-                    f" -d '{{\"name\":\"{new_name}\"}}'"
+                    f" -H 'Content-Type: application/json'"
+                    f" -d '{{\"name\":\"{new_suffix}\"}}'"
                 ),
                 'old_name': snap_name,
-                'new_name': new_name,
+                'new_name': new_full_name,
             })
 
-    # ONTAP rename commands
+    # ONTAP rename commands – one entry per volume so the operator can see exactly
+    # which volumes are affected and copy the correct command for each.
     for oc in locs.get('ontap_clusters', []):
         cluster = oc.get('cluster', 'ontap-unknown')
         svm = oc.get('svm', '')
-        new_expiry = new_ts_str.replace('-', '').replace('T', '')
-        # Convert YYYYMMDDHHMMSS → ISO
+        volumes = oc.get('volumes', [])
+
+        # Convert YYYY-MM-DD-HHMMSS → ISO-8601 for expiry_time field
         try:
             expiry_dt = datetime.strptime(new_ts_str, '%Y-%m-%d-%H%M%S')
             expiry_iso = expiry_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
         except Exception:
             expiry_iso = new_ts_str
 
-        # Build ONTAP snapshot name for this SID
-        ontap_snap_name = f"{rec.sid}_HDBSNAP-{new_ts_str}"
-        commands.append({
-            'platform': 'ONTAP',
-            'cluster': cluster,
-            'svm': svm,
-            'command': (
-                f"curl -X PATCH https://{cluster}/api/storage/volumes/{{uuid}}/snapshots/{{snap_uuid}}"
-                f" -u admin:<password>"
-                f" -d '{{\"name\":\"{ontap_snap_name}\",\"expiry_time\":\"{expiry_iso}\"}}'"
-            ),
-            'new_snap_name': ontap_snap_name,
-            'expiry_time': expiry_iso,
-        })
+        # Current TTL as a searchable timestamp pattern (used to find the snapshot)
+        old_ts_str = rec.ttl.strftime('%Y-%m-%d-%H%M%S') if rec.ttl else '<alter-ttl-ts>'
+
+        # New snapshot name: for HANA/Oracle the convention is {SID}_HDBSNAP-{TTL_ts}
+        new_snap_name = f"{rec.sid}_HDBSNAP-{new_ts_str}"
+
+        for vol in (volumes or [f'{svm}/{rec.sid}_vol']):
+            commands.append({
+                'platform': 'ONTAP',
+                'cluster': cluster,
+                'svm': svm,
+                'volume': vol,
+                'command': (
+                    f"# Schritt 1: Snapshot-UUID ermitteln (Volume: {vol}, SVM: {svm})\n"
+                    f"curl 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
+                    f"/snapshots?name=*HDBSNAP-{old_ts_str}*'"
+                    f" -u admin:<password>\n\n"
+                    f"# Schritt 2: Snapshot umbenennen und TTL setzen\n"
+                    f"curl -X PATCH 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
+                    f"/snapshots/{{snap_uuid}}'"
+                    f" -u admin:<password>"
+                    f" -H 'Content-Type: application/json'"
+                    f" -d '{{\"name\":\"{new_snap_name}\",\"expiry_time\":\"{expiry_iso}\"}}'"
+                ),
+                'new_snap_name': new_snap_name,
+                'expiry_time': expiry_iso,
+            })
+
+    return commands
+
+
+def _build_delete_curl_commands(rec, locs: dict) -> list[dict]:
+    """Build simulated CURL delete commands for a snapshot record.
+
+    Returns a list of dicts with keys: platform, command, …
+    No actual API calls are made.
+
+    FlashArray deletion is a **two-step** process
+    (api/pure_swagger.json, PATCH + DELETE /api/2.26/volume-snapshots):
+
+        Step 1 – Destroy (moves to eradication-pending state):
+            PATCH /api/<ver>/volume-snapshots?names=<full_snap_name>
+            Body: {"destroyed": true}
+
+        Step 2 – Eradicate (permanent deletion, cannot be recovered):
+            DELETE /api/<ver>/volume-snapshots?names=<full_snap_name>
+
+    ONTAP deletion (ONTAP REST API) – one command per volume:
+        Step 1 – Find snapshot UUID:
+            GET  /api/storage/volumes/{vol_uuid}/snapshots?name=*HDBSNAP-{ttl_ts}
+        Step 2 – Delete snapshot:
+            DELETE /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}
+    """
+    commands = []
+
+    # FlashArray two-step delete commands (one per snapshot LUN)
+    for fa in locs.get('flasharray_systems', []):
+        array_name = fa.get('name', 'fa-unknown')
+        for snap_name in fa.get('snapshot_names', []):
+            commands.append({
+                'platform': 'FlashArray',
+                'array': array_name,
+                'snap_name': snap_name,
+                'command': (
+                    f"# Schritt 1: Snapshot als gelöscht markieren (Eradication-Pending)\n"
+                    f"curl -X PATCH 'https://{array_name}/api/2.26/volume-snapshots"
+                    f"?names={snap_name}'"
+                    f" -H 'x-auth-token: <token>'"
+                    f" -H 'Content-Type: application/json'"
+                    f" -d '{{\"destroyed\":true}}'\n\n"
+                    f"# Schritt 2: Snapshot endgültig löschen (Eradication)\n"
+                    f"curl -X DELETE 'https://{array_name}/api/2.26/volume-snapshots"
+                    f"?names={snap_name}'"
+                    f" -H 'x-auth-token: <token>'"
+                    f" -H 'Content-Type: application/json'"
+                ),
+            })
+
+    # ONTAP delete commands – one entry per volume
+    ttl_ts_str = rec.ttl.strftime('%Y-%m-%d-%H%M%S') if rec.ttl else '<ttl-ts>'
+
+    for oc in locs.get('ontap_clusters', []):
+        cluster = oc.get('cluster', 'ontap-unknown')
+        svm = oc.get('svm', '')
+        volumes = oc.get('volumes', [])
+
+        for vol in (volumes or []):
+            commands.append({
+                'platform': 'ONTAP',
+                'cluster': cluster,
+                'svm': svm,
+                'volume': vol,
+                'command': (
+                    f"# Schritt 1: Snapshot-UUID ermitteln (Volume: {vol}, SVM: {svm})\n"
+                    f"curl 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
+                    f"/snapshots?name=*HDBSNAP-{ttl_ts_str}*'"
+                    f" -u admin:<password>\n\n"
+                    f"# Schritt 2: Snapshot löschen\n"
+                    f"curl -X DELETE 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
+                    f"/snapshots/{{snap_uuid}}'"
+                    f" -u admin:<password>"
+                    f" -H 'Content-Type: application/json'"
+                ),
+            })
 
     return commands
