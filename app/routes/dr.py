@@ -118,22 +118,19 @@ def api_systems():
             # Identify the partner cluster (the one that is NOT this system).
             # For most vendors sname == primary_cluster (source side). For DataDomain
             # TARGET systems sname == secondary_cluster, so the partner is primary_cluster.
+            # DataDomain APIs may return FQDNs (e.g. "ddp12.itscare.prod.dom") while the
+            # inventory stores short hostnames (e.g. "ddp12"), so use _same_host() for
+            # comparison to handle the FQDN case.
             # If both clusters equal sname (e.g. StorageGRID same-grid entry), fall back
             # to sec_cluster and let the secondary_dc resolution use the raw site value.
-            if sec_cluster and sec_cluster.lower() != sname.lower():
+            if sec_cluster and not _same_host(sec_cluster, sname):
                 partner_cl = sec_cluster
-            elif primary_cl and primary_cl.lower() != sname.lower():
+            elif primary_cl and not _same_host(primary_cl, sname):
                 partner_cl = primary_cl
             else:
                 # No distinct partner found (e.g. StorageGRID single-grid setup)
                 partner_cl = ''
-            if partner_cl:
-                # Look up the DataCenter tag of the partner system (case-insensitive).
-                # Use 'unknown' when the partner system is not in the inventory or has
-                # no DataCenter tag – never fall back to the system name.
-                secondary_dc = sys_dc_map.get(partner_cl.lower(), 'unknown')
-            else:
-                secondary_dc = ''
+            secondary_dc = _resolve_dc(sys_dc_map, partner_cl) or '' if partner_cl else ''
             systems_map[sname] = {
                 'system_name': sname,
                 'vendor': rel_dict['vendor'],
@@ -243,20 +240,14 @@ def api_system(system_name):
         sname = rd.get('system_name', '')
         primary_cl = rd.get('primary_cluster') or ''
         sec_cl = rd.get('secondary_cluster') or ''
-        if sec_cl and sec_cl.lower() != sname.lower():
+        if sec_cl and not _same_host(sec_cl, sname):
             partner_cl = sec_cl
-        elif primary_cl and primary_cl.lower() != sname.lower():
+        elif primary_cl and not _same_host(primary_cl, sname):
             partner_cl = primary_cl
         else:
             partner_cl = ''
         primary_dc = sys_dc_map.get(sname.lower()) or rd.get('primary_site') or ''
-        if partner_cl:
-            # Look up the DataCenter tag of the partner system (case-insensitive).
-            # Use 'unknown' when the partner system is not in the inventory or has
-            # no DataCenter tag – never fall back to the system name.
-            secondary_dc = sys_dc_map.get(partner_cl.lower(), 'unknown')
-        else:
-            secondary_dc = ''
+        secondary_dc = _resolve_dc(sys_dc_map, partner_cl) or '' if partner_cl else ''
         enriched = dict(rd)
         enriched['primary_site'] = primary_dc
         enriched['secondary_site'] = secondary_dc
@@ -449,6 +440,39 @@ def api_rebuild():
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _same_host(a, b):
+    """Return True if *a* and *b* refer to the same host (FQDN-aware, case-insensitive).
+
+    DataDomain APIs may return FQDNs (e.g. "ddp12.itscare.prod.dom") while the
+    inventory stores only the short hostname (e.g. "ddp12").  Two names are
+    considered the same host when:
+      - they are equal after lowercasing, OR
+      - the hostname part (before the first dot) is equal after lowercasing.
+    """
+    if not a or not b:
+        return False
+    al, bl = a.lower(), b.lower()
+    if al == bl:
+        return True
+    return al.split('.')[0] == bl.split('.')[0]
+
+
+def _resolve_dc(sys_dc_map, cluster_name):
+    """Look up a DataCenter tag for *cluster_name* with FQDN fallback.
+
+    Returns the DataCenter tag string, 'unknown' when the cluster exists in
+    the relationship but has no matching DataCenter tag in the inventory, or
+    ``None`` when *cluster_name* is empty.
+    """
+    if not cluster_name:
+        return None
+    result = sys_dc_map.get(cluster_name.lower())
+    if result is None:
+        short_name = cluster_name.lower().split('.')[0]
+        result = sys_dc_map.get(short_name, 'unknown')
+    return result
+
 
 def _is_stale(build):
     """Return True if the build is older than DR_STALE_THRESHOLD_SECONDS."""

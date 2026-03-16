@@ -345,15 +345,27 @@ def generate_commands(relationship, failover_direction='planned_failover'):
     *relationship*.  This ensures that MTree paths and system names reflect
     the actual discovered environment.
 
+    When multiple MTree contexts are present (relationship_data.contexts),
+    per-MTree commands (sync, break, mtree show, filesys show space,
+    replication add) are generated for **every** MTree path.  System-level
+    commands (replication status, replication show config, filesys status,
+    alerts show) are emitted only once per phase.
+
     Supported directions: ``planned_failover``, ``failback``,
     ``disaster_recovery``.
     """
     rd = relationship.get('relationship_data', {})
-    mtree = ''
-    if isinstance(rd.get('source'), dict):
-        mtree = rd['source'].get('mtree', '/data/col1/backup')
-    else:
-        mtree = '/data/col1/backup'
+
+    # Collect all MTree paths from contexts; fall back to the single mtree
+    # stored in relationship_data.source for backward compatibility.
+    contexts = rd.get('contexts') or []
+    mtrees = [ctx.get('source_mtree') for ctx in contexts if ctx.get('source_mtree')]
+    if not mtrees:
+        if isinstance(rd.get('source'), dict):
+            fallback = rd['source'].get('mtree', '/data/col1/backup')
+        else:
+            fallback = '/data/col1/backup'
+        mtrees = [fallback]
 
     primary = relationship.get('primary_cluster') or 'dd1'
     secondary = relationship.get('secondary_cluster') or 'dd2'
@@ -362,8 +374,9 @@ def generate_commands(relationship, failover_direction='planned_failover'):
     # because the primary is down.
     dr_target = secondary
 
-    commands = {
-        'planned_failover': [
+    # Build per-MTree command blocks for each failover direction.
+    def build_planned_failover():
+        cmds = [
             {'phase': 'pre-failover', 'description': 'Check replication status',
              'cli': 'replication status', 'target': primary},
             {'phase': 'pre-failover', 'description': 'Show replication configuration',
@@ -372,31 +385,42 @@ def generate_commands(relationship, failover_direction='planned_failover'):
              'cli': 'filesys status', 'target': primary},
             {'phase': 'pre-failover', 'description': 'Show active alerts',
              'cli': 'alerts show', 'target': primary},
-            {'phase': 'pre-failover', 'description': 'Sync replication',
-             'cli': f'replication sync ctx://remote/{mtree}', 'target': primary},
-            {'phase': 'failover', 'description': 'Break replication context on destination',
-             'cli': f'replication break ctx://remote/{mtree}', 'target': secondary},
-            {'phase': 'failover', 'description': 'Show MTree status on destination',
-             'cli': f'mtree show {mtree}', 'target': secondary},
-            {'phase': 'post-failover', 'description': 'Verify data availability',
-             'cli': f'filesys show space {mtree}', 'target': secondary},
-        ],
-        'failback': [
+        ]
+        for mt in mtrees:
+            cmds.append({'phase': 'pre-failover', 'description': f'Sync replication ({mt})',
+                         'cli': f'replication sync ctx://remote/{mt}', 'target': primary})
+        for mt in mtrees:
+            cmds.append({'phase': 'failover',
+                         'description': f'Break replication context on destination ({mt})',
+                         'cli': f'replication break ctx://remote/{mt}', 'target': secondary})
+            cmds.append({'phase': 'failover', 'description': f'Show MTree status on destination ({mt})',
+                         'cli': f'mtree show {mt}', 'target': secondary})
+        for mt in mtrees:
+            cmds.append({'phase': 'post-failover', 'description': f'Verify data availability ({mt})',
+                         'cli': f'filesys show space {mt}', 'target': secondary})
+        return cmds
+
+    def build_failback():
+        cmds = [
             {'phase': 'pre-failback', 'description': 'Check primary DataDomain health',
              'cli': 'system show', 'target': primary},
-            {'phase': 'failback', 'description': 'Re-establish replication to primary',
-             'cli': f'replication add source mtree://localhost{mtree} destination mtree://{primary}{mtree}',
-             'target': secondary},
-            {'phase': 'failback', 'description': 'Sync data back to primary',
-             'cli': f'replication sync ctx://remote/{mtree}', 'target': secondary},
-            {'phase': 'post-failback', 'description': 'Verify replication health',
-             'cli': 'replication show', 'target': primary},
-        ],
-        # Disaster recovery commands executed on the *surviving* (DR/destination) system.
+        ]
+        for mt in mtrees:
+            cmds.append({'phase': 'failback',
+                         'description': f'Re-establish replication to primary ({mt})',
+                         'cli': f'replication add source mtree://localhost{mt} destination mtree://{primary}{mt}',
+                         'target': secondary})
+            cmds.append({'phase': 'failback', 'description': f'Sync data back to primary ({mt})',
+                         'cli': f'replication sync ctx://remote/{mt}', 'target': secondary})
+        cmds.append({'phase': 'post-failback', 'description': 'Verify replication health',
+                     'cli': 'replication show', 'target': primary})
+        return cmds
+
+    def build_disaster_recovery():
         # Reference: https://www.dell.com/support/kbdoc/en-us/000317549/
         #   data-domain-best-practices-for-data-migration-on-powerprotect-
         #   data-domain-systems-using-mtree-replication
-        'disaster_recovery': [
+        cmds = [
             # Phase: validation (assess last known replication state on DR system)
             {'phase': 'validation', 'description': 'Check replication status on DR system',
              'cli': 'replication status', 'target': dr_target},
@@ -406,33 +430,45 @@ def generate_commands(relationship, failover_direction='planned_failover'):
              'cli': 'filesys status', 'target': dr_target},
             {'phase': 'validation', 'description': 'Show active alerts on DR system',
              'cli': 'alerts show', 'target': dr_target},
-            # Phase: break-replication (no sync — source is down)
-            {'phase': 'break-replication', 'description': 'Break replication context on DR system',
-             'cli': f'replication break ctx://remote/{mtree}', 'target': dr_target},
-            # Phase: promote-mtree
-            {'phase': 'promote-mtree', 'description': 'Show MTree status after break',
-             'cli': f'mtree show {mtree}', 'target': dr_target},
-            {'phase': 'promote-mtree', 'description': 'Verify MTree space on DR system',
-             'cli': f'filesys show space {mtree}', 'target': dr_target},
+        ]
+        # Phase: break-replication (no sync — source is down)
+        for mt in mtrees:
+            cmds.append({'phase': 'break-replication',
+                         'description': f'Break replication context on DR system ({mt})',
+                         'cli': f'replication break ctx://remote/{mt}', 'target': dr_target})
+        # Phase: promote-mtree
+        for mt in mtrees:
+            cmds.append({'phase': 'promote-mtree', 'description': f'Show MTree status after break ({mt})',
+                         'cli': f'mtree show {mt}', 'target': dr_target})
+            cmds.append({'phase': 'promote-mtree', 'description': f'Verify MTree space on DR system ({mt})',
+                         'cli': f'filesys show space {mt}', 'target': dr_target})
+        cmds += [
             # Phase: validate-filesystem
             {'phase': 'validate-filesystem', 'description': 'Validate filesystem health',
              'cli': 'filesys status', 'target': dr_target},
             {'phase': 'validate-filesystem', 'description': 'Confirm no critical alerts',
              'cli': 'alerts show current', 'target': dr_target},
-            # Phase: recreate-replication (after primary recovery)
-            {'phase': 'recreate-replication',
-             'description': 'Re-establish MTree replication from DR back to primary',
-             'cli': (
-                 f'replication add source mtree://localhost{mtree} '
-                 f'destination mtree://{primary}{mtree}'
-             ),
-             'target': dr_target},
-            {'phase': 'recreate-replication', 'description': 'Verify recreated replication context',
-             'cli': 'replication show config', 'target': dr_target},
-        ],
-    }
+        ]
+        # Phase: recreate-replication (after primary recovery)
+        for mt in mtrees:
+            cmds.append({'phase': 'recreate-replication',
+                         'description': f'Re-establish MTree replication from DR back to primary ({mt})',
+                         'cli': (
+                             f'replication add source mtree://localhost{mt} '
+                             f'destination mtree://{primary}{mt}'
+                         ),
+                         'target': dr_target})
+        cmds.append({'phase': 'recreate-replication', 'description': 'Verify recreated replication context',
+                     'cli': 'replication show config', 'target': dr_target})
+        return cmds
 
-    return commands.get(failover_direction, commands['planned_failover'])
+    builders = {
+        'planned_failover': build_planned_failover,
+        'failback': build_failback,
+        'disaster_recovery': build_disaster_recovery,
+    }
+    builder = builders.get(failover_direction, builders['planned_failover'])
+    return builder()
 
 
 # ---------------------------------------------------------------------------
@@ -466,7 +502,7 @@ def generate_topology_diagram(relationship):
         f'      {a_id}_na[["Node-A\\n(Controller)"]]',
         f'      {a_id}_nb[["Node-B\\n(Controller)"]]',
         f'      {a_id}_vip(["Mgmt VIP"])',
-        f'      {a_id}_mt[["{mtree or "/data/col1"}\\n(MTree)"]]]',
+        f'      {a_id}_mt[["{mtree or "/data/col1"}\\n(MTree)"]]',
         '    end',
         f'    BCK_A[("Backup Server")]',
         f'    BCK_A -->|"Backup"| {a_id}_appliance',
@@ -476,7 +512,7 @@ def generate_topology_diagram(relationship):
         f'      {b_id}_na[["Node-A\\n(Controller)"]]',
         f'      {b_id}_nb[["Node-B\\n(Controller)"]]',
         f'      {b_id}_vip(["Mgmt VIP"])',
-        f'      {b_id}_mt[["{mtree or "/data/col1"}\\n(MTree Replica)"]]]',
+        f'      {b_id}_mt[["{mtree or "/data/col1"}\\n(MTree Replica)"]]',
         '    end',
         '  end',
         f'  {a_id}_mt -->|"{mtree_label}\\n(Asynchronous)"| {b_id}_mt',
@@ -518,4 +554,12 @@ def generate_runbook(relationship, failover_direction='planned_failover'):
 
 
 def _safe_id(name):
-    return name.replace(' ', '_').replace('-', '_').replace('/', '_')
+    return (
+        name
+        .replace(' ', '_')
+        .replace('-', '_')
+        .replace('/', '_')
+        .replace('.', '_')
+        .replace('[', '_')
+        .replace(']', '_')
+    )
