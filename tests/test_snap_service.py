@@ -405,3 +405,36 @@ def test_reconciliation_keeps_stale_with_comment(app):
         assert kept.flasharray_present is False
         assert kept.ontap_present is False
         assert kept.comment == 'Wichtiger Hinweis'
+
+
+def test_do_collect_skips_snaps_disabled_systems(app):
+    """_do_collect must not query systems where snaps_enabled=False."""
+    from app import db
+    from app.models import StorageSystem
+    from unittest.mock import patch
+
+    with app.app_context():
+        sys_on = StorageSystem(
+            name='sys-snaps-on', vendor='pure', ip_address='1.2.3.4',
+            enabled=True, snaps_enabled=True,
+        )
+        sys_off = StorageSystem(
+            name='sys-snaps-off', vendor='pure', ip_address='1.2.3.5',
+            enabled=True, snaps_enabled=False,
+        )
+        db.session.add_all([sys_on, sys_off])
+        db.session.commit()
+
+    queried_names = []
+
+    def mock_collect(system):
+        queried_names.append(system.name)
+        return {'system_id': system.id, 'system_name': system.name,
+                'vendor': system.vendor, 'flasharray_snaps': [], 'ontap_snaps': []}
+
+    with patch('app.snap_service._collect_system_snapshots', side_effect=mock_collect):
+        from app.snap_service import _do_collect
+        _do_collect(app)
+
+    assert 'sys-snaps-on' in queried_names
+    assert 'sys-snaps-off' not in queried_names

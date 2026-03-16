@@ -30,6 +30,8 @@ ALLOWED_COLUMNS = {
     'ha_info': 'TEXT',
     # storage_systems – Pure1 array name override for Evergreen One physical capacity
     'pure1_array_name': 'VARCHAR(100)',
+    # storage_systems – whether to collect snapshots from this system
+    'snaps_enabled': 'INTEGER',
     # app_settings – originally present columns that may be absent in older installs
     'primary_color': 'VARCHAR(7)',
     'secondary_color': 'VARCHAR(7)',
@@ -59,6 +61,7 @@ ALLOWED_COLUMNS = {
 _DIALECT_TYPE_OVERRIDES = {
     'last_discovery': {'postgresql': 'TIMESTAMP'},
     'logo_data':      {'postgresql': 'BYTEA'},
+    'snaps_enabled':  {'postgresql': 'BOOLEAN'},
 }
 
 
@@ -163,6 +166,7 @@ def migrate_storage_systems_table():
         ('metrocluster_dr_groups', ALLOWED_COLUMNS['metrocluster_dr_groups']),
         ('ha_info',             ALLOWED_COLUMNS['ha_info']),
         ('pure1_array_name',    ALLOWED_COLUMNS['pure1_array_name']),
+        ('snaps_enabled',       ALLOWED_COLUMNS['snaps_enabled']),
     ]
     for col_name, col_type in nullable_columns:
         if add_column_if_not_exists('storage_systems', col_name, col_type):

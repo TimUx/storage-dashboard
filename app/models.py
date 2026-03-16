@@ -75,7 +75,8 @@ class StorageSystem(db.Model):
     _api_token = db.Column('api_token', db.Text)  # Encrypted
     port = db.Column(db.Integer, default=443)
     enabled = db.Column(db.Boolean, default=True)
-    
+    snaps_enabled = db.Column(db.Boolean, default=True)
+
     # Cluster type information
     cluster_type = db.Column(db.String(50))  # e.g., 'local', 'metrocluster', 'ha', 'active-cluster', 'multi-site'
     node_count = db.Column(db.Integer)  # Number of nodes (mainly for StorageGRID)

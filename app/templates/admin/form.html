@@ -266,6 +266,15 @@
             </div>
             <small>Deaktivierte Systeme werden nicht im Dashboard angezeigt</small>
         </div>
+
+        <div class="form-group">
+            <div class="checkbox-group">
+                <input type="checkbox" id="snaps_enabled" name="snaps_enabled"
+                       {{ 'checked' if not system or system.snaps_enabled else '' }}>
+                <label for="snaps_enabled" style="margin-bottom: 0;">Snaps abrufen</label>
+            </div>
+            <small>Snapshots von diesem System abrufen (nur wenn aktiviert)</small>
+        </div>
         
         {% if tag_groups %}
         <div class="credential-section">
