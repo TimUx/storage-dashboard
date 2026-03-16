@@ -204,6 +204,8 @@ storage-dashboard/
 │   ├── status_service.py         # Background-Service: Status-Polling & Caching
 │   ├── capacity_service.py       # Background-Service: Kapazitätsdaten & History
 │   ├── sod_service.py            # Background-Service: Pure1 SoD (wöchentlich)
+│   ├── snap_service.py           # Background-Service: Snapshot-Collector (alle 15 Min.)
+│   ├── dr_service.py             # Background-Service: DR-Build-Pipeline (wöchentlich)
 │   ├── system_logging.py         # System-Log-Helfer (log_system_event)
 │   │
 │   ├── api/                      # Storage-System API-Clients
@@ -218,7 +220,9 @@ storage-dashboard/
 │   │   ├── admin.py              # Admin-Bereich (/admin/*)
 │   │   ├── api.py                # REST API Endpunkte (/api/*)
 │   │   ├── alerts.py             # Alerts-Seite (/alerts/)
-│   │   └── capacity.py           # Kapazitätsreport (/capacity/)
+│   │   ├── capacity.py           # Kapazitätsreport (/capacity/)
+│   │   ├── snaps.py              # Snapshot-Verwaltung (/snaps/)
+│   │   └── dr.py                 # DR Planner (/dr/)
 │   │
 │   ├── templates/                # Jinja2 HTML-Templates
 │   │   ├── base.html             # Basis-Layout (Navbar, CSS-Links, Block-Definitionen)
@@ -226,6 +230,7 @@ storage-dashboard/
 │   │   ├── alerts.html           # Alerts-Seite
 │   │   ├── details.html          # System-Detailansicht
 │   │   ├── capacity.html         # Kapazitätsreport
+│   │   ├── snaps.html            # Snapshot-Verwaltung
 │   │   └── admin/                # Admin-Templates
 │   │       ├── index.html        # Admin-Übersicht
 │   │       ├── form.html         # Formular: System hinzufügen/bearbeiten
@@ -302,6 +307,10 @@ SubscriptionLicenseCache (1)    # Pure1 SoD-Lizenzdaten (JSON)
 SodHistory (N)                  # Historische SoD-Werte
 AlertState (N)                  # Alert-Acknowledge/Assignee/Kommentar
 AssigneeHistory (N)             # Assignee-Verlauf (Autocomplete)
+
+SnapshotRecord (N)              # DB-Snapshot-Eintrag (SID + Zeitstempel)
+SnapshotAuditLog (N)            # TTL-Änderungsprotokoll
+SnapshotCollectorMetadata (N)   # Metadaten der Collector-Läufe
 ```
 
 ### 5.2 Wichtige Modelle im Detail
@@ -384,6 +393,49 @@ Speichert Acknowledge-/Assignee-/Kommentar-Zustand pro Alert.
 | `assignee` | String(100) | Zugewiesener Benutzer |
 | `comment` | Text | Freitext-Kommentar |
 | `updated_at` | DateTime | Letzter Update |
+
+#### SnapshotRecord
+
+Ein logischer Snapshot-Datensatz, identifiziert durch SID + Erstellungszeitpunkt. Mehrere FlashArray-LUN-Snapshots derselben SID und desselben Zeitstempels werden zu einem Eintrag aggregiert.
+
+| Feld | Typ | Beschreibung |
+|------|-----|-------------|
+| `sid` | String(10) | SAP-SID (z.B. `ACP`, `YZ4`) |
+| `creation_time` | DateTime | Erstellungszeitpunkt (aus Snapshot-Name extrahiert) |
+| `ttl` | DateTime | Ablaufzeitpunkt (aus Snapshot-Name extrahiert) |
+| `flasharray_present` | Boolean | Snapshot auf FlashArray vorhanden (auto) |
+| `ontap_present` | Boolean | Snapshot auf ONTAP vorhanden (auto) |
+| `comment` | Text | Operator-Anmerkung |
+| `delete_marked` | Boolean | Lösch-Markierung gesetzt |
+| `delete_deadline` | DateTime | Lösch-Deadline (UTC, 24h nach Markierung) |
+| `storage_locations` | Text (JSON) | `{flasharray_systems:[…], ontap_clusters:[…]}` |
+| `last_seen` | DateTime | Zeitstempel des letzten Collector-Laufs, der diesen Eintrag aktualisiert hat |
+| Unique: | (`sid`, `creation_time`) | Zusammengesetzter Primärschlüssel |
+
+#### SnapshotAuditLog
+
+Protokolliert TTL-Änderungen durch Operatoren.
+
+| Feld | Typ | Beschreibung |
+|------|-----|-------------|
+| `snapshot_id` | FK → SnapshotRecord | Zugehöriger Snapshot |
+| `old_ttl` | DateTime | TTL vor der Änderung |
+| `new_ttl` | DateTime | TTL nach der Änderung |
+| `changed_by` | String(100) | Operatorname oder IP-Adresse |
+| `changed_at` | DateTime | Zeitstempel der Änderung |
+
+#### SnapshotCollectorMetadata
+
+Metadaten zu jedem Collector-Lauf (für Statusanzeige in der UI).
+
+| Feld | Typ | Beschreibung |
+|------|-----|-------------|
+| `run_at` | DateTime | Startzeitpunkt des Laufs |
+| `duration_seconds` | Float | Laufzeit in Sekunden |
+| `systems_queried` | Integer | Anzahl abgefragter Systeme |
+| `snapshots_stored` | Integer | Neu gespeicherte Einträge |
+| `status` | String | `success` oder `error` |
+| `error_message` | Text | Fehlermeldung (bei status=error) |
 
 
 ---
@@ -653,9 +705,50 @@ von Verlaufsdatenpunkten (bis 2 Jahre).
 2. `pure1_client.fetch_subscription_licenses()` aufrufen
 3. Ergebnis in `SubscriptionLicenseCache` (1 Zeile, Singleton) speichern
 
-### 8.4 Thread-Sicherheit
+### 8.4 `snap_service.py` – Snapshot-Collector
 
-Alle drei Services verwenden dasselbe Muster:
+**Aufgabe:** Regelmäßiges Einlesen aller HANA-Snapshots von Pure FlashArray- und NetApp ONTAP-Systemen, Speichern in `snapshot_records` und Abgleich mit dem Storage (Reconciliation).
+
+**Intervall:** 15 Minuten (konfigurierbar via `SNAP_COLLECT_INTERVAL_SECONDS`, Standard `900`)
+
+**SID-Erkennung:** Regex `(?:vg)?([A-Z0-9]{3,5})(?:_|\.)` → extrahiert 3–5-stellige SAP-SID vom Anfang des Snapshot-Namens.
+
+**TTL-Erkennung:** Regex `(\d{4}-\d{2}-\d{2}-\d{6})` → extrahiert Zeitstempel aus `HDBSNAP-YYYY-MM-DD-HHMMSS`-Suffix.
+
+```
+start_background_refresh(app)
+    │
+    ▼
+_background_loop() [Thread]
+    │
+    ├── _do_collect(app)
+    │   │
+    │   ├── StorageSystem.query.filter_by(enabled=True)
+    │   │
+    │   ├── ThreadPoolExecutor (max 32 Worker)
+    │   │   ├── _collect_flasharray_snapshots(system, app)
+    │   │   │   └── GET /api/{ver}/volume-snapshots → _parse_fa_snapshots()
+    │   │   └── _collect_ontap_snapshots(system, app)
+    │   │       └── GET /storage/volumes/{uuid}/snapshots → _parse_ontap_snapshots()
+    │   │
+    │   ├── _group_by_sid_and_time(fa_snaps, ontap_snaps)  # Aggregierung
+    │   │
+    │   └── _upsert_snapshot_records(app, aggregated, systems_queried)
+    │       ├── INSERT/UPDATE snapshot_records (last_seen = run_start)
+    │       ├── Reconciliation: stale records (last_seen < run_start)
+    │       │   ├── ohne Kommentar → DELETE
+    │       │   └── mit Kommentar → flasharray/ontap_present = False
+    │       └── INSERT SnapshotCollectorMetadata
+    │
+    └── _process_expired_deletions(app)
+        └── DELETE expired records (delete_marked + delete_deadline <= now)
+```
+
+**Manueller Trigger:** `POST /snaps/api/trigger-collect` → setzt `_collect_event`
+
+### 8.5 Thread-Sicherheit
+
+Alle Services verwenden dasselbe Muster:
 
 ```python
 _background_thread_started = False
@@ -684,6 +777,8 @@ def start_background_thread(app):
 | `api` | `/api` | `routes/api.py` | REST API |
 | `alerts` | `/alerts` | `routes/alerts.py` | Alerts-Seite |
 | `capacity` | `/capacity` | `routes/capacity.py` | Kapazitätsreport |
+| `snaps` | `/snaps` | `routes/snaps.py` | Snapshot-Verwaltung |
+| `dr` | `/dr` | `routes/dr.py` | DR Planner |
 
 ### 9.2 Wichtige Endpunkte
 
@@ -726,6 +821,18 @@ def start_background_thread(app):
 | `/api/alerts/state` | POST | Alert-Zustände aktualisieren (bulk) |
 | `/api/alerts/assignees` | GET | Assignee-Historie |
 | `/api/alerts/assignees/<name>` | DELETE | Assignee aus Historie entfernen |
+
+**Snapshot-Verwaltung (`snaps`):**
+
+| Route | Methode | Beschreibung |
+|-------|---------|-------------|
+| `/snaps/` | GET | Snapshot-Übersichtsseite (HTML) |
+| `/snaps/api/list` | GET | Alle Snapshot-Einträge mit Stats (JSON) |
+| `/snaps/api/update-ttl` | POST | TTL eines Snapshots aktualisieren + CURL-Simulation |
+| `/snaps/api/delete` | POST | Snapshot für Löschung markieren (24h Deadline) |
+| `/snaps/api/undo-delete` | POST | Löschmarkierung aufheben |
+| `/snaps/api/comment` | POST | Operator-Kommentar speichern |
+| `/snaps/api/trigger-collect` | POST | Sofortigen Collector-Lauf auslösen |
 
 ---
 
@@ -928,6 +1035,52 @@ GET https://api.pure1.purestorage.com/api/1.0/oauth2/token
 GET https://api.pure1.purestorage.com/api/1.0/subscription-assets
     Header: Authorization: Bearer <access_token>
     Response: Liste der SoD-Lizenzen
+```
+
+### 11.7 Workflow: Snapshot-Collector
+
+```
+snap_service._background_loop()
+    │
+    ▼ (nach Ablauf von SNAP_COLLECT_INTERVAL_SECONDS oder _collect_event)
+_do_collect(app)
+    │
+    ├── StorageSystem.query.filter_by(enabled=True)
+    │
+    ├── ThreadPoolExecutor (max 32 Worker)
+    │   ├── _collect_flasharray_snapshots(fa_system, app)
+    │   │   ├── PureStorageClient.login()
+    │   │   ├── GET /api/{ver}/volume-snapshots
+    │   │   └── Für jeden Snapshot:
+    │   │       ├── extract_sid(name)   → "ACP"
+    │   │       └── extract_ttl(name)   → datetime(2026-03-18 02:47:22)
+    │   │
+    │   └── _collect_ontap_snapshots(ontap_system, app)
+    │       ├── GET /storage/volumes (alle Volumes mit HDBSNAP-Snapshots)
+    │       └── GET /storage/volumes/{uuid}/snapshots
+    │
+    ├── _group_by_sid_and_time(fa_snaps, ontap_snaps)
+    │   └── Dict {(SID, creation_time): aggregated_record}
+    │       (mehrere LUN-Snapshots derselben SID/Zeit → ein Eintrag)
+    │
+    └── _upsert_snapshot_records(app, aggregated, systems_queried)
+        │
+        ├── run_start = datetime.utcnow()
+        ├── for rec_data in aggregated:
+        │   ├── SnapshotRecord.query.filter_by(sid, creation_time).first()
+        │   │   ├── vorhanden → UPDATE (presence flags, storage_locations, last_seen=run_start)
+        │   │   └── neu → INSERT (last_seen=run_start)
+        │
+        ├── Reconciliation (stale = last_seen < run_start):
+        │   ├── ohne Kommentar → db.session.delete(rec)
+        │   └── mit Kommentar → flasharray_present=False, ontap_present=False
+        │
+        ├── SnapshotCollectorMetadata speichern
+        └── db.session.commit()
+
+_process_expired_deletions(app)
+    └── SnapshotRecord.query.filter(delete_marked, delete_deadline <= now)
+        └── db.session.delete(rec) für alle abgelaufenen Einträge
 ```
 
 ---
@@ -1249,4 +1402,4 @@ tests/test_my_new_vendor.py
 
 ---
 
-*Storage Dashboard Developer Guide – Version 1.0 – März 2026*
+*Storage Dashboard Developer Guide – Version 1.1 – März 2026*
