@@ -14,6 +14,7 @@ Set DEMO_RESET=1 to wipe all existing systems/snapshots first:
 """
 import os
 import sys
+import json
 import random
 from datetime import date, datetime, timedelta
 
@@ -23,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault('SECRET_KEY', 'demo-seed-secret-key')
 
 from app import create_app, db
-from app.models import StorageSystem, TagGroup, Tag, CapacitySnapshot, CapacityHistory, SodHistory
+from app.models import StorageSystem, TagGroup, Tag, CapacitySnapshot, CapacityHistory, SodHistory, SnapshotRecord, SnapshotCollectorMetadata
 
 # ---------------------------------------------------------------------------
 # Demo system definitions
@@ -234,6 +235,8 @@ def seed(reset=False):
             CapacityHistory.query.delete()
             CapacitySnapshot.query.delete()
             StorageSystem.query.delete()
+            SnapshotRecord.query.delete()
+            SnapshotCollectorMetadata.query.delete()
             db.session.commit()
 
         # Fetch tag lookup: {group_name: {tag_name: Tag}}
@@ -343,7 +346,12 @@ def seed(reset=False):
         _seed_sod_history(app, today, start_date, history_days)
         print(f'  SoD history rows: {SodHistory.query.count()}')
         print()
+
+        # ── Seed snapshot demo records ─────────────────────────────────────
+        _seed_snapshot_records(app)
+        print()
         print('Open http://localhost:5000/capacity/ to view the Kapazitätsreport.')
+        print('Open http://localhost:5000/snaps/ to view the Snapshot-Verwaltung.')
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +409,105 @@ def _seed_sod_history(app, today, start_date, history_days):
                         on_demand_tb=on_demand,
                     ))
         db.session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Demo snapshot definitions
+# Each entry: (sid, fa_array, ontap_cluster, svm, days_ago, ttl_days_from_creation,
+#               comment, fa_only)
+#
+# ttl_days_from_creation: TTL = creation_time + timedelta(days=ttl_days_from_creation)
+# SIDs are neutral, invented 3-character identifiers – no real customer data.
+# ---------------------------------------------------------------------------
+
+_DEMO_SNAPSHOTS = [
+    # SID, FA array,            ONTAP cluster,       SVM,          days_ago, ttl_from_creation, comment,                     fa_only
+    ('NXD', 'fa-prod-block-01', 'ontap-prod-01',     'svm_nxd',    1,        7,                 '',                          False),
+    ('NXD', 'fa-prod-block-01', 'ontap-prod-01',     'svm_nxd',    4,        7,                 '',                          False),
+    ('NXD', 'fa-prod-block-01', 'ontap-prod-01',     'svm_nxd',    8,        6,                 'Veralteter Snapshot prüfen', False),
+    ('BWP', 'fa-prod-block-01', 'ontap-prod-01',     'svm_bwp',    0,        7,                 '',                          False),
+    ('BWP', 'fa-prod-block-01', 'ontap-prod-01',     'svm_bwp',    3,        7,                 '',                          False),
+    ('BWP', 'fa-prod-block-01', 'ontap-prod-01',     'svm_bwp',    7,        8,                 '',                          False),
+    ('BWP', 'fa-prod-block-01', 'ontap-prod-01',     'svm_bwp',   12,        8,                 'Abgelaufen – löschen?',     False),
+    ('MQT', 'fa-prod-block-02', 'ontap-prod-02',     'svm_mqt',    2,        7,                 '',                          False),
+    ('MQT', 'fa-prod-block-02', 'ontap-prod-02',     'svm_mqt',    6,        8,                 '',                          False),
+    ('MQT', 'fa-prod-block-02', 'ontap-prod-02',     'svm_mqt',   11,       10,                 '',                          False),
+    ('RVK', 'fa-test-block-01', 'ontap-test-01',     'svm_rvk',    1,        7,                 '',                          False),
+    ('RVK', 'fa-test-block-01', 'ontap-test-01',     'svm_rvk',    5,        7,                 'Test-Snapshot',             False),
+    ('RVK', 'fa-test-block-01', 'ontap-test-01',     'svm_rvk',   10,       10,                 '',                          False),
+    ('TZX', 'fa-test-block-01', '',                  '',           2,        7,                 '',                          True),
+    ('TZX', 'fa-test-block-01', '',                  '',           9,        6,                 'Nur FA – kein NFS',         True),
+    ('KWN', 'fa-prod-block-02', 'ontap-prod-02',     'svm_kwn',    0,        7,                 '',                          False),
+    ('KWN', 'fa-prod-block-02', 'ontap-prod-02',     'svm_kwn',    3,        7,                 '',                          False),
+    ('KWN', 'fa-prod-block-02', 'ontap-prod-02',     'svm_kwn',   14,        9,                 'Abgelaufen',                False),
+]
+
+
+def _seed_snapshot_records(app):
+    """Seed demo SnapshotRecord rows with invented SIDs.
+
+    Uses neutral, fictitious 3-character SIDs so no real customer data appears
+    in screenshots or demo environments.
+    """
+    with app.app_context():
+        print('Seeding snapshot demo records…')
+        now = datetime.utcnow()
+
+        for (sid, fa_array, ontap_cluster, svm, days_ago, ttl_from_creation,
+             comment, fa_only) in _DEMO_SNAPSHOTS:
+
+            creation_time = now - timedelta(days=days_ago, hours=2)
+            ttl = creation_time + timedelta(days=ttl_from_creation)
+
+            ts_str = creation_time.strftime('%Y-%m-%d-%H%M%S')
+            snap_names = [
+                f'{sid}_1_data.HDBSNAP-{ts_str}',
+                f'{sid}_1_log.HDBSNAP-{ts_str}',
+                f'{sid}_2_data.HDBSNAP-{ts_str}',
+            ]
+            locs = {
+                'flasharray_systems': [
+                    {'name': fa_array, 'snapshot_names': snap_names},
+                ],
+                'ontap_clusters': [],
+            }
+            if not fa_only and ontap_cluster:
+                locs['ontap_clusters'].append({
+                    'cluster': ontap_cluster,
+                    'svm': svm,
+                    'volumes': [f'vol_{sid.lower()}_data', f'vol_{sid.lower()}_log'],
+                })
+
+            existing = SnapshotRecord.query.filter_by(
+                sid=sid, creation_time=creation_time
+            ).first()
+            if existing:
+                continue
+
+            rec = SnapshotRecord(
+                sid=sid,
+                creation_time=creation_time,
+                ttl=ttl,
+                flasharray_present=True,
+                ontap_present=(not fa_only and bool(ontap_cluster)),
+                comment=comment,
+                storage_locations=json.dumps(locs),
+                last_seen=now,
+            )
+            db.session.add(rec)
+
+        # Record a successful collector run so the UI shows "last update"
+        meta = SnapshotCollectorMetadata(
+            run_at=now,
+            status='ok',
+            systems_queried=6,
+            snapshots_stored=len(_DEMO_SNAPSHOTS),
+        )
+        db.session.add(meta)
+        db.session.commit()
+
+        total = SnapshotRecord.query.count()
+        print(f'  Snapshot records: {total}')
 
 
 if __name__ == '__main__':

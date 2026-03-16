@@ -138,7 +138,7 @@ Durch Klick auf den ▶-Button wird eine Zeile aufgeklappt und zeigt die konkret
 
 ![Snapshot-Detail mit FlashArray und ONTAP](screenshots/snaps-detail.png)
 
-*Detail-Ansicht: FlashArray-Snapshots auf zwei Arrays (fa-prod-dc1, fa-prod-dc2) mit LUN-Namen und ONTAP-Volumes (HANA_ACP, HANA_ACP_log) auf ontap-prod-dc1 / svm_hana*
+*Detail-Ansicht: FlashArray-Snapshots (fa-prod-block-01) mit LUN-Namen und ONTAP-Volumes (vol_bwp_data, vol_bwp_log) auf ontap-prod-01 / svm_bwp*
 
 ### Funktionen im Überblick
 
