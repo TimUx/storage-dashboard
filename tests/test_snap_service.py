@@ -426,6 +426,99 @@ def test_group_by_sid_matches_ontap():
     assert result[0]['flasharray_present'] is True
 
 
+def test_group_by_sid_oracle_ttl_index_match():
+    """Oracle FA+ONTAP snaps with same TTL but different creation_time → one record.
+
+    Oracle snapshots embed the expiry date (TTL) in the snapshot name, not the
+    creation time.  As a result, the FA record is keyed by creation_time_minute
+    while the ONTAP snap carries the same TTL but a different (potentially
+    timezone-shifted) creation_time.  The secondary TTL index must bridge this
+    gap and yield a single merged record.
+    """
+    from app.snap_service import _group_by_sid_and_time
+
+    ttl = datetime(2026, 3, 20, 17, 15, 51)  # expiry date – same for both
+    fa_creation = datetime(2026, 3, 16, 16, 15, 58)   # UTC creation time on FA
+    # ONTAP creation_time is 1 hour later (CET already normalised to UTC here;
+    # the raw CET offset is corrected in _collect_ontap_snapshots before this
+    # function is called – so both values are already UTC-naive).
+    ontap_creation = datetime(2026, 3, 16, 16, 16, 3)
+
+    fa_snap = {
+        'sid': 'A4P',
+        'snapshot_name': 'pod-x86-1112::vgA4P_1.2026-03-20-171551',
+        'creation_time': fa_creation,
+        'ttl': ttl,
+        'array_name': 'pure12',
+    }
+    ontap_snap = {
+        'sid': 'A4P',
+        'snapshot_name': 'A4P.2026-03-20-171551',
+        'creation_time': ontap_creation,
+        'ttl': ttl,
+        'cluster_name': 'FASMC1',
+        'svm_name': 'nfs01',
+        'volume_name': 'ORA_A4P',
+    }
+
+    result = _group_by_sid_and_time([fa_snap], [ontap_snap])
+    # Must produce exactly ONE merged record, not two separate ones
+    assert len(result) == 1, (
+        f"Expected 1 merged record, got {len(result)}: {result}"
+    )
+    rec = result[0]
+    assert rec['sid'] == 'A4P'
+    assert rec['flasharray_present'] is True
+    assert rec['ontap_present'] is True
+    assert rec['ttl'] == ttl
+
+    locs = json.loads(rec['storage_locations'])
+    assert len(locs['flasharray_systems']) == 1
+    assert locs['flasharray_systems'][0]['name'] == 'pure12'
+    assert len(locs['ontap_clusters']) == 1
+    assert locs['ontap_clusters'][0]['cluster'] == 'FASMC1'
+
+
+def test_group_by_sid_oracle_two_fa_arrays_and_ontap():
+    """Oracle: ActiveCluster (two FA arrays) + ONTAP → one merged record."""
+    from app.snap_service import _group_by_sid_and_time
+
+    ttl = datetime(2026, 3, 20, 17, 15, 51)
+    fa_creation = datetime(2026, 3, 16, 16, 15, 58)
+    ontap_creation = datetime(2026, 3, 16, 16, 16, 3)
+
+    common_fa = {
+        'sid': 'A4P',
+        'snapshot_name': 'pod-x86-1112::vgA4P_1.2026-03-20-171551',
+        'creation_time': fa_creation,
+        'ttl': ttl,
+    }
+    fa_snaps = [
+        {**common_fa, 'array_name': 'pure11'},
+        {**common_fa, 'array_name': 'pure12'},
+    ]
+    ontap_snap = {
+        'sid': 'A4P',
+        'snapshot_name': 'A4P.2026-03-20-171551',
+        'creation_time': ontap_creation,
+        'ttl': ttl,
+        'cluster_name': 'FASMC1',
+        'svm_name': 'nfs01',
+        'volume_name': 'ORA_A4P',
+    }
+
+    result = _group_by_sid_and_time(fa_snaps, [ontap_snap])
+    assert len(result) == 1, f"Expected 1 record, got {len(result)}"
+    rec = result[0]
+    assert rec['flasharray_present'] is True
+    assert rec['ontap_present'] is True
+
+    locs = json.loads(rec['storage_locations'])
+    fa_names = {s['name'] for s in locs['flasharray_systems']}
+    assert fa_names == {'pure11', 'pure12'}
+    assert len(locs['ontap_clusters']) == 1
+
+
 # ---------------------------------------------------------------------------
 # API endpoint tests
 # ---------------------------------------------------------------------------
@@ -959,6 +1052,49 @@ def test_collect_ontap_snaps_excludes_trident_volumes():
     assert 'CLONE' not in sids, "Trident PVC clone snapshot must be excluded"
     assert 'ABP' in sids, "Legitimate HANA snapshot must be included"
     assert len(result) == 1
+
+
+def test_collect_ontap_snaps_creation_time_utc_normalisation():
+    """ONTAP create_time with a non-UTC offset is normalised to UTC.
+
+    The ONTAP REST API returns timestamps with the local timezone offset
+    (e.g. +01:00 for CET).  The collector must convert to UTC before storing,
+    so that creation_time is comparable with FlashArray timestamps (which are
+    always UTC).
+
+    CET = UTC+1: 2026-03-16T17:16:03+01:00 → 2026-03-16T16:16:03 UTC
+    """
+    from unittest.mock import MagicMock, patch
+    from app.snap_service import _collect_ontap_snapshots
+
+    mock_raw = [
+        {
+            'name': 'A4P.2026-03-20-171551',
+            'create_time': '2026-03-16T17:16:03+01:00',   # CET timestamp
+            'volume': 'ORA_A4P',
+            'svm': 'nfs01',
+            'cluster': 'FASMC1',
+        },
+    ]
+
+    system = MagicMock()
+    system.vendor = 'netapp-ontap'
+    system.name = 'FASMC1'
+
+    with patch('app.api.get_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.get_volume_snapshots.return_value = mock_raw
+        mock_get_client.return_value = mock_client
+        result = _collect_ontap_snapshots(system)
+
+    assert len(result) == 1
+    ct = result[0]['creation_time']
+    assert ct is not None
+    # After UTC normalisation, the hour must be 16, not 17
+    assert ct.hour == 16, (
+        f"creation_time {ct} should be UTC 16:16:03, not CET 17:16:03"
+    )
+    assert ct.minute == 16
 
 
 def test_get_volume_snapshots_converts_epoch_ms():

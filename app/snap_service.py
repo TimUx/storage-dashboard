@@ -89,7 +89,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import or_
 
@@ -297,11 +297,12 @@ def _collect_flasharray_snapshots(system):
             created_raw = snap.get('created') or ''
             creation_time: datetime | None = None
             if isinstance(created_raw, str) and created_raw:
-                for fmt in ('%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S'):
+                for fmt in ('%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%S'):
                     try:
-                        creation_time = datetime.strptime(
-                            created_raw.replace('Z', '+00:00'), fmt
-                        ).replace(tzinfo=None)
+                        dt = datetime.strptime(created_raw.replace('Z', '+00:00'), fmt)
+                        if dt.tzinfo is not None:
+                            dt = dt.astimezone(timezone.utc)
+                        creation_time = dt.replace(tzinfo=None)
                         break
                     except ValueError:
                         pass
@@ -384,11 +385,12 @@ def _collect_ontap_snapshots(system):
             created_raw = snap.get('create_time') or snap.get('creation_time') or ''
             creation_time: datetime | None = None
             if created_raw:
-                for fmt in ('%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S'):
+                for fmt in ('%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%S'):
                     try:
-                        creation_time = datetime.strptime(
-                            created_raw.replace('Z', '+00:00'), fmt
-                        ).replace(tzinfo=None)
+                        dt = datetime.strptime(created_raw.replace('Z', '+00:00'), fmt)
+                        if dt.tzinfo is not None:
+                            dt = dt.astimezone(timezone.utc)
+                        creation_time = dt.replace(tzinfo=None)
                         break
                     except ValueError:
                         pass
@@ -521,29 +523,53 @@ def _group_by_sid_and_time(all_fa_snaps, all_ontap_snaps):
         if ttl and (rec['ttl'] is None or ttl > rec['ttl']):
             rec['ttl'] = ttl
 
+    # Build a secondary index: (sid, ttl_minute) → record_key so that ONTAP
+    # snaps can be matched to FA records by TTL even when the FA record was
+    # keyed by creation_time (Oracle case: TTL is the expiry date, days after
+    # the snapshot was taken, so ttl_minute ≠ creation_time_minute).
+    ttl_index: dict[tuple, tuple] = {}
+    for rec_key, rec in records.items():
+        rec_ttl = rec.get('ttl')
+        if rec_ttl:
+            ttl_min = rec_ttl.replace(second=0, microsecond=0)
+            idx_key = (rec['sid'], ttl_min)
+            if idx_key not in ttl_index:
+                ttl_index[idx_key] = rec_key
+
     # Match ONTAP snapshots to existing FA records (or create standalone ones)
     for snap in all_ontap_snaps:
         sid = snap['sid']
         ts: datetime | None = snap.get('creation_time')
         ttl = snap.get('ttl')
 
-        # Try to match by TTL timestamp (primary link between FA and ONTAP snaps)
+        # Try to match by TTL timestamp (primary link between FA and ONTAP snaps).
+        # FA records are keyed by (sid, creation_time_minute).  For HANA snaps,
+        # TTL ≈ creation_time (same minute), so a direct key lookup works.
+        # For Oracle snaps, TTL is the expiry date (days later), so the direct
+        # lookup fails – fall back to the secondary TTL index built above.
         matched = False
+        matched_key = None
         if ttl:
             ttl_minute = ttl.replace(second=0, microsecond=0)
-            record_key = (sid, ttl_minute)
-            if record_key in records:
-                records[record_key]['ontap_present'] = True
-                cluster = snap.get('cluster_name', '')
-                svm = snap.get('svm_name', '')
-                vol = snap.get('volume_name', '')
-                cluster_key = cluster
-                records[record_key]['ontap_clusters'].setdefault(
-                    cluster_key, {'cluster': cluster, 'svm': svm, 'volumes': []}
-                )
-                if vol and vol not in records[record_key]['ontap_clusters'][cluster_key]['volumes']:
-                    records[record_key]['ontap_clusters'][cluster_key]['volumes'].append(vol)
+            ttl_key = (sid, ttl_minute)
+            if ttl_key in records:
+                matched_key = ttl_key
                 matched = True
+            elif ttl_key in ttl_index:
+                matched_key = ttl_index[ttl_key]
+                matched = True
+
+        if matched and matched_key is not None:
+            records[matched_key]['ontap_present'] = True
+            cluster = snap.get('cluster_name', '')
+            svm = snap.get('svm_name', '')
+            vol = snap.get('volume_name', '')
+            cluster_key = cluster
+            records[matched_key]['ontap_clusters'].setdefault(
+                cluster_key, {'cluster': cluster, 'svm': svm, 'volumes': []}
+            )
+            if vol and vol not in records[matched_key]['ontap_clusters'][cluster_key]['volumes']:
+                records[matched_key]['ontap_clusters'][cluster_key]['volumes'].append(vol)
 
         if not matched:
             # Standalone ONTAP snapshot (no matching FA snap)
