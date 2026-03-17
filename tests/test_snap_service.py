@@ -134,6 +134,162 @@ def test_extract_ttl_no_match():
     assert extract_ttl('no-timestamp-here') is None
 
 
+# ---------------------------------------------------------------------------
+# _strip_pod_prefix tests
+# ---------------------------------------------------------------------------
+
+def test_strip_pod_prefix_hana_name():
+    from app.snap_service import _strip_pod_prefix
+    assert _strip_pod_prefix(
+        'pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003'
+    ) == 'IEP_1_data.HDBSNAP-2026-03-18-002003'
+
+
+def test_strip_pod_prefix_oracle_name():
+    from app.snap_service import _strip_pod_prefix
+    assert _strip_pod_prefix('pod-aix-0102::vgIQP_1.2026-03-19-124002') == 'vgIQP_1.2026-03-19-124002'
+
+
+def test_strip_pod_prefix_source_name():
+    from app.snap_service import _strip_pod_prefix
+    assert _strip_pod_prefix('pod-x86-0102::IEP_1_data') == 'IEP_1_data'
+    assert _strip_pod_prefix('pod-aix-0102::vgIQP_1') == 'vgIQP_1'
+
+
+def test_strip_pod_prefix_no_pod():
+    """Names without '::' are returned unchanged."""
+    from app.snap_service import _strip_pod_prefix
+    assert _strip_pod_prefix('ACP_1_data.HDBSNAP-2026-03-18-024722') == 'ACP_1_data.HDBSNAP-2026-03-18-024722'
+    assert _strip_pod_prefix('vgAQP_1.2026-03-19-123749') == 'vgAQP_1.2026-03-19-123749'
+    assert _strip_pod_prefix('') == ''
+
+
+# ---------------------------------------------------------------------------
+# extract_sid tests for pod-stripped names
+# ---------------------------------------------------------------------------
+
+def test_extract_sid_pod_hana_stripped():
+    """SID extracted from pod-stripped HANA volume names."""
+    from app.snap_service import extract_sid, _strip_pod_prefix
+    assert extract_sid(_strip_pod_prefix('pod-x86-0102::IEP_1_data')) == 'IEP'
+    assert extract_sid(_strip_pod_prefix('pod-x86-0102::IEP_1_log')) == 'IEP'
+    assert extract_sid(_strip_pod_prefix(
+        'pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003'
+    )) == 'IEP'
+
+
+def test_extract_sid_pod_oracle_stripped():
+    """SID extracted from pod-stripped Oracle vg-prefixed volume names."""
+    from app.snap_service import extract_sid, _strip_pod_prefix
+    assert extract_sid(_strip_pod_prefix('pod-aix-0102::vgIQP_1')) == 'IQP'
+    assert extract_sid(_strip_pod_prefix('pod-aix-0102::vgIQP_1.2026-03-19-124002')) == 'IQP'
+
+
+# ---------------------------------------------------------------------------
+# _collect_flasharray_snapshots: pod-based snapshot integration tests
+# ---------------------------------------------------------------------------
+
+def _make_mock_system(name='fa01'):
+    from unittest.mock import MagicMock
+    sys = MagicMock()
+    sys.name = name
+    sys.vendor = 'pure'
+    sys.ip_address = '1.2.3.4'
+    sys.port = None
+    sys.api_username = 'admin'
+    sys.api_password = 'secret'
+    sys.api_token = 'token'
+    return sys
+
+
+def test_collect_flasharray_pod_hana_snaps():
+    """Pod-prefixed HANA snapshots (data + log LUN) yield SID = IEP, TTL from suffix."""
+    from app.snap_service import _collect_flasharray_snapshots
+    from unittest.mock import patch, MagicMock
+
+    api_snaps = [
+        {
+            'name': 'pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003',
+            'suffix': 'HDBSNAP-2026-03-18-002003',
+            'source_name': 'pod-x86-0102::IEP_1_data',
+            'created': '2026-03-18T00:21:06Z',
+        },
+        {
+            'name': 'pod-x86-0102::IEP_1_log.HDBSNAP-2026-03-18-002003',
+            'suffix': 'HDBSNAP-2026-03-18-002003',
+            'source_name': 'pod-x86-0102::IEP_1_log',
+            'created': '2026-03-18T00:21:06Z',
+        },
+    ]
+    mock_client = MagicMock()
+    mock_client.get_volume_snapshots.return_value = api_snaps
+
+    with patch('app.api.get_client', return_value=mock_client):
+        result = _collect_flasharray_snapshots(_make_mock_system())
+
+    assert len(result) == 2
+    assert all(r['sid'] == 'IEP' for r in result)
+    # Full name (with pod prefix) preserved for API calls / display
+    names = {r['snapshot_name'] for r in result}
+    assert 'pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003' in names
+    assert 'pod-x86-0102::IEP_1_log.HDBSNAP-2026-03-18-002003' in names
+    # TTL extracted from suffix
+    assert all(r['ttl'] is not None for r in result)
+    assert result[0]['ttl'].strftime('%Y-%m-%d-%H%M%S') == '2026-03-18-002003'
+
+
+def test_collect_flasharray_pod_oracle_snaps():
+    """Pod-prefixed Oracle snapshots (vg-prefix, no HDBSNAP) yield SID = IQP."""
+    from app.snap_service import _collect_flasharray_snapshots
+    from unittest.mock import patch, MagicMock
+
+    api_snaps = [
+        {
+            'name': 'pod-aix-0102::vgIQP_1.2026-03-19-124002',
+            'suffix': '2026-03-19-124002',
+            'source_name': 'pod-aix-0102::vgIQP_1',
+            'created': '2026-03-19T12:40:12Z',
+        },
+    ]
+    mock_client = MagicMock()
+    mock_client.get_volume_snapshots.return_value = api_snaps
+
+    with patch('app.api.get_client', return_value=mock_client):
+        result = _collect_flasharray_snapshots(_make_mock_system())
+
+    assert len(result) == 1
+    assert result[0]['sid'] == 'IQP'
+    assert result[0]['snapshot_name'] == 'pod-aix-0102::vgIQP_1.2026-03-19-124002'
+    assert result[0]['ttl'] is not None
+    assert result[0]['ttl'].strftime('%Y-%m-%d-%H%M%S') == '2026-03-19-124002'
+
+
+def test_collect_flasharray_skips_non_db_snaps():
+    """Snapshots with no HDBSNAP and no recognisable SID pattern are skipped."""
+    from app.snap_service import _collect_flasharray_snapshots
+    from unittest.mock import patch, MagicMock
+
+    api_snaps = [
+        {
+            'name': 'backup-infra-vol.snapshot-2026-03-18',
+            'suffix': 'snapshot-2026-03-18',
+            'source_name': 'backup-infra-vol',
+            'created': '2026-03-18T00:00:00Z',
+        },
+    ]
+    mock_client = MagicMock()
+    mock_client.get_volume_snapshots.return_value = api_snaps
+
+    with patch('app.api.get_client', return_value=mock_client):
+        result = _collect_flasharray_snapshots(_make_mock_system())
+
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _group_by_sid_and_time: ActiveCluster + multi-LUN tests
+# ---------------------------------------------------------------------------
+
 def test_group_by_sid_deduplicates_activecluster():
     """Two FA snaps with identical SID, name, TTL (ActiveCluster pair) → one record."""
     from app.snap_service import _group_by_sid_and_time
@@ -153,6 +309,87 @@ def test_group_by_sid_deduplicates_activecluster():
     assert len(result) == 1
     assert result[0]['sid'] == 'ACP'
     assert result[0]['flasharray_present'] is True
+
+
+def test_group_by_sid_activecluster_both_arrays_in_locations():
+    """ActiveCluster partner arrays both appear in storage_locations detail."""
+    from app.snap_service import _group_by_sid_and_time
+
+    ts = datetime(2026, 3, 18, 0, 20, 6)
+    ttl = datetime(2026, 3, 18, 0, 20, 3)
+    common = {'sid': 'IEP', 'creation_time': ts, 'ttl': ttl}
+
+    # Both fa01 and fa02 (ActiveCluster pair) report data + log LUNs
+    snaps = [
+        {**common, 'snapshot_name': 'pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003', 'array_name': 'fa01'},
+        {**common, 'snapshot_name': 'pod-x86-0102::IEP_1_log.HDBSNAP-2026-03-18-002003',  'array_name': 'fa01'},
+        {**common, 'snapshot_name': 'pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003', 'array_name': 'fa02'},
+        {**common, 'snapshot_name': 'pod-x86-0102::IEP_1_log.HDBSNAP-2026-03-18-002003',  'array_name': 'fa02'},
+    ]
+
+    result = _group_by_sid_and_time(snaps, [])
+    # One list entry for the logical snapshot
+    assert len(result) == 1
+    assert result[0]['sid'] == 'IEP'
+
+    locs = json.loads(result[0]['storage_locations'])
+    fa_systems = {s['name']: s['snapshot_names'] for s in locs['flasharray_systems']}
+
+    # Both ActiveCluster members appear in the detail
+    assert 'fa01' in fa_systems
+    assert 'fa02' in fa_systems
+    # Both LUNs listed under each array
+    assert len(fa_systems['fa01']) == 2
+    assert len(fa_systems['fa02']) == 2
+
+
+def test_group_by_sid_pod_hana_multi_lun_one_record():
+    """HANA pod snaps: data + log LUNs with same SID+minute → one record, two snap names."""
+    from app.snap_service import _group_by_sid_and_time
+
+    ts = datetime(2026, 3, 18, 0, 20, 6)
+    ttl = datetime(2026, 3, 18, 0, 20, 3)
+    snaps = [
+        {
+            'sid': 'IEP',
+            'snapshot_name': 'pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003',
+            'creation_time': ts, 'ttl': ttl, 'array_name': 'fa01',
+        },
+        {
+            'sid': 'IEP',
+            'snapshot_name': 'pod-x86-0102::IEP_1_log.HDBSNAP-2026-03-18-002003',
+            'creation_time': ts, 'ttl': ttl, 'array_name': 'fa01',
+        },
+    ]
+
+    result = _group_by_sid_and_time(snaps, [])
+    assert len(result) == 1
+
+    locs = json.loads(result[0]['storage_locations'])
+    snap_names = locs['flasharray_systems'][0]['snapshot_names']
+    assert len(snap_names) == 2
+    assert 'pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003' in snap_names
+    assert 'pod-x86-0102::IEP_1_log.HDBSNAP-2026-03-18-002003' in snap_names
+
+
+def test_group_by_sid_pod_oracle_one_record():
+    """Oracle pod snap: single LUN per snapshot, correct SID and TTL."""
+    from app.snap_service import _group_by_sid_and_time
+
+    ts = datetime(2026, 3, 19, 12, 40, 12)
+    ttl = datetime(2026, 3, 19, 12, 40, 2)
+    snap = {
+        'sid': 'IQP',
+        'snapshot_name': 'pod-aix-0102::vgIQP_1.2026-03-19-124002',
+        'creation_time': ts, 'ttl': ttl, 'array_name': 'fa01',
+    }
+
+    result = _group_by_sid_and_time([snap], [])
+    assert len(result) == 1
+    assert result[0]['sid'] == 'IQP'
+    locs = json.loads(result[0]['storage_locations'])
+    assert locs['flasharray_systems'][0]['snapshot_names'] == ['pod-aix-0102::vgIQP_1.2026-03-19-124002']
+
 
 
 def test_group_by_sid_groups_multiple_luns():
