@@ -90,6 +90,53 @@ th {
     padding: 1rem;
     text-align: left;
     font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+th.no-sort {
+    cursor: default;
+}
+
+th:hover:not(.no-sort) {
+    background: #007ab8;
+}
+
+.sort-icon {
+    display: inline-block;
+    margin-left: 0.3rem;
+    opacity: 0.5;
+    font-style: normal;
+}
+
+th.sort-asc .sort-icon,
+th.sort-desc .sort-icon {
+    opacity: 1;
+}
+
+.col-filter-row th {
+    padding: 0.4rem 0.5rem;
+    background: #e8f4fd;
+    cursor: default;
+}
+
+.col-filter-row th:hover {
+    background: #e8f4fd;
+}
+
+.col-filter {
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-size: 0.82rem;
+    box-sizing: border-box;
+}
+
+.col-filter:focus {
+    outline: none;
+    border-color: var(--accent-color);
 }
 
 td {
@@ -254,6 +301,9 @@ tbody tr:hover {
 [data-theme="dark"] .filter-tag-label { background: var(--nav-link-bg); border-color: var(--card-border); color: var(--text-color); }
 [data-theme="dark"] .filter-tag-label.active { background: rgba(52,152,219,.2); border-color: #3498db; color: #40c4ff; }
 [data-theme="dark"] .loading-overlay { background: rgba(15,17,23,0.9); }
+[data-theme="dark"] thead th:hover:not(.no-sort) { background: #006999; }
+[data-theme="dark"] .col-filter-row th { background: #1e2a3a; }
+[data-theme="dark"] .col-filter { background: var(--card-bg); color: var(--text-color); border-color: var(--card-border); }
 {% endblock %}
 
 {% block content %}
@@ -312,21 +362,35 @@ tbody tr:hover {
 {% endif %}
 
 {% if systems %}
-<table>
+<table id="systems-table">
     <thead>
         <tr>
-            <th>Name</th>
-            <th>Hersteller</th>
-            <th>IP Adresse</th>
-            <th>Cluster Info</th>
-            <th>Tags</th>
-            <th>Status</th>
-            <th>Aktionen</th>
+            <th data-col="name" onclick="sortBy('name')">Name<i class="sort-icon">⇅</i></th>
+            <th data-col="vendor" onclick="sortBy('vendor')">Hersteller<i class="sort-icon">⇅</i></th>
+            <th data-col="ip_address" onclick="sortBy('ip_address')">IP Adresse<i class="sort-icon">⇅</i></th>
+            <th data-col="cluster_type" onclick="sortBy('cluster_type')">Cluster Info<i class="sort-icon">⇅</i></th>
+            <th data-col="tags" onclick="sortBy('tags')">Tags<i class="sort-icon">⇅</i></th>
+            <th data-col="status" onclick="sortBy('status')">Status<i class="sort-icon">⇅</i></th>
+            <th class="no-sort">Aktionen</th>
+        </tr>
+        <tr class="col-filter-row">
+            <th><input class="col-filter" id="filter-name" type="text" placeholder="Name …" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-vendor" type="text" placeholder="Hersteller …" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-ip" type="text" placeholder="IP …" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-cluster" type="text" placeholder="Cluster …" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-tags" type="text" placeholder="Tags …" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-status" type="text" placeholder="Status …" oninput="applyColFilters()"></th>
+            <th></th>
         </tr>
     </thead>
-    <tbody>
+    <tbody id="systems-tbody">
         {% for system in systems %}
-        <tr>
+        <tr data-name="{{ system.name | lower }}"
+            data-vendor="{{ system.vendor | lower }}"
+            data-ip="{{ system.ip_address | lower }}"
+            data-cluster="{{ (system.cluster_type or '') | lower }}"
+            data-tags="{{ system.tags | map(attribute='name') | join(' ') | lower }}"
+            data-status="{{ ('aktiv' if system.enabled else 'inaktiv') | lower }}">
             <td>
                 <strong>{{ system.name }}</strong>
                 {% if system.get_dns_names() %}
@@ -389,7 +453,76 @@ tbody tr:hover {
 {% endif %}
 
 <script>
+// ─── Table sort & filter ───────────────────────────────────────────────────────
+let sortCol = 'name';
+let sortDir = 'asc';
+
+function sortBy(col) {
+    if (sortCol === col) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        sortCol = col;
+        sortDir = 'asc';
+    }
+    applyColFilters();
+}
+
+function applyColFilters() {
+    const fName    = document.getElementById('filter-name').value.toLowerCase();
+    const fVendor  = document.getElementById('filter-vendor').value.toLowerCase();
+    const fIp      = document.getElementById('filter-ip').value.toLowerCase();
+    const fCluster = document.getElementById('filter-cluster').value.toLowerCase();
+    const fTags    = document.getElementById('filter-tags').value.toLowerCase();
+    const fStatus  = document.getElementById('filter-status').value.toLowerCase();
+
+    const tbody = document.getElementById('systems-tbody');
+    const rows  = Array.from(tbody.querySelectorAll('tr'));
+
+    // Filter
+    rows.forEach(row => {
+        const show =
+            (!fName    || row.dataset.name.includes(fName))    &&
+            (!fVendor  || row.dataset.vendor.includes(fVendor)) &&
+            (!fIp      || row.dataset.ip.includes(fIp))         &&
+            (!fCluster || row.dataset.cluster.includes(fCluster)) &&
+            (!fTags    || row.dataset.tags.includes(fTags))     &&
+            (!fStatus  || row.dataset.status.includes(fStatus));
+        row.style.display = show ? '' : 'none';
+    });
+
+    // Sort visible rows
+    const colMap = {
+        name: 'name', vendor: 'vendor', ip_address: 'ip',
+        cluster_type: 'cluster', tags: 'tags', status: 'status'
+    };
+    const attr = colMap[sortCol] || 'name';
+    const visible = rows.filter(r => r.style.display !== 'none');
+    visible.sort((a, b) => {
+        const va = a.dataset[attr] || '';
+        const vb = b.dataset[attr] || '';
+        const cmp = va.localeCompare(vb, undefined, {numeric: true});
+        return sortDir === 'asc' ? cmp : -cmp;
+    });
+    visible.forEach(row => tbody.appendChild(row));
+
+    // Update sort icons
+    document.querySelectorAll('#systems-table thead tr:first-child th').forEach(th => {
+        th.classList.remove('sort-asc', 'sort-desc');
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.textContent = '⇅';
+    });
+    const activeTh = document.querySelector(`#systems-table thead th[data-col="${sortCol}"]`);
+    if (activeTh) {
+        activeTh.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+        const icon = activeTh.querySelector('.sort-icon');
+        if (icon) icon.textContent = sortDir === 'asc' ? '▲' : '▼';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+    // Apply default sort on page load
+    applyColFilters();
+
     const loadingOverlay = document.getElementById('loading-overlay');
     
     // Show loading overlay when "Discover All" button is clicked
