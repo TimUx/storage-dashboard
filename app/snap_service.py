@@ -35,6 +35,8 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
+from sqlalchemy import or_
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -643,7 +645,10 @@ def _do_collect(app):
     from app.models import StorageSystem
 
     with app.app_context():
-        systems = StorageSystem.query.filter_by(enabled=True, snaps_enabled=True).all()
+        systems = StorageSystem.query.filter(
+            StorageSystem.enabled == True,  # noqa: E712
+            or_(StorageSystem.snaps_enabled == True, StorageSystem.snaps_enabled == None),  # noqa: E712,E711
+        ).all()
 
     if not systems:
         logger.info("Snapshot collector: no systems with snap collection enabled found, skipping.")

@@ -457,6 +457,48 @@ def test_do_collect_skips_snaps_disabled_systems(app):
     assert 'sys-snaps-off' not in queried_names
 
 
+def test_do_collect_includes_snaps_enabled_null_systems(app):
+    """_do_collect must query systems where snaps_enabled IS NULL (legacy rows).
+
+    When the snaps_enabled column is added via ALTER TABLE to an existing
+    database, rows that pre-date the column receive NULL.  These systems should
+    behave as if snaps_enabled=True (the model-level default), so the collector
+    must not skip them.
+    """
+    from app import db
+    from app.models import StorageSystem
+    from unittest.mock import patch
+    import sqlalchemy as sa
+
+    with app.app_context():
+        sys_null = StorageSystem(
+            name='sys-snaps-null', vendor='pure', ip_address='1.2.3.6',
+            enabled=True, snaps_enabled=True,
+        )
+        db.session.add(sys_null)
+        db.session.commit()
+        # Force snaps_enabled to NULL at the SQL level to simulate a migrated row
+        db.session.execute(
+            sa.text("UPDATE storage_systems SET snaps_enabled = NULL WHERE name = 'sys-snaps-null'")
+        )
+        db.session.commit()
+
+    queried_names = []
+
+    def mock_collect(system):
+        queried_names.append(system.name)
+        return {'system_id': system.id, 'system_name': system.name,
+                'vendor': system.vendor, 'flasharray_snaps': [], 'ontap_snaps': []}
+
+    with patch('app.snap_service._collect_system_snapshots', side_effect=mock_collect):
+        from app.snap_service import _do_collect
+        _do_collect(app)
+
+    assert 'sys-snaps-null' in queried_names, (
+        "Systems with snaps_enabled=NULL must be included in snapshot collection"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Bug fix: FlashArray epoch-ms timestamp handling
 # ---------------------------------------------------------------------------

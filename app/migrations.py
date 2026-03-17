@@ -305,6 +305,34 @@ def migrate_sod_history_table():
     return migrations_applied
 
 
+def backfill_snaps_enabled_null_to_true():
+    """Set snaps_enabled = True for all storage_systems rows where snaps_enabled IS NULL.
+
+    When the snaps_enabled column is added via ALTER TABLE (no DEFAULT clause),
+    existing rows receive NULL.  The snapshot collector query treats NULL as
+    "not enabled", so pre-existing systems would silently be skipped by the
+    collector.  This backfill restores the intended behaviour: any system added
+    before the column existed should have snapshot collection enabled by default,
+    which matches the model-level ``default=True`` on ``StorageSystem.snaps_enabled``.
+    """
+    try:
+        dialect = db.engine.dialect.name
+        if dialect == 'postgresql':
+            sql = "UPDATE storage_systems SET snaps_enabled = TRUE WHERE snaps_enabled IS NULL"
+        else:
+            sql = "UPDATE storage_systems SET snaps_enabled = 1 WHERE snaps_enabled IS NULL"
+        with db.engine.connect() as conn:
+            result = conn.execute(db.text(sql))
+            conn.commit()
+        updated = result.rowcount
+        if updated:
+            logger.info("Backfilled snaps_enabled=True for %d existing storage system(s)", updated)
+        return updated
+    except Exception as exc:
+        logger.warning("Failed to backfill snaps_enabled (non-critical): %s", exc)
+        return 0
+
+
 def run_all_migrations():
     """Run all pending database migrations"""
     logger.info("Starting database migrations...")
@@ -324,6 +352,14 @@ def run_all_migrations():
                     all_migrations.append(f'datadomain_port_3009 ({updated_count} systems)')
             except Exception as e:
                 logger.warning(f"DataDomain port migration failed (non-critical): {e}")
+
+            # Backfill snaps_enabled NULL → True for pre-existing systems
+            try:
+                backfilled = backfill_snaps_enabled_null_to_true()
+                if backfilled:
+                    all_migrations.append(f'snaps_enabled_backfill ({backfilled} systems)')
+            except Exception as e:
+                logger.warning(f"snaps_enabled backfill failed (non-critical): {e}")
         
         # Check if app_settings table exists and run migrations
         if 'app_settings' in inspector.get_table_names():
