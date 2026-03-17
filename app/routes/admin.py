@@ -75,7 +75,7 @@ def index():
         # AND across groups, OR within each group
         for ids in group_to_tag_ids.values():
             query = query.filter(StorageSystem.tags.any(Tag.id.in_(ids)))
-    systems = query.all()
+    systems = query.order_by(StorageSystem.name).all()
     tag_groups = TagGroup.query.order_by(TagGroup.name).all()
     return render_template('admin/index.html', systems=systems, tag_groups=tag_groups, selected_tag_ids=tag_ids)
 
