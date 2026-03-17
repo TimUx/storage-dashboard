@@ -365,21 +365,23 @@ tbody tr:hover {
 <table id="systems-table">
     <thead>
         <tr>
-            <th data-col="name" onclick="sortBy('name')">Name<i class="sort-icon">⇅</i></th>
-            <th data-col="vendor" onclick="sortBy('vendor')">Hersteller<i class="sort-icon">⇅</i></th>
-            <th data-col="ip_address" onclick="sortBy('ip_address')">IP Adresse<i class="sort-icon">⇅</i></th>
-            <th data-col="cluster_type" onclick="sortBy('cluster_type')">Cluster Info<i class="sort-icon">⇅</i></th>
-            <th data-col="tags" onclick="sortBy('tags')">Tags<i class="sort-icon">⇅</i></th>
-            <th data-col="status" onclick="sortBy('status')">Status<i class="sort-icon">⇅</i></th>
+            <th data-col="name" onclick="sortBy('name')" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){sortBy('name')}">Name<i class="sort-icon">⇅</i></th>
+            <th data-col="vendor" onclick="sortBy('vendor')" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){sortBy('vendor')}">Hersteller<i class="sort-icon">⇅</i></th>
+            <th data-col="ip_address" onclick="sortBy('ip_address')" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){sortBy('ip_address')}">IP Adresse<i class="sort-icon">⇅</i></th>
+            <th data-col="cluster_type" onclick="sortBy('cluster_type')" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){sortBy('cluster_type')}">Cluster Info<i class="sort-icon">⇅</i></th>
+            <th data-col="tags" onclick="sortBy('tags')" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){sortBy('tags')}">Tags<i class="sort-icon">⇅</i></th>
+            <th data-col="snaps" onclick="sortBy('snaps')" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){sortBy('snaps')}">Snaps<i class="sort-icon">⇅</i></th>
+            <th data-col="status" onclick="sortBy('status')" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){sortBy('status')}">Status<i class="sort-icon">⇅</i></th>
             <th class="no-sort">Aktionen</th>
         </tr>
         <tr class="col-filter-row">
-            <th><input class="col-filter" id="filter-name" type="text" placeholder="Name …" oninput="applyColFilters()"></th>
-            <th><input class="col-filter" id="filter-vendor" type="text" placeholder="Hersteller …" oninput="applyColFilters()"></th>
-            <th><input class="col-filter" id="filter-ip" type="text" placeholder="IP …" oninput="applyColFilters()"></th>
-            <th><input class="col-filter" id="filter-cluster" type="text" placeholder="Cluster …" oninput="applyColFilters()"></th>
-            <th><input class="col-filter" id="filter-tags" type="text" placeholder="Tags …" oninput="applyColFilters()"></th>
-            <th><input class="col-filter" id="filter-status" type="text" placeholder="Status …" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-name" type="text" placeholder="Name …" aria-label="Nach Name filtern" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-vendor" type="text" placeholder="Hersteller …" aria-label="Nach Hersteller filtern" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-ip" type="text" placeholder="IP …" aria-label="Nach IP Adresse filtern" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-cluster" type="text" placeholder="Cluster …" aria-label="Nach Cluster Info filtern" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-tags" type="text" placeholder="Tags …" aria-label="Nach Tags filtern" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-snaps" type="text" placeholder="Snaps …" aria-label="Nach Snaps filtern" oninput="applyColFilters()"></th>
+            <th><input class="col-filter" id="filter-status" type="text" placeholder="Status …" aria-label="Nach Status filtern" oninput="applyColFilters()"></th>
             <th></th>
         </tr>
     </thead>
@@ -390,6 +392,7 @@ tbody tr:hover {
             data-ip="{{ system.ip_address | lower }}"
             data-cluster="{{ (system.cluster_type or '') | lower }}"
             data-tags="{{ system.tags | map(attribute='name') | join(' ') | lower }}"
+            data-snaps="{{ 'ja' if system.snaps_enabled else 'nein' }}"
             data-status="{{ ('aktiv' if system.enabled else 'inaktiv') | lower }}">
             <td>
                 <strong>{{ system.name }}</strong>
@@ -422,6 +425,11 @@ tbody tr:hover {
                 {% for tag in system.tags | sort(attribute='name') %}
                 <span class="tag-badge" title="{{ tag.group.name }}">{{ tag.name }}</span>
                 {% endfor %}
+            </td>
+            <td>
+                <span class="status-indicator status-{{ 'enabled' if system.snaps_enabled else 'disabled' }}"
+                      title="{{ 'Snapshots werden abgerufen' if system.snaps_enabled else 'Snapshots werden nicht abgerufen' }}"></span>
+                {{ 'Ja' if system.snaps_enabled else 'Nein' }}
             </td>
             <td>
                 <span class="status-indicator status-{{ 'enabled' if system.enabled else 'disabled' }}"></span>
@@ -473,6 +481,7 @@ function applyColFilters() {
     const fIp      = document.getElementById('filter-ip').value.toLowerCase();
     const fCluster = document.getElementById('filter-cluster').value.toLowerCase();
     const fTags    = document.getElementById('filter-tags').value.toLowerCase();
+    const fSnaps   = document.getElementById('filter-snaps').value.toLowerCase();
     const fStatus  = document.getElementById('filter-status').value.toLowerCase();
 
     const tbody = document.getElementById('systems-tbody');
@@ -486,6 +495,7 @@ function applyColFilters() {
             (!fIp      || row.dataset.ip.includes(fIp))         &&
             (!fCluster || row.dataset.cluster.includes(fCluster)) &&
             (!fTags    || row.dataset.tags.includes(fTags))     &&
+            (!fSnaps   || row.dataset.snaps.includes(fSnaps))   &&
             (!fStatus  || row.dataset.status.includes(fStatus));
         row.style.display = show ? '' : 'none';
     });
@@ -493,7 +503,7 @@ function applyColFilters() {
     // Sort visible rows
     const colMap = {
         name: 'name', vendor: 'vendor', ip_address: 'ip',
-        cluster_type: 'cluster', tags: 'tags', status: 'status'
+        cluster_type: 'cluster', tags: 'tags', snaps: 'snaps', status: 'status'
     };
     const attr = colMap[sortCol] || 'name';
     const visible = rows.filter(r => r.style.display !== 'none');
