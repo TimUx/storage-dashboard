@@ -8,22 +8,78 @@ Architecture mirrors ``capacity_service`` and ``dr_service``:
 - Collected snapshot data is normalised, deduplicated, grouped by SID and
   stored in PostgreSQL (snapshot_records table).
 
+FlashArray vs. ONTAP snapshot identification
+--------------------------------------------
+The two platforms use fundamentally different naming conventions; the filtering
+rules are platform-specific and must NOT be mixed:
+
+Pure FlashArray
+    Snapshots are identified by their suffix / name patterns:
+    - HANA databases: suffix contains ``HDBSNAP``, volumes end in ``_data``
+      or ``_log``.  Pod-hosted volumes carry a ``pod-name::`` prefix that is
+      stripped before matching.
+      Examples (after pod-prefix strip):
+          IEP_1_data.HDBSNAP-2026-03-18-002003  →  SID = IEP  (HANA data LUN)
+          IEP_1_log.HDBSNAP-2026-03-18-002003   →  SID = IEP  (HANA log LUN)
+    - Oracle databases: LUN names start with ``vg<SID>``; suffix is a plain
+      timestamp with no ``HDBSNAP`` token.
+      Examples (after pod-prefix strip):
+          vgIQP_1.2026-03-19-124002              →  SID = IQP  (Oracle LUN)
+    Volume prefix filtering (``HANA_`` / ``ORA_``) is NOT applied to Pure.
+
+ONTAP
+    Only snapshots on volumes whose names start with ``HANA_`` or ``ORA_``
+    (see ``_ONTAP_INCLUDE_VOLUME_PREFIXES``) are collected; all other volumes
+    are ignored.  The ``HANA_``/``ORA_`` prefix tokens are skipped during SID
+    extraction so that the real SID is obtained correctly.
+
+Pod prefix stripping (Pure FlashArray)
+---------------------------------------
+Pod-local volumes are reported with the pod name prepended using the
+``pod-name::volume-name`` format, e.g. ``pod-x86-0102::IEP_1_data``.
+``_strip_pod_prefix`` removes this prefix before filter matching and SID
+extraction while the original full name is preserved for storage and API calls.
+
 SID extraction
 --------------
 SIDs are 3–5 uppercase alphanumeric characters embedded at the start of a
-snapshot name before the first underscore or dot.
+snapshot or volume name (after any pod prefix is stripped) before the first
+underscore or dot.
 
-Examples
+Examples (FlashArray, pod prefix already stripped)
+    IEP_1_data.HDBSNAP-2026-03-18-002003  →  SID = IEP
+    IEP_1_log.HDBSNAP-2026-03-18-002003   →  SID = IEP
+    vgIQP_1.2026-03-19-124002             →  SID = IQP
     ACP_1_data_hpa2012.HDBSNAP-2026-03-18-024722  →  SID = ACP
-    vgAQP_1.2026-03-19-123749                       →  SID = AQP
+
+Examples (ONTAP, app-type prefix skipped by extract_sid)
+    HANA_ABP_data  →  SID = ABP
+    ORA_WQ4        →  SID = WQ4
 
 TTL extraction
 --------------
 The expiration timestamp is embedded in the snapshot suffix.
 
 Examples
-    ...HDBSNAP-2026-03-18-024722  →  TTL = 2026-03-18 02:47:22
-    vgAQP_1.2026-03-19-123749      →  TTL = 2026-03-19 12:37:49
+    HDBSNAP-2026-03-18-024722  →  TTL = 2026-03-18 02:47:22
+    2026-03-19-124002          →  TTL = 2026-03-19 12:40:02
+    vgAQP_1.2026-03-19-123749  →  TTL = 2026-03-19 12:37:49
+
+Multi-LUN aggregation
+---------------------
+A single logical database snapshot spans multiple LUNs (e.g. ``_data`` and
+``_log`` for HANA).  All LUNs sharing the same SID and creation-time minute
+are merged into one ``SnapshotRecord`` by ``_group_by_sid_and_time``.  Each
+LUN snapshot name is listed individually in ``storage_locations``.
+
+ActiveCluster / cluster-pair deduplication
+-------------------------------------------
+Pure ActiveCluster pairs (e.g. fa01/fa02) both report identical snapshots.
+``_group_by_sid_and_time`` deduplicates by ``(sid, snapshot_name, ttl, array)``
+so that the same snapshot name from the same array is never counted twice.
+Both arrays are recorded in ``storage_locations`` so that the detail view shows
+all systems on which the snapshot resides; the list view shows only one entry
+per SID + creation-time.
 """
 import json
 import logging
@@ -138,6 +194,25 @@ def extract_ttl(name: str) -> datetime | None:
         return None
 
 
+def _strip_pod_prefix(name: str) -> str:
+    """Strip a Pure Storage pod prefix from a volume or snapshot name.
+
+    Pod-local volumes are reported with the pod name prepended using the
+    ``pod-name::volume-name`` format, e.g. ``pod-x86-0102::IEP_1_data`` or
+    ``pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003``.
+
+    Stripping the prefix exposes the bare volume/snapshot name so that
+    SID extraction and filter matching work correctly.  The original full
+    name (with pod prefix) is kept in the result dict for API calls and
+    display purposes.
+
+    Returns the unchanged string if no ``::`` separator is present.
+    """
+    if '::' in name:
+        return name.split('::', 1)[1]
+    return name
+
+
 # ---------------------------------------------------------------------------
 # Per-system collectors (called in worker threads)
 # ---------------------------------------------------------------------------
@@ -148,17 +223,29 @@ def _collect_flasharray_snapshots(system):
     Each dict has keys: sid, snapshot_name, creation_time, ttl, array_name.
 
     ActiveCluster arrays report the same snapshots on both controllers.
-    Deduplication is handled downstream (keyed on sid + creation_time +
-    snapshot_name).
+    Both arrays are recorded in the result so that ``_group_by_sid_and_time``
+    can show all systems in the detail view while keeping one list entry per
+    SID + creation-time.
+
+    Snapshot identification (Pure-specific, NOT ONTAP-style prefix filtering)
+    --------------------------------------------------------------------------
+    - HANA:   suffix contains ``HDBSNAP``; volumes end in ``_data`` / ``_log``
+    - Oracle: LUN name starts with ``vg<SID>``; suffix is a plain timestamp
+
+    Pod prefix stripping
+    --------------------
+    Pod-local volumes carry a ``pod-name::`` prefix in both ``name`` and
+    ``source.name``.  This prefix is stripped before filter matching and SID
+    extraction; the original full name is stored in the result for API calls.
 
     Pure Storage API response fields used here (api/pure_swagger.json):
-        name        – full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
+        name        – full snapshot name, e.g. ``pod-x86-0102::IEP_1_data.HDBSNAP-2026-03-18-002003``
         created     – ISO-8601 UTC string (epoch_ms already converted by the client)
-        suffix      – snapshot suffix only, e.g. ``HDBSNAP-2026-03-13-073434``
+        suffix      – snapshot suffix only, e.g. ``HDBSNAP-2026-03-18-002003``
                       Primary source for TTL extraction.
-        source_name – parent volume name, e.g. ``ABP_data``
-                      Used as SID-extraction fallback when the full snapshot
-                      name does not directly expose the SID.
+        source_name – parent volume name, e.g. ``pod-x86-0102::IEP_1_data``
+                      Used as SID-extraction fallback when the snapshot name
+                      does not directly expose the SID.
     """
     from app.api import get_client
 
@@ -181,18 +268,27 @@ def _collect_flasharray_snapshots(system):
             suffix = snap.get('suffix', '') or ''
             source_name = snap.get('source_name', '') or ''
 
-            # Skip empty or non-database snapshot names.
-            # Accept if the suffix or full name contains HDBSNAP, or if the
-            # full name matches the SID regex.
+            # Strip pod prefix (e.g. "pod-x86-0102::") so that filter matching
+            # and SID extraction work on the bare volume/snapshot name.
+            # The original ``name`` is kept intact for storage and API calls.
+            name_local = _strip_pod_prefix(name)
+            source_local = _strip_pod_prefix(source_name)
+
+            # Skip non-database snapshots (Pure-specific identification):
+            # – HANA: suffix / name contains "HDBSNAP"
+            # – Oracle: bare name starts with "vg<SID>_…" (matches _SID_RE)
+            # Volume prefix filtering (HANA_ / ORA_) is ONTAP-only and must
+            # NOT be applied here.
             hdbsnap_present = 'HDBSNAP' in suffix.upper() or 'HDBSNAP' in name.upper()
-            if not hdbsnap_present and not _SID_RE.match(name):
+            if not hdbsnap_present and not _SID_RE.match(name_local):
                 continue
 
-            # Extract SID: try the full snapshot name first, fall back to the
-            # source volume name (e.g. "ABP_data" → SID "ABP").
-            sid = extract_sid(name)
-            if not sid and source_name:
-                sid = extract_sid(source_name)
+            # Extract SID from the pod-stripped snapshot name first, then fall
+            # back to the pod-stripped source volume name
+            # (e.g. "IEP_1_data" → SID "IEP", "vgIQP_1" → SID "IQP").
+            sid = extract_sid(name_local)
+            if not sid and source_local:
+                sid = extract_sid(source_local)
             if not sid:
                 continue
 
@@ -349,15 +445,33 @@ def _group_by_sid_and_time(all_fa_snaps, all_ontap_snaps):
 
     FlashArray snapshots are keyed by (sid, creation_time_minute) – multiple
     LUN snapshots sharing the same SID and timestamp belong to one logical
-    snapshot.  ActiveCluster duplicates are removed by tracking unique
-    (sid, ttl_str, snapshot_name) tuples.
+    snapshot (e.g. HANA ``_data`` + ``_log`` LUNs, or multiple Oracle LUNs).
+
+    Multi-LUN aggregation
+    ---------------------
+    All snapshot names for the same SID + creation-minute are accumulated in
+    ``storage_locations`` under their respective array name.  The list view
+    therefore shows one entry per database snapshot regardless of how many
+    LUNs were snapped; the detail view lists every individual LUN name.
+
+    ActiveCluster / cluster-pair deduplication
+    -------------------------------------------
+    Both arrays in an ActiveCluster pair (e.g. fa01/fa02) report the same
+    snapshots.  The dedup key ``(sid, snap_name, ttl, array_name)`` ensures
+    the same snapshot from the same array is never counted twice, while still
+    allowing both fa01 and fa02 to appear in ``storage_locations`` so the
+    detail view shows all systems that hold the snapshot.
 
     Returns a list of dicts suitable for upsert into snapshot_records.
     """
     # Key: (sid, creation_minute_str)  Value: aggregated record dict
     records: dict[tuple, dict] = {}
 
-    # Deduplicate FlashArray snaps across ActiveCluster arrays
+    # Deduplicate: same snapshot name from the same array must not be added
+    # twice (guards against API pagination artifacts or dual collection runs).
+    # Using array_name in the key intentionally allows the same snapshot name
+    # reported by a different array (ActiveCluster partner) to be recorded,
+    # so that the detail view can show all arrays holding the snapshot.
     seen_fa: set[tuple] = set()
 
     for snap in all_fa_snaps:
@@ -365,10 +479,12 @@ def _group_by_sid_and_time(all_fa_snaps, all_ontap_snaps):
         ts: datetime | None = snap.get('creation_time')
         snap_name = snap.get('snapshot_name', '')
         ttl = snap.get('ttl')
+        arr = snap.get('array_name', '')
 
-        # Build dedup key using SID + snapshot name + ttl string
+        # Dedup key includes array_name so the same snap from a partner array
+        # (ActiveCluster) is still processed and added to that array's entry.
         ttl_str = ttl.strftime('%Y-%m-%d-%H%M%S') if ttl else ''
-        dedup_key = (sid, snap_name, ttl_str)
+        dedup_key = (sid, snap_name, ttl_str, arr)
         if dedup_key in seen_fa:
             continue
         seen_fa.add(dedup_key)
@@ -394,8 +510,7 @@ def _group_by_sid_and_time(all_fa_snaps, all_ontap_snaps):
             }
         rec = records[record_key]
         rec['flasharray_present'] = True
-        # Accumulate LUN snapshot names per array
-        arr = snap.get('array_name', '')
+        # Accumulate LUN snapshot names per array (arr already extracted above)
         if arr:
             rec['fa_systems'].setdefault(arr, [])
             if snap_name not in rec['fa_systems'][arr]:
