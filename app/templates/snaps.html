@@ -146,11 +146,11 @@ table.sn-table tr.delete-pending > td { opacity: .6; }
     color: var(--sn-muted);
 }
 .sn-detail-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: .5rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: .75rem;
 }
-.sn-detail-section { margin-bottom: .5rem; }
+.sn-detail-section { margin-bottom: 0; }
 .sn-detail-section h4 { font-size: .78rem; color: var(--sn-blue); text-transform: uppercase; margin: 0 0 .3rem; }
 .sn-detail-section ul { margin: 0; padding-left: 1rem; }
 .sn-detail-section li { margin-bottom: .15rem; }
@@ -566,14 +566,35 @@ function renderTable() {
         const locs = s.storage_locations || {};
         const faSystems  = locs.flasharray_systems || [];
         const ontapCls   = locs.ontap_clusters || [];
+
+        // Group FlashArray systems that share identical snapshot lists
+        function groupFASystems(systems) {
+            const keys = systems.map(sys => JSON.stringify((sys.snapshot_names || []).slice().sort()));
+            const groups = [];
+            const usedIdx = new Set();
+            for (let i = 0; i < systems.length; i++) {
+                if (usedIdx.has(i)) continue;
+                const names = [systems[i].name];
+                for (let j = i + 1; j < systems.length; j++) {
+                    if (!usedIdx.has(j) && keys[j] === keys[i]) {
+                        names.push(systems[j].name);
+                        usedIdx.add(j);
+                    }
+                }
+                usedIdx.add(i);
+                groups.push({ names, snapshot_names: systems[i].snapshot_names || [] });
+            }
+            return groups;
+        }
+
         let detailHtml = '<div class="sn-detail-grid">';
         if (faSystems.length) {
             detailHtml += '<div class="sn-detail-section"><h4>FlashArray</h4><ul>';
-            for (const fa of faSystems) {
-                detailHtml += `<li><strong>${escHtml(fa.name)}</strong>`;
-                if (fa.snapshot_names && fa.snapshot_names.length) {
+            for (const grp of groupFASystems(faSystems)) {
+                detailHtml += `<li><strong>${grp.names.map(escHtml).join(' / ')}</strong>`;
+                if (grp.snapshot_names.length) {
                     detailHtml += '<ul>';
-                    for (const sn of fa.snapshot_names) {
+                    for (const sn of grp.snapshot_names) {
                         detailHtml += `<li>${escHtml(sn)}</li>`;
                     }
                     detailHtml += '</ul>';
