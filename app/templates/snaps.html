@@ -590,7 +590,14 @@ function renderTable() {
                 if (oc.volumes && oc.volumes.length) {
                     detailHtml += '<ul>';
                     for (const v of oc.volumes) {
-                        detailHtml += `<li>${escHtml(v)}</li>`;
+                        if (v !== null && typeof v === 'object') {
+                            const snapPart = v.snap
+                                ? ` <span style="color:var(--sn-muted)">${escHtml(v.snap)}</span>`
+                                : '';
+                            detailHtml += `<li>${escHtml(v.volume)}${snapPart}</li>`;
+                        } else {
+                            detailHtml += `<li>${escHtml(v)}</li>`;
+                        }
                     }
                     detailHtml += '</ul>';
                 }

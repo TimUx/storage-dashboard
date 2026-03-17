@@ -564,12 +564,14 @@ def _group_by_sid_and_time(all_fa_snaps, all_ontap_snaps):
             cluster = snap.get('cluster_name', '')
             svm = snap.get('svm_name', '')
             vol = snap.get('volume_name', '')
+            snap_name = snap.get('snapshot_name', '')
             cluster_key = cluster
             records[matched_key]['ontap_clusters'].setdefault(
                 cluster_key, {'cluster': cluster, 'svm': svm, 'volumes': []}
             )
-            if vol and vol not in records[matched_key]['ontap_clusters'][cluster_key]['volumes']:
-                records[matched_key]['ontap_clusters'][cluster_key]['volumes'].append(vol)
+            entry = {'volume': vol, 'snap': snap_name}
+            if vol and entry not in records[matched_key]['ontap_clusters'][cluster_key]['volumes']:
+                records[matched_key]['ontap_clusters'][cluster_key]['volumes'].append(entry)
 
         if not matched:
             # Standalone ONTAP snapshot (no matching FA snap)
@@ -593,11 +595,13 @@ def _group_by_sid_and_time(all_fa_snaps, all_ontap_snaps):
             cluster = snap.get('cluster_name', '')
             svm = snap.get('svm_name', '')
             vol = snap.get('volume_name', '')
+            snap_name = snap.get('snapshot_name', '')
             rec['ontap_clusters'].setdefault(
                 cluster, {'cluster': cluster, 'svm': svm, 'volumes': []}
             )
-            if vol and vol not in rec['ontap_clusters'][cluster]['volumes']:
-                rec['ontap_clusters'][cluster]['volumes'].append(vol)
+            entry = {'volume': vol, 'snap': snap_name}
+            if vol and entry not in rec['ontap_clusters'][cluster]['volumes']:
+                rec['ontap_clusters'][cluster]['volumes'].append(entry)
 
     # Flatten to list and build storage_locations JSON
     result = []
