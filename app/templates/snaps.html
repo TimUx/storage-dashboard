@@ -154,6 +154,7 @@ table.sn-table tr.delete-pending > td { opacity: .6; }
 .sn-detail-section h4 { font-size: .78rem; color: var(--sn-blue); text-transform: uppercase; margin: 0 0 .3rem; }
 .sn-detail-section ul { margin: 0; padding-left: 1rem; }
 .sn-detail-section li { margin-bottom: .15rem; }
+.sn-detail-section ul ul li { white-space: nowrap; }
 
 /* Presence badges */
 .badge-ok   { color: var(--sn-success); font-weight: 700; }
@@ -589,7 +590,14 @@ function renderTable() {
                 if (oc.volumes && oc.volumes.length) {
                     detailHtml += '<ul>';
                     for (const v of oc.volumes) {
-                        detailHtml += `<li>${escHtml(v)}</li>`;
+                        if (v !== null && typeof v === 'object') {
+                            const snapPart = v.snap
+                                ? ` <span style="color:var(--sn-muted)">${escHtml(v.snap)}</span>`
+                                : '';
+                            detailHtml += `<li>${escHtml(v.volume)}${snapPart}</li>`;
+                        } else {
+                            detailHtml += `<li>${escHtml(v)}</li>`;
+                        }
                     }
                     detailHtml += '</ul>';
                 }
@@ -844,7 +852,8 @@ async function triggerCollect() {
 function formatDt(iso) {
     if (!iso) return '–';
     try {
-        const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T'));
+        const isoDt = iso.includes('T') ? iso : iso.replace(' ', 'T');
+        const d = new Date(isoDt.endsWith('Z') ? isoDt : isoDt + 'Z');
         const pad = n => String(n).padStart(2,'0');
         return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} `
              + `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;

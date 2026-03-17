@@ -82,7 +82,7 @@ def api_list():
             'total': total,
             'older_5_days': older_5,
             'older_10_days': older_10,
-            'last_update': last_run.run_at.isoformat() if last_run else None,
+            'last_update': (last_run.run_at.isoformat() + 'Z') if last_run else None,
             'last_update_status': last_run.status if last_run else None,
         },
     })
