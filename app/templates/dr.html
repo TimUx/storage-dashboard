@@ -558,6 +558,7 @@
                 <div class="dr-detail-subtitle" id="detailSystemMeta">&#x2013;</div>
             </div>
             <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+                <button class="dr-btn dr-btn-sm" id="btnExportPDF" onclick="exportDetailPDF()">&#x1F4E5; PDF exportieren</button>
                 <button class="dr-btn dr-btn-outline dr-btn-sm" onclick="closeDetails()">&#x2715; Schlie&#xDF;en</button>
             </div>
         </div>
@@ -656,6 +657,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" onerror="window._mermaidUnavailable=true"></script>
+<script src="https://unpkg.com/jspdf@4.2.1/dist/jspdf.umd.min.js" onerror="console.warn('jsPDF CDN load failed – PDF export unavailable')"></script>
 <script>
 // State
 var currentDirection = 'planned_failover';
@@ -1180,6 +1182,476 @@ function tabIcon(label) {
         'StorageGRID':'\uD83C\uDF10',
         'DataDomain Replication':'\uD83D\uDCBE',
     }[label] || '\uD83D\uDDC4\uFE0F';
+}
+
+// ── PDF Export ────────────────────────────────────────────────────────────────
+
+function directionLabel(dir) {
+    return {
+        'planned_failover': 'Geplanter Failover',
+        'failback': 'R\u00FCckschwenken',
+        'disaster_recovery': 'Notfallwiederherstellung'
+    }[dir] || dir || '';
+}
+
+function hexToRgb(hex) {
+    hex = (hex || '').replace(/\s/g, '').replace(/^#/, '');
+    if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+    var n = parseInt(hex, 16);
+    if (isNaN(n)) return [0, 0, 0];
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function svgToDataUrl(svgEl) {
+    return new Promise(function(resolve) {
+        try {
+            var bbox = svgEl.getBoundingClientRect();
+            var w = Math.max(bbox.width, 100), h = Math.max(bbox.height, 50);
+            var clone = svgEl.cloneNode(true);
+            clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            clone.setAttribute('width', w);
+            clone.setAttribute('height', h);
+            var svgStr = new XMLSerializer().serializeToString(clone);
+            var blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+            var url = URL.createObjectURL(blob);
+            var img = new Image();
+            img.onload = function() {
+                try {
+                    var scale = 2;
+                    var canvas = document.createElement('canvas');
+                    canvas.width = w * scale; canvas.height = h * scale;
+                    var ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.scale(scale, scale);
+                    ctx.drawImage(img, 0, 0);
+                    URL.revokeObjectURL(url);
+                    resolve(canvas.toDataURL('image/png'));
+                } catch(e) { URL.revokeObjectURL(url); resolve(null); }
+            };
+            img.onerror = function() { URL.revokeObjectURL(url); resolve(null); };
+            img.src = url;
+        } catch(e) { resolve(null); }
+    });
+}
+
+function loadLogoPng() {
+    return new Promise(function(resolve) {
+        fetch('/admin/settings/logo')
+            .then(function(r) {
+                if (!r.ok) { resolve(null); return null; }
+                var ct = r.headers.get('Content-Type') || '';
+                if (!ct.startsWith('image/')) { resolve(null); return null; }
+                return r.blob();
+            })
+            .then(function(blob) {
+                if (!blob) return;
+                var url = URL.createObjectURL(blob);
+                var img = new Image();
+                img.onload = function() {
+                    try {
+                        var maxW = 320, maxH = 80;
+                        var iw = img.naturalWidth || 320, ih = img.naturalHeight || 80;
+                        var scale = Math.min(maxW / iw, maxH / ih, 1);
+                        var dw = iw * scale, dh = ih * scale;
+                        var canvas = document.createElement('canvas');
+                        canvas.width = dw; canvas.height = dh;
+                        canvas.getContext('2d').drawImage(img, 0, 0, dw, dh);
+                        URL.revokeObjectURL(url);
+                        resolve(canvas.toDataURL('image/png'));
+                    } catch(e) { URL.revokeObjectURL(url); resolve(null); }
+                };
+                img.onerror = function() { URL.revokeObjectURL(url); resolve(null); };
+                img.src = url;
+            })
+            .catch(function() { resolve(null); });
+    });
+}
+
+async function exportDetailPDF() {
+    if (!currentSystem) return;
+    var btn = document.getElementById('btnExportPDF');
+    var origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '\u23F3 PDF wird erstellt\u2026'; }
+    try {
+        if (typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined') {
+            throw new Error('jsPDF nicht geladen. Bitte Seite neu laden und erneut versuchen.');
+        }
+        var jsPDF = window.jspdf.jsPDF;
+        var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+        // ---- Layout constants ----
+        var PW = 210, PH = 297, M = 15, CW = PW - 2 * M;   // A4 portrait
+        var HEADER_H = 28, FOOTER_H = 10;
+        var CT = HEADER_H + 6;    // content top y
+        var CB = PH - FOOTER_H - 6; // content bottom y
+        var y = CT;
+
+        // ---- Brand colors from page CSS variables ----
+        var rootStyle = getComputedStyle(document.documentElement);
+        var prim = hexToRgb(rootStyle.getPropertyValue('--primary-color').trim()   || '#A70240');
+        var acc  = hexToRgb(rootStyle.getPropertyValue('--accent-color').trim()    || '#0098DB');
+        var sec  = hexToRgb(rootStyle.getPropertyValue('--secondary-color').trim() || '#BED600');
+
+        // ---- Company info (injected by Jinja2) ----
+        var companyName = '{{ (settings.company_name if settings and settings.company_name else "Storage Dashboard") | e }}';
+        var hasLogo = {{ 'true' if settings and settings.logo_filename else 'false' }};
+
+        // ---- Logo ----
+        var logoDataUrl = null;
+        if (hasLogo) { logoDataUrl = await loadLogoPng(); }
+
+        // ---- Page helpers ----
+        var pageNum = 0;
+
+        function addPageHeader() {
+            pageNum++;
+            doc.setFillColor(prim[0], prim[1], prim[2]);
+            doc.rect(0, 0, PW, HEADER_H, 'F');
+            var textX = M;
+            if (logoDataUrl) {
+                try { doc.addImage(logoDataUrl, 'PNG', M, 4, 36, 18); textX = M + 40; } catch(e) {}
+            }
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(11);
+            doc.text(companyName + ' \u00B7 DR-Planer', textX, 12);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.text('System: ' + currentSystem + '  |  ' + directionLabel(currentDirection), textX, 21);
+            // 3-colour accent stripe
+            doc.setFillColor(acc[0], acc[1], acc[2]);
+            doc.rect(0, HEADER_H - 3, PW / 3, 3, 'F');
+            doc.setFillColor(sec[0], sec[1], sec[2]);
+            doc.rect(PW / 3, HEADER_H - 3, PW / 3, 3, 'F');
+            doc.setFillColor(prim[0], prim[1], prim[2]);
+            doc.rect(2 * PW / 3, HEADER_H - 3, PW / 3, 3, 'F');
+        }
+
+        function addPageFooter() {
+            doc.setFillColor(245, 245, 245);
+            doc.rect(0, PH - FOOTER_H, PW, FOOTER_H, 'F');
+            doc.setDrawColor(210, 210, 210);
+            doc.setLineWidth(0.25);
+            doc.line(M, PH - FOOTER_H + 0.5, PW - M, PH - FOOTER_H + 0.5);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            doc.setTextColor(140, 140, 140);
+            doc.text('Erstellt: ' + new Date().toLocaleString('de-DE'), M, PH - FOOTER_H + 6.5);
+            doc.text('Seite ' + pageNum, PW - M, PH - FOOTER_H + 6.5, { align: 'right' });
+        }
+
+        function newPage() {
+            addPageFooter();
+            doc.addPage();
+            addPageHeader();
+            y = CT;
+        }
+
+        function checkY(needed) { if (y + needed > CB) newPage(); }
+
+        function sectionHead(title) {
+            checkY(13);
+            doc.setFillColor(248, 249, 250);
+            doc.rect(M, y, CW, 8, 'F');
+            doc.setFillColor(prim[0], prim[1], prim[2]);
+            doc.rect(M, y, 3, 8, 'F');
+            doc.setTextColor(prim[0], prim[1], prim[2]);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text(title, M + 6, y + 5.5);
+            y += 10;
+        }
+
+        function truncTxt(text, maxW) {
+            if (!text) return '';
+            if (doc.getTextWidth(text) <= maxW) return text;
+            var t = text;
+            while (t.length > 1 && doc.getTextWidth(t + '\u2026') > maxW) t = t.slice(0, -1);
+            return t + '\u2026';
+        }
+
+        // ──────────────────── PAGE 1: TITLE ────────────────────
+        addPageHeader();
+
+        var titleLines = doc.splitTextToSize('DR-Plan: ' + currentSystem, CW - 12);
+        if (titleLines.length > 2) titleLines = titleLines.slice(0, 2);
+        var titleH = 14 + titleLines.length * 7 + 16;
+        doc.setFillColor(250, 250, 252);
+        doc.rect(M, y, CW, titleH, 'F');
+        doc.setFillColor(prim[0], prim[1], prim[2]);
+        doc.rect(M, y, 4, titleH, 'F');
+        doc.setDrawColor(220, 220, 220);
+        doc.setLineWidth(0.25);
+        doc.rect(M, y, CW, titleH, 'S');
+
+        doc.setTextColor(prim[0], prim[1], prim[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(15);
+        doc.text(titleLines, M + 8, y + 11);
+
+        var metaEl = document.getElementById('detailSystemMeta');
+        var metaText = metaEl ? metaEl.textContent.trim() : '';
+        var afterTitleY = y + 11 + (titleLines.length - 1) * 7;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(70, 70, 70);
+        doc.text(metaText, M + 8, afterTitleY + 9);
+
+        doc.setFontSize(8);
+        doc.setTextColor(110, 110, 110);
+        doc.text('Richtung: ' + directionLabel(currentDirection) + '   |   Erstellt: ' + new Date().toLocaleString('de-DE'), M + 8, afterTitleY + 18);
+
+        y += titleH + 8;
+
+        // ──────────────────── ARCHITECTURE DIAGRAM ────────────────────
+        var topoDiagramEl = document.getElementById('topoDiagram');
+        if (topoDiagramEl) {
+            var topoSvgEl = topoDiagramEl.querySelector('svg');
+            var topoPreEl = topoDiagramEl.querySelector('pre');
+            if (topoSvgEl) {
+                sectionHead('Architekturdiagramm');
+                var topoImg = await svgToDataUrl(topoSvgEl);
+                if (topoImg) {
+                    var tBbox = topoSvgEl.getBoundingClientRect();
+                    var tRatio = tBbox.width > 0 ? tBbox.height / tBbox.width : 0.6;
+                    var tH = Math.min(CW * tRatio, 90);
+                    checkY(tH + 2);
+                    doc.addImage(topoImg, 'PNG', M, y, CW, tH);
+                    y += tH + 6;
+                }
+            } else if (topoPreEl) {
+                sectionHead('Architekturdiagramm (Quelltext)');
+                doc.setFont('courier', 'normal');
+                doc.setFontSize(6.5);
+                doc.setTextColor(60, 60, 60);
+                var topoPreLines = doc.splitTextToSize(topoPreEl.textContent.trim(), CW - 4);
+                topoPreLines.forEach(function(line) { checkY(4); doc.text(line, M + 2, y + 3.5); y += 4; });
+                y += 4;
+            }
+        }
+
+        // ──────────────────── FAILOVER WORKFLOW DIAGRAM ────────────────────
+        var wfDiagramEl = document.getElementById('wfDiagram');
+        if (wfDiagramEl) {
+            var wfSvgEl = wfDiagramEl.querySelector('svg');
+            var wfPreEl = wfDiagramEl.querySelector('pre');
+            if (wfSvgEl) {
+                sectionHead('Failover Ablaufdiagramm');
+                var wfImg = await svgToDataUrl(wfSvgEl);
+                if (wfImg) {
+                    var wBbox = wfSvgEl.getBoundingClientRect();
+                    var wRatio = wBbox.width > 0 ? wBbox.height / wBbox.width : 0.6;
+                    var wH = Math.min(CW * wRatio, 90);
+                    checkY(wH + 2);
+                    doc.addImage(wfImg, 'PNG', M, y, CW, wH);
+                    y += wH + 6;
+                }
+            } else if (wfPreEl) {
+                sectionHead('Failover Ablaufdiagramm (Quelltext)');
+                doc.setFont('courier', 'normal');
+                doc.setFontSize(6.5);
+                doc.setTextColor(60, 60, 60);
+                var wfPreLines = doc.splitTextToSize(wfPreEl.textContent.trim(), CW - 4);
+                wfPreLines.forEach(function(line) { checkY(4); doc.text(line, M + 2, y + 3.5); y += 4; });
+                y += 4;
+            }
+        }
+
+        // ──────────────────── REPLICATION RELATIONSHIPS ────────────────────
+        sectionHead('Replikationsbeziehungen');
+        var relTable = document.querySelector('#relationshipsContent .rel-table');
+        if (!relTable) {
+            doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
+            doc.text('Keine Replikationsbeziehungen verf\u00FCgbar.', M + 2, y + 4);
+            y += 8;
+        } else {
+            // Column widths must sum to CW (180 mm)
+            var rCols = [6, 30, 24, 24, 34, 34, 28];
+            var rColX = [M];
+            for (var rci = 1; rci < rCols.length; rci++) rColX.push(rColX[rci - 1] + rCols[rci - 1]);
+            var rowH = 6;
+            var rHdrs = ['#', 'Typ', 'Prim. Standort', 'Sek. Standort', 'Prim. Cluster', 'Sek. Cluster', 'Status'];
+
+            checkY(rowH + 1);
+            doc.setFillColor(prim[0], prim[1], prim[2]);
+            doc.rect(M, y, CW, rowH, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7);
+            rHdrs.forEach(function(h, i) { doc.text(h, rColX[i] + 1.5, y + 4); });
+            y += rowH;
+
+            var dataRows = relTable.querySelectorAll('tbody > tr');
+            var rowCount = 0;
+            dataRows.forEach(function(tr) {
+                if (tr.querySelector('details')) return;
+                var cells = tr.querySelectorAll('td');
+                if (cells.length < 7) return;
+                rowCount++;
+                checkY(rowH + 1);
+                doc.setFillColor(rowCount % 2 === 0 ? 245 : 255, rowCount % 2 === 0 ? 247 : 255, rowCount % 2 === 0 ? 250 : 255);
+                doc.rect(M, y, CW, rowH, 'F');
+                doc.setDrawColor(225, 225, 225);
+                doc.setLineWidth(0.15);
+                doc.line(M, y + rowH, M + CW, y + rowH);
+                doc.setTextColor(50, 50, 50);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(7);
+                for (var i = 0; i < 7; i++) {
+                    var txt = cells[i] ? cells[i].textContent.trim() : '';
+                    doc.text(truncTxt(txt, rCols[i] - 3), rColX[i] + 1.5, y + 4);
+                }
+                y += rowH;
+            });
+
+            if (rowCount === 0) {
+                doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
+                doc.text('Keine Beziehungen vorhanden.', M + 2, y + 4);
+                y += 8;
+            }
+            y += 4;
+        }
+
+        // ──────────────────── DR RUNBOOK ────────────────────
+        sectionHead('DR Runbook');
+        var rbSections = document.querySelectorAll('#runbookContent .rb-section');
+        if (rbSections.length === 0) {
+            doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
+            doc.text('Kein Runbook verf\u00FCgbar.', M + 2, y + 4);
+            y += 8;
+        } else {
+            rbSections.forEach(function(sec) {
+                var phaseEl = sec.querySelector('.rb-phase-header');
+                var phaseText = phaseEl ? phaseEl.textContent.trim() : '';
+                checkY(9);
+                doc.setFillColor(acc[0], acc[1], acc[2]);
+                doc.rect(M, y, CW, 7, 'F');
+                doc.setTextColor(255, 255, 255);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(9);
+                doc.text(phaseText, M + 4, y + 4.8);
+                y += 8;
+
+                sec.querySelectorAll('.rb-step').forEach(function(step) {
+                    var titleEl = step.querySelector('.rb-step-title');
+                    var descEl  = step.querySelector('.rb-step-desc');
+                    var title   = titleEl ? titleEl.textContent.trim() : '';
+                    var desc    = descEl  ? descEl.textContent.trim()  : '';
+                    checkY(8);
+                    doc.setTextColor(35, 35, 35);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(8);
+                    doc.text(title, M + 4, y + 4);
+                    y += 5.5;
+                    if (desc) {
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(7.5);
+                        doc.setTextColor(70, 70, 70);
+                        var descLines = doc.splitTextToSize(desc, CW - 8);
+                        descLines.forEach(function(line) { checkY(4.5); doc.text(line, M + 5, y + 3.5); y += 4.5; });
+                    }
+                    y += 2;
+                });
+                y += 4;
+            });
+        }
+
+        // ──────────────────── CLI COMMANDS ────────────────────
+        sectionHead('CLI-Befehlskonsole');
+        var cliEl = document.getElementById('cliConsole');
+        var hasCliContent = cliEl && cliEl.querySelectorAll('.cli-line').length > 0;
+        if (!hasCliContent) {
+            doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
+            doc.text('Keine CLI-Befehle verf\u00FCgbar.', M + 2, y + 4);
+            y += 8;
+        } else {
+            Array.from(cliEl.children).forEach(function(el) {
+                if (el.classList.contains('cli-phase-label')) {
+                    checkY(7);
+                    doc.setFillColor(25, 30, 45);
+                    doc.rect(M, y, CW, 6, 'F');
+                    doc.setFont('courier', 'bold');
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(80, 200, 80);
+                    doc.text(el.textContent.trim(), M + 3, y + 4.2);
+                    y += 6;
+                } else if (el.classList.contains('cli-line')) {
+                    var promptEl = el.querySelector('.cli-prompt');
+                    var cmdEl    = el.querySelector('.cli-cmd');
+                    var promptTxt = promptEl ? promptEl.textContent.trim() : '';
+                    var cmdTxt    = cmdEl    ? cmdEl.textContent.trim()    : '';
+                    var fullLine  = promptTxt ? promptTxt + ' ' + cmdTxt : cmdTxt;
+                    var wrapped   = doc.splitTextToSize(fullLine, CW - 6);
+                    var blockH    = wrapped.length * 4.5 + 0.5;
+                    checkY(blockH);
+                    doc.setFillColor(25, 30, 45);
+                    doc.rect(M, y, CW, blockH, 'F');
+                    doc.setFont('courier', 'normal');
+                    doc.setFontSize(7.5);
+                    var ly = y + 3.8;
+                    wrapped.forEach(function(line, li) {
+                        if (li === 0 && promptTxt) {
+                            var pw = doc.getTextWidth(promptTxt + ' ');
+                            doc.setTextColor(80, 200, 80);
+                            doc.text(promptTxt + ' ', M + 3, ly);
+                            doc.setTextColor(220, 220, 220);
+                            doc.text(cmdTxt, M + 3 + pw, ly);
+                        } else {
+                            doc.setTextColor(220, 220, 220);
+                            doc.text(line, M + 3, ly);
+                        }
+                        ly += 4.5;
+                    });
+                    y += blockH;
+                } else if (el.classList.contains('cli-desc')) {
+                    var descTxt = el.textContent.trim();
+                    var dWrapped = doc.splitTextToSize(descTxt, CW - 6);
+                    var dBlockH  = dWrapped.length * 4 + 0.5;
+                    checkY(dBlockH);
+                    doc.setFillColor(25, 30, 45);
+                    doc.rect(M, y, CW, dBlockH, 'F');
+                    doc.setFont('courier', 'normal');
+                    doc.setFontSize(7);
+                    doc.setTextColor(120, 120, 120);
+                    var dy = y + 3.2;
+                    dWrapped.forEach(function(line) { doc.text(line, M + 4, dy); dy += 4; });
+                    y += dBlockH;
+                }
+            });
+            y += 4;
+        }
+
+        // ──────────────────── FINAL FOOTER + PAGE NUMBERS ────────────────────
+        addPageFooter();
+
+        // Second pass: update "Seite X" → "Seite X / Y"
+        var totalPgs = doc.getNumberOfPages();
+        for (var p = 1; p <= totalPgs; p++) {
+            doc.setPage(p);
+            // Overwrite old page-number text
+            doc.setFillColor(245, 245, 245);
+            doc.rect(PW - M - 42, PH - FOOTER_H + 0.5, 42, 8.5, 'F');
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            doc.setTextColor(140, 140, 140);
+            doc.text('Seite ' + p + ' / ' + totalPgs, PW - M, PH - FOOTER_H + 6.5, { align: 'right' });
+        }
+
+        // ──────────────────── SAVE ────────────────────
+        var fname = 'DR-Plan_'
+            + currentSystem.replace(/[^a-zA-Z0-9._-]/g, '_')
+            + '_' + currentDirection
+            + '_' + new Date().toISOString().slice(0, 10)
+            + '.pdf';
+        doc.save(fname);
+
+    } catch(err) {
+        console.error('PDF-Export fehlgeschlagen:', err);
+        alert('PDF-Export fehlgeschlagen: ' + err.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = origText; }
+    }
 }
 </script>
 {% endblock %}
