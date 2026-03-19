@@ -315,10 +315,12 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
         Body: {"name": "<new_suffix>"}   ← suffix only, NOT the full name
         The full snapshot name is ``{source_volume}.{suffix}``; the API renames
         by setting the suffix portion via the ``name`` field in the request body.
+        ActiveCluster arrays share pod volumes – renaming on one array propagates
+        automatically, so only the first array per unique snapshot set is included.
 
     ONTAP rename (ONTAP REST API, api/ontap_swagger.yaml) – one command per volume:
         Step 1 – Find snapshot UUID:
-            GET  /api/storage/volumes/{vol_uuid}/snapshots?name=*HDBSNAP-{old_ts}
+            GET  /api/storage/volumes/{vol_uuid}/snapshots?name=<exact_snap_name>
         Step 2 – Rename and update expiry_time:
             PATCH /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}
             Body: {"name": "<new_snap_name>", "expiry_time": "<ISO>"}
@@ -326,10 +328,19 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
     import re
     commands = []
 
-    # FlashArray rename commands
+    # FlashArray rename commands.
+    # Deduplicate ActiveCluster partner arrays: arrays with identical snapshot sets
+    # share pod volumes, so only one array needs to receive the rename command.
+    seen_fa_snap_sets: set[tuple] = set()
     for fa in locs.get('flasharray_systems', []):
         array_name = fa.get('name', 'fa-unknown')
-        for snap_name in fa.get('snapshot_names', []):
+        snap_names = fa.get('snapshot_names', [])
+        snap_key = tuple(sorted(snap_names))
+        if snap_key in seen_fa_snap_sets:
+            continue  # already emitted for an ActiveCluster partner with same snapshots
+        seen_fa_snap_sets.add(snap_key)
+
+        for snap_name in snap_names:
             # Build the new suffix (only the part after the last '.')
             # The suffix is the HDBSNAP-YYYY-MM-DD-HHMMSS portion.
             # PATCH body must contain only the NEW SUFFIX, not the full name.
@@ -372,22 +383,41 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
         except Exception:
             expiry_iso = new_ts_str
 
-        # Current TTL as a searchable timestamp pattern (used to find the snapshot)
-        old_ts_str = rec.ttl.strftime('%Y-%m-%d-%H%M%S') if rec.ttl else '<alter-ttl-ts>'
+        for vol_entry in (volumes or []):
+            # volumes entries are dicts {'volume': <vol_name>, 'snap': <snap_name>}
+            if isinstance(vol_entry, dict):
+                vol_name = vol_entry.get('volume', '')
+                old_snap_name = vol_entry.get('snap', '')
+            else:
+                vol_name = vol_entry
+                old_snap_name = ''
 
-        # New snapshot name: for HANA/Oracle the convention is {SID}_HDBSNAP-{TTL_ts}
-        new_snap_name = f"{rec.sid}_HDBSNAP-{new_ts_str}"
+            # Derive new snap name: replace old timestamp in snap name with new one.
+            # Fall back to SID-based convention if snap name is not available.
+            if old_snap_name:
+                new_snap_name = re.sub(
+                    r'(HDBSNAP-)\d{4}-\d{2}-\d{2}-\d{6}',
+                    r'\g<1>' + new_ts_str,
+                    old_snap_name,
+                )
+                # If the pattern was not found, fall back to SID-based convention
+                if new_snap_name == old_snap_name:
+                    new_snap_name = f"{rec.sid}_HDBSNAP-{new_ts_str}"
+                search_name = old_snap_name
+            else:
+                old_ts_str = rec.ttl.strftime('%Y-%m-%d-%H%M%S') if rec.ttl else '<alter-ttl-ts>'
+                new_snap_name = f"{rec.sid}_HDBSNAP-{new_ts_str}"
+                search_name = f"*HDBSNAP-{old_ts_str}*"
 
-        for vol in (volumes or [f'{svm}/{rec.sid}_vol']):
             commands.append({
                 'platform': 'ONTAP',
                 'cluster': cluster,
                 'svm': svm,
-                'volume': vol,
+                'volume': vol_name,
                 'command': (
-                    f"# Schritt 1: Snapshot-UUID ermitteln (Volume: {vol}, SVM: {svm})\n"
+                    f"# Schritt 1: Snapshot-UUID ermitteln (Volume: {vol_name}, SVM: {svm})\n"
                     f"curl 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
-                    f"/snapshots?name=*HDBSNAP-{old_ts_str}*'"
+                    f"/snapshots?name={search_name}'"
                     f" -u admin:<password>\n\n"
                     f"# Schritt 2: Snapshot umbenennen und TTL setzen\n"
                     f"curl -X PATCH 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
@@ -419,18 +449,29 @@ def _build_delete_curl_commands(rec, locs: dict) -> list[dict]:
         Step 2 – Eradicate (permanent deletion, cannot be recovered):
             DELETE /api/<ver>/volume-snapshots?names=<full_snap_name>
 
+        ActiveCluster arrays share pod volumes – only one array needs the command.
+
     ONTAP deletion (ONTAP REST API) – one command per volume:
         Step 1 – Find snapshot UUID:
-            GET  /api/storage/volumes/{vol_uuid}/snapshots?name=*HDBSNAP-{ttl_ts}
+            GET  /api/storage/volumes/{vol_uuid}/snapshots?name=<snap_name>
         Step 2 – Delete snapshot:
             DELETE /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}
     """
     commands = []
 
-    # FlashArray two-step delete commands (one per snapshot LUN)
+    # FlashArray two-step delete commands (one per snapshot LUN).
+    # Deduplicate ActiveCluster partner arrays: arrays with identical snapshot sets
+    # share pod volumes, so only one array needs to receive the delete command.
+    seen_fa_snap_sets: set[tuple] = set()
     for fa in locs.get('flasharray_systems', []):
         array_name = fa.get('name', 'fa-unknown')
-        for snap_name in fa.get('snapshot_names', []):
+        snap_names = fa.get('snapshot_names', [])
+        snap_key = tuple(sorted(snap_names))
+        if snap_key in seen_fa_snap_sets:
+            continue  # already emitted for an ActiveCluster partner with same snapshots
+        seen_fa_snap_sets.add(snap_key)
+
+        for snap_name in snap_names:
             commands.append({
                 'platform': 'FlashArray',
                 'array': array_name,
@@ -458,16 +499,26 @@ def _build_delete_curl_commands(rec, locs: dict) -> list[dict]:
         svm = oc.get('svm', '')
         volumes = oc.get('volumes', [])
 
-        for vol in (volumes or []):
+        for vol_entry in (volumes or []):
+            # volumes entries are dicts {'volume': <vol_name>, 'snap': <snap_name>}
+            if isinstance(vol_entry, dict):
+                vol_name = vol_entry.get('volume', '')
+                snap_name_str = vol_entry.get('snap', '')
+            else:
+                vol_name = vol_entry
+                snap_name_str = ''
+
+            search_name = snap_name_str if snap_name_str else f"*HDBSNAP-{ttl_ts_str}*"
+
             commands.append({
                 'platform': 'ONTAP',
                 'cluster': cluster,
                 'svm': svm,
-                'volume': vol,
+                'volume': vol_name,
                 'command': (
-                    f"# Schritt 1: Snapshot-UUID ermitteln (Volume: {vol}, SVM: {svm})\n"
+                    f"# Schritt 1: Snapshot-UUID ermitteln (Volume: {vol_name}, SVM: {svm})\n"
                     f"curl 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
-                    f"/snapshots?name=*HDBSNAP-{ttl_ts_str}*'"
+                    f"/snapshots?name={search_name}'"
                     f" -u admin:<password>\n\n"
                     f"# Schritt 2: Snapshot löschen\n"
                     f"curl -X DELETE 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
