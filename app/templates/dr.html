@@ -1258,7 +1258,7 @@ function loadLogoPng() {
                         canvas.width = dw; canvas.height = dh;
                         canvas.getContext('2d').drawImage(img, 0, 0, dw, dh);
                         URL.revokeObjectURL(url);
-                        resolve(canvas.toDataURL('image/png'));
+                        resolve({ dataUrl: canvas.toDataURL('image/png'), width: dw, height: dh });
                     } catch(e) { URL.revokeObjectURL(url); resolve(null); }
                 };
                 img.onerror = function() { URL.revokeObjectURL(url); resolve(null); };
@@ -1299,25 +1299,46 @@ async function exportDetailPDF() {
 
         // ---- Logo ----
         var logoDataUrl = null;
-        if (hasLogo) { logoDataUrl = await loadLogoPng(); }
+        var logoMmW = 0, logoMmH = 0;
+        if (hasLogo) {
+            var logoRes = await loadLogoPng();
+            if (logoRes) {
+                logoDataUrl = logoRes.dataUrl;
+                // fit logo proportionally into a 40 mm × 18 mm header box
+                var logoBoxW = 40, logoBoxH = 18;
+                var pixRatio = logoRes.height / logoRes.width;
+                logoMmW = logoBoxW;
+                logoMmH = logoBoxW * pixRatio;
+                if (logoMmH > logoBoxH) { logoMmH = logoBoxH; logoMmW = logoMmH / pixRatio; }
+            }
+        }
 
         // ---- Page helpers ----
         var pageNum = 0;
 
         function addPageHeader() {
             pageNum++;
-            doc.setFillColor(prim[0], prim[1], prim[2]);
+            doc.setFillColor(255, 255, 255);
             doc.rect(0, 0, PW, HEADER_H, 'F');
+            doc.setDrawColor(220, 220, 220);
+            doc.setLineWidth(0.25);
+            doc.line(0, HEADER_H - 3, PW, HEADER_H - 3);
             var textX = M;
             if (logoDataUrl) {
-                try { doc.addImage(logoDataUrl, 'PNG', M, 4, 36, 18); textX = M + 40; } catch(e) {}
+                try {
+                    // centre logo in the usable header area (top 4 mm padding + 3 mm accent stripe = 7 mm excluded)
+                    var logoY = 4 + (HEADER_H - 7 - logoMmH) / 2;
+                    doc.addImage(logoDataUrl, 'PNG', M, logoY, logoMmW, logoMmH);
+                    textX = M + logoMmW + 4;
+                } catch(e) {}
             }
-            doc.setTextColor(255, 255, 255);
+            doc.setTextColor(0, 0, 0);
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(11);
             doc.text(companyName + ' \u00B7 DR-Planer', textX, 12);
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(8);
+            doc.setTextColor(60, 60, 60);
             doc.text('System: ' + currentSystem + '  |  ' + directionLabel(currentDirection), textX, 21);
             // 3-colour accent stripe
             doc.setFillColor(acc[0], acc[1], acc[2]);
@@ -1415,9 +1436,10 @@ async function exportDetailPDF() {
                 if (topoImg) {
                     var tBbox = topoSvgEl.getBoundingClientRect();
                     var tRatio = tBbox.width > 0 ? tBbox.height / tBbox.width : 0.6;
-                    var tH = Math.min(CW * tRatio, 90);
+                    var tW = CW, tH = CW * tRatio;
+                    if (tH > 90) { tH = 90; tW = tH / tRatio; }
                     checkY(tH + 2);
-                    doc.addImage(topoImg, 'PNG', M, y, CW, tH);
+                    doc.addImage(topoImg, 'PNG', M, y, tW, tH);
                     y += tH + 6;
                 }
             } else if (topoPreEl) {
@@ -1442,9 +1464,10 @@ async function exportDetailPDF() {
                 if (wfImg) {
                     var wBbox = wfSvgEl.getBoundingClientRect();
                     var wRatio = wBbox.width > 0 ? wBbox.height / wBbox.width : 0.6;
-                    var wH = Math.min(CW * wRatio, 90);
+                    var wW = CW, wH = CW * wRatio;
+                    if (wH > 90) { wH = 90; wW = wH / wRatio; }
                     checkY(wH + 2);
-                    doc.addImage(wfImg, 'PNG', M, y, CW, wH);
+                    doc.addImage(wfImg, 'PNG', M, y, wW, wH);
                     y += wH + 6;
                 }
             } else if (wfPreEl) {
