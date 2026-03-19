@@ -357,7 +357,7 @@
         <h1 aria-label="{% if settings and settings.logo_filename %}{{ settings.company_name }} Logo{% endif %}">{{ settings.company_name if settings else 'Storage Dashboard' }}</h1>
         <div class="navbar-links">
             <a href="/dashboard">📊 Dashboard</a>
-            <a href="/alerts/"{% if open_alerts_count > 0 %} class="alerts-active"{% endif %}>🔔 Alerts{% if open_alerts_count > 0 %} <span class="alert-badge">{{ open_alerts_count }}</span>{% endif %}</a>
+            <a href="/alerts/" id="nav-alerts-link"{% if open_alerts_count > 0 %} class="alerts-active"{% endif %}>🔔 Alerts{% if open_alerts_count > 0 %} <span class="alert-badge" id="nav-alerts-badge">{{ open_alerts_count }}</span>{% endif %}</a>
             <a href="/snaps/">📸 Snapshots</a>
             <a href="/capacity/">📈 Kapazitätsreport</a>
             <a href="/dr/">🛡️ DR Planner</a>
@@ -438,6 +438,48 @@
                     e.stopPropagation();
                 });
             }
+        })();
+    </script>
+    <script>
+        // ─── Navbar alert-badge auto-refresh ─────────────────────────────────────
+        (function () {
+            var POLL_MS = 60000;
+            var timer;
+
+            function refreshNavBadge() {
+                clearTimeout(timer);
+                fetch('/api/alerts')
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        var alerts = data.alerts || [];
+                        var count = alerts.filter(function (a) { return !a.acknowledged; }).length;
+                        var link  = document.getElementById('nav-alerts-link');
+                        if (!link) return;
+                        var badge = document.getElementById('nav-alerts-badge');
+                        if (count > 0) {
+                            link.classList.add('alerts-active');
+                            if (!badge) {
+                                link.appendChild(document.createTextNode(' '));
+                                badge = document.createElement('span');
+                                badge.id = 'nav-alerts-badge';
+                                badge.className = 'alert-badge';
+                                link.appendChild(badge);
+                            }
+                            badge.textContent = String(count);
+                        } else {
+                            link.classList.remove('alerts-active');
+                            if (badge) { badge.previousSibling && badge.previousSibling.nodeType === 3 && badge.previousSibling.remove(); badge.remove(); }
+                        }
+                    })
+                    .catch(function (err) { console.warn('Nav alert badge refresh failed:', err); })
+                    .finally(function () {
+                        timer = setTimeout(refreshNavBadge, POLL_MS);
+                    });
+            }
+
+            document.addEventListener('DOMContentLoaded', function () {
+                timer = setTimeout(refreshNavBadge, POLL_MS);
+            });
         })();
     </script>
 </body>
