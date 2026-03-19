@@ -4,6 +4,7 @@ import io
 import logging
 from datetime import date as _date
 from flask import Blueprint, render_template, jsonify, request, current_app, Response
+from flask_login import login_required
 
 bp = Blueprint('capacity', __name__, url_prefix='/capacity')
 logger = logging.getLogger(__name__)
@@ -333,6 +334,7 @@ def api_export_current_excel():
 
 
 @bp.route('/api/import/history', methods=['POST'])
+@login_required
 def api_import_history():
     """Import historical capacity data from a CSV file."""
     from app.models import StorageSystem
@@ -370,6 +372,7 @@ def api_import_history():
 
 
 @bp.route('/api/import/sod-history-pure1', methods=['POST'])
+@login_required
 def api_import_sod_history_pure1():
     """Import historical Storage on Demand data directly from the Pure1 API."""
     from datetime import date as _date
