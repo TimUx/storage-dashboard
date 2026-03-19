@@ -643,12 +643,15 @@
             <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
             <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF</button>
             <button class="export-btn" onclick="exportImage()" title="Verlaufsdiagramme als PNG-Bild exportieren">📥 PNG</button>
+            {% if current_user.is_authenticated %}
             <button class="import-btn" onclick="openImportModal()" title="Historische Daten aus CSV importieren">📤 Importieren</button>
+            {% endif %}
         </div>
     </div>
     <div id="historyContent"><div class="cap-loading">Lade Verlaufsdaten…</div></div>
 </div>
 
+{% if current_user.is_authenticated %}
 <!-- ── Import Modal ── -->
 <div class="modal-overlay" id="importModal" onclick="closeImportModal(event)">
     <div class="modal-box">
@@ -747,6 +750,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <!-- ── Chart Fullscreen Modal ── -->
 <div class="chart-fs-overlay" id="chartFsOverlay" onclick="closeChartFullscreen(event)"
