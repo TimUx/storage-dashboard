@@ -257,8 +257,8 @@ class TestOpenAlertsCountContextVar:
         db_session.session.commit()
         html = client.get('/', follow_redirects=True).data.decode()
         # The badge span is only rendered when alerts > 0; the CSS class definition
-        # in the <style> block is always present, so we check for the element tag.
-        assert '<span class="alert-badge">' not in html
+        # in the <style> block is always present, so we check for the nav element.
+        assert 'id="nav-alerts-badge"' not in html
 
     def test_alerts_link_has_active_class_when_alerts_open(self, client, db_session):
         """The Alerts navbar link uses the alerts-active CSS class when alerts > 0."""
@@ -533,5 +533,5 @@ class TestAlertStateInApiResponse:
 
         # The navbar page should show count=1 (only the unacknowledged alert)
         html = client.get('/', follow_redirects=True).data.decode()
-        assert '<span class="alert-badge">1</span>' in html
+        assert '<span class="alert-badge" id="nav-alerts-badge">1</span>' in html
 
