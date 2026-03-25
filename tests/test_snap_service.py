@@ -1180,8 +1180,10 @@ def test_build_rename_curl_uses_correct_patch_format():
     """_build_rename_curl_commands must use the correct Pure Storage PATCH format.
 
     Per api/pure_swagger.json:
-      PATCH /api/<ver>/volume-snapshots?names=<full_name>
-      Body: {"name": "<new_suffix>"}  ← suffix only, not the full VOL.SUFFIX name
+      PATCH /api/<ver>/volume-snapshots?names=<full_old_name>
+      Body: {"name": "<new_full_snapshot_name>"}
+      The 'name' field is "The new name for the resource" – the complete new
+      snapshot name (VOL.NEW_SUFFIX), not just the suffix portion.
     """
     from app.routes.snaps import _build_rename_curl_commands
     from unittest.mock import MagicMock
@@ -1211,13 +1213,10 @@ def test_build_rename_curl_uses_correct_patch_format():
     assert 'x-auth-token' in cmd['command'], "Command must use x-auth-token header"
     # URL must use ?names= query parameter, not /id path segment
     assert '?names=' in cmd['command'], "PATCH must use ?names= query param"
-    # Body must contain only the new suffix (not the full VOL.SUFFIX name)
-    assert '"HDBSNAP-2026-04-01-120000"' in cmd['command'], \
-        "PATCH body must set the new suffix"
-    # The suffix must NOT be prefixed with 'ABP_data.' in the body
-    assert '"ABP_data.HDBSNAP' not in cmd['command'], \
-        "PATCH body must contain suffix only, not full snapshot name"
-    # Old name should be in the URL query parameter
+    # Body must contain the complete new snapshot name (VOL.NEW_SUFFIX)
+    assert '"ABP_data.HDBSNAP-2026-04-01-120000"' in cmd['command'], \
+        "PATCH body must contain the complete new snapshot name (VOL.NEW_SUFFIX)"
+    # Old name must appear in the ?names= URL parameter (to identify which snap to rename)
     assert 'HDBSNAP-2026-03-13-073434' in cmd['command'], \
         "Old snapshot name must appear in the ?names= parameter"
 
@@ -1263,15 +1262,15 @@ def test_build_rename_curl_oracle_plain_timestamp():
     assert 'pod-x86-0304::vgA4T_1.2026-03-22-073617' in cmd['command'], \
         "Old snapshot name must appear in the ?names= parameter"
 
-    # PATCH body must set the NEW plain timestamp (no HDBSNAP- prefix)
-    assert '"2026-04-15-120000"' in cmd['command'], \
-        "PATCH body must contain the new plain timestamp suffix"
+    # PATCH body must contain the complete new snapshot name (VOL.NEW_SUFFIX with pod prefix)
+    assert '"pod-x86-0304::vgA4T_1.2026-04-15-120000"' in cmd['command'], \
+        "PATCH body must contain the complete new snapshot name"
 
     # Body must NOT still contain the old timestamp (that would be a no-op)
     assert '"2026-03-22-073617"' not in cmd['command'], \
         "PATCH body must not contain the old timestamp (rename would be a no-op)"
 
-    # Body must NOT gain a spurious HDBSNAP- prefix
+    # Body must NOT gain a spurious HDBSNAP- prefix for Oracle snapshots
     assert '"HDBSNAP-2026-04-15-120000"' not in cmd['command'], \
         "PATCH body must not add HDBSNAP- prefix for Oracle snapshots"
 
@@ -1279,6 +1278,7 @@ def test_build_rename_curl_oracle_plain_timestamp():
     assert cmd['new_name'] == 'pod-x86-0304::vgA4T_1.2026-04-15-120000'
 
 
+def test_build_rename_curl_ontap_per_volume():
     """_build_rename_curl_commands emits one ONTAP command per volume.
 
     The popup must show a command for every affected ONTAP volume so the
@@ -1476,12 +1476,12 @@ def test_update_ttl_endpoint_includes_auth_step(app, client):
     assert 'api-token' in fa_cmd['command'], "Login step must reference api-token"
     assert 'x-auth-token' in fa_cmd['command'], "PATCH step must use x-auth-token header"
 
-    # PATCH rename step must reference the old snapshot name in the URL
+    # PATCH rename step must reference the old snapshot name in the ?names= URL
     assert 'HDBSNAP-2026-03-17-190119' in fa_cmd['command'], \
         "Old snapshot name must appear in the PATCH ?names= parameter"
-    # and the new timestamp in the body
-    assert 'HDBSNAP-2026-04-01-190119' in fa_cmd['command'], \
-        "New timestamp must appear in the PATCH body"
+    # PATCH body must contain the complete new snapshot name (VOL.NEW_SUFFIX)
+    assert '"ABP_data.HDBSNAP-2026-04-01-190119"' in fa_cmd['command'], \
+        "PATCH body must contain the complete new snapshot name"
 
     # TTL must be updated in the DB
     with app.app_context():

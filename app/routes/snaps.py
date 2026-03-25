@@ -311,13 +311,16 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
     No actual API calls are made.
 
     FlashArray rename (Pure Storage REST API 2.x, api/pure_swagger.json):
-        PATCH /api/<ver>/volume-snapshots?names=<full_snap_name>
-        Body: {"name": "<new_suffix>"}   ← suffix only, NOT the full name
-        The full snapshot name is ``{source_volume}.{suffix}``; the API renames
-        by setting the suffix portion via the ``name`` field in the request body.
+        PATCH /api/<ver>/volume-snapshots?names=<full_old_snap_name>
+        Body: {"name": "<new_full_snap_name>"}
+        Per the API spec: "To rename the suffix of a volume snapshot, set name
+        to the new suffix name." – name is "The new name for the resource",
+        i.e. the complete new snapshot name in ``VOL.SUFFIX`` form.
         Two suffix formats are handled:
-          - HANA:   ``HDBSNAP-YYYY-MM-DD-HHmmss``  (prefix is preserved)
-          - Oracle: ``YYYY-MM-DD-HHmmss``           (plain timestamp, no prefix)
+          - HANA:   ``VOL.HDBSNAP-YYYY-MM-DD-HHmmss``  (HDBSNAP prefix preserved)
+          - Oracle: ``VOL.YYYY-MM-DD-HHmmss``           (plain timestamp, no prefix)
+        Pod-hosted volumes carry the pod name as a ``pod::`` prefix, which is
+        kept in the body name so it matches the resource name returned by GET.
         ActiveCluster arrays share pod volumes – renaming on one array propagates
         automatically, so only the first array per unique snapshot set is included.
 
@@ -344,8 +347,7 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
         seen_fa_snap_sets.add(snap_key)
 
         for snap_name in snap_names:
-            # Build the new suffix (only the part after the last '.').
-            # PATCH body must contain only the NEW SUFFIX, not the full name.
+            # Compute the new suffix by replacing the timestamp in the old suffix.
             # Two naming conventions are handled:
             #   HANA:   suffix = "HDBSNAP-YYYY-MM-DD-HHmmss"  → keep the "HDBSNAP-" prefix
             #   Oracle: suffix = "YYYY-MM-DD-HHmmss"           → plain timestamp, no prefix
@@ -355,15 +357,17 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
                 lambda m: (m.group(1) or '') + new_ts_str,
                 current_suffix,
             )
-            # Build the new full name for display (source_vol.new_suffix)
+            # Build the new full snapshot name (source_vol.new_suffix, pod prefix included).
+            # The Pure Storage API PATCH body requires the complete new snapshot name,
+            # not just the suffix: "name" = "The new name for the resource".
             dot_idx = snap_name.rfind('.')
             new_full_name = (snap_name[:dot_idx + 1] + new_suffix) if dot_idx != -1 else snap_name
             commands.append({
                 'platform': 'FlashArray',
                 'array': array_name,
-                # Correct API call per Pure Storage REST API 2.x schema:
-                #   PATCH /api/<ver>/volume-snapshots?names=<full_old_name>
-                #   Body: {"name": "<new_suffix>"}  (suffix only, not full name)
+                # Pure Storage REST API 2.x PATCH /api/<ver>/volume-snapshots:
+                #   ?names=<full_old_name>   – identifies the snapshot to rename
+                #   Body: {"name": "<new_full_name>"}  – complete new snapshot name
                 'command': (
                     f"# Schritt 0: Authentifizierung – x-auth-token ermitteln\n"
                     f"curl -X POST 'https://{array_name}/api/2.26/login'"
@@ -374,7 +378,7 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
                     f"?names={snap_name}'"
                     f" -H 'x-auth-token: <x-auth-token>'"
                     f" -H 'Content-Type: application/json'"
-                    f" -d '{{\"name\":\"{new_suffix}\"}}'"
+                    f" -d '{{\"name\":\"{new_full_name}\"}}'"
                 ),
                 'old_name': snap_name,
                 'new_name': new_full_name,
