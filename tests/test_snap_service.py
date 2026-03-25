@@ -1205,6 +1205,10 @@ def test_build_rename_curl_uses_correct_patch_format():
     assert len(commands) == 1
     cmd = commands[0]
     assert cmd['platform'] == 'FlashArray'
+    # Must include authentication step (Step 0)
+    assert '/login' in cmd['command'], "Command must include login/auth step"
+    assert 'api-token' in cmd['command'], "Login step must reference api-token"
+    assert 'x-auth-token' in cmd['command'], "Command must use x-auth-token header"
     # URL must use ?names= query parameter, not /id path segment
     assert '?names=' in cmd['command'], "PATCH must use ?names= query param"
     # Body must contain only the new suffix (not the full VOL.SUFFIX name)
@@ -1348,8 +1352,11 @@ def test_delete_preview_endpoint(app, client):
     assert 'FlashArray' in platforms, "FlashArray delete command must be present"
     assert 'ONTAP' in platforms, "ONTAP delete command must be present"
 
-    # FlashArray command has both destroy + eradicate steps
+    # FlashArray command has authentication step + destroy + eradicate steps
     fa_cmd = next(c for c in cmds if c['platform'] == 'FlashArray')
+    assert '/login' in fa_cmd['command'], "FlashArray must include login/auth step"
+    assert 'api-token' in fa_cmd['command'], "FlashArray login step must reference api-token"
+    assert 'x-auth-token' in fa_cmd['command'], "FlashArray must include x-auth-token header"
     assert 'destroyed' in fa_cmd['command'], "FlashArray must include destroy step"
     assert 'DELETE' in fa_cmd['command'], "FlashArray must include eradicate step"
 

@@ -359,9 +359,14 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
                 #   PATCH /api/<ver>/volume-snapshots?names=<full_old_name>
                 #   Body: {"name": "<new_suffix>"}  (suffix only, not full name)
                 'command': (
+                    f"# Schritt 0: Authentifizierung – x-auth-token ermitteln\n"
+                    f"curl -X POST 'https://{array_name}/api/2.26/login'"
+                    f" -H 'api-token: <api-token>'\n"
+                    f"# Der x-auth-token wird im Response-Header zurueckgegeben\n\n"
+                    f"# Schritt 1: Snapshot umbenennen\n"
                     f"curl -X PATCH 'https://{array_name}/api/2.26/volume-snapshots"
                     f"?names={snap_name}'"
-                    f" -H 'x-auth-token: <token>'"
+                    f" -H 'x-auth-token: <x-auth-token>'"
                     f" -H 'Content-Type: application/json'"
                     f" -d '{{\"name\":\"{new_suffix}\"}}'"
                 ),
@@ -477,16 +482,20 @@ def _build_delete_curl_commands(rec, locs: dict) -> list[dict]:
                 'array': array_name,
                 'snap_name': snap_name,
                 'command': (
-                    f"# Schritt 1: Snapshot als gelöscht markieren (Eradication-Pending)\n"
+                    f"# Schritt 0: Authentifizierung – x-auth-token ermitteln\n"
+                    f"curl -X POST 'https://{array_name}/api/2.26/login'"
+                    f" -H 'api-token: <api-token>'\n"
+                    f"# Der x-auth-token wird im Response-Header zurueckgegeben\n\n"
+                    f"# Schritt 1: Snapshot als geloescht markieren (Eradication-Pending)\n"
                     f"curl -X PATCH 'https://{array_name}/api/2.26/volume-snapshots"
                     f"?names={snap_name}'"
-                    f" -H 'x-auth-token: <token>'"
+                    f" -H 'x-auth-token: <x-auth-token>'"
                     f" -H 'Content-Type: application/json'"
                     f" -d '{{\"destroyed\":true}}'\n\n"
-                    f"# Schritt 2: Snapshot endgültig löschen (Eradication)\n"
+                    f"# Schritt 2: Snapshot endgueltig loeschen (Eradication)\n"
                     f"curl -X DELETE 'https://{array_name}/api/2.26/volume-snapshots"
                     f"?names={snap_name}'"
-                    f" -H 'x-auth-token: <token>'"
+                    f" -H 'x-auth-token: <x-auth-token>'"
                     f" -H 'Content-Type: application/json'"
                 ),
             })
