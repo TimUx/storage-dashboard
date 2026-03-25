@@ -1180,8 +1180,10 @@ def test_build_rename_curl_uses_correct_patch_format():
     """_build_rename_curl_commands must use the correct Pure Storage PATCH format.
 
     Per api/pure_swagger.json:
-      PATCH /api/<ver>/volume-snapshots?names=<full_name>
-      Body: {"name": "<new_suffix>"}  ← suffix only, not the full VOL.SUFFIX name
+      PATCH /api/<ver>/volume-snapshots?names=<full_old_name>
+      Body: {"name": "<new_full_snapshot_name>"}
+      The 'name' field is "The new name for the resource" – the complete new
+      snapshot name (VOL.NEW_SUFFIX), not just the suffix portion.
     """
     from app.routes.snaps import _build_rename_curl_commands
     from unittest.mock import MagicMock
@@ -1205,17 +1207,75 @@ def test_build_rename_curl_uses_correct_patch_format():
     assert len(commands) == 1
     cmd = commands[0]
     assert cmd['platform'] == 'FlashArray'
+    # Must include authentication step (Step 0)
+    assert '/login' in cmd['command'], "Command must include login/auth step"
+    assert 'api-token' in cmd['command'], "Login step must reference api-token"
+    assert 'x-auth-token' in cmd['command'], "Command must use x-auth-token header"
     # URL must use ?names= query parameter, not /id path segment
     assert '?names=' in cmd['command'], "PATCH must use ?names= query param"
-    # Body must contain only the new suffix (not the full VOL.SUFFIX name)
-    assert '"HDBSNAP-2026-04-01-120000"' in cmd['command'], \
-        "PATCH body must set the new suffix"
-    # The suffix must NOT be prefixed with 'ABP_data.' in the body
-    assert '"ABP_data.HDBSNAP' not in cmd['command'], \
-        "PATCH body must contain suffix only, not full snapshot name"
-    # Old name should be in the URL query parameter
+    # Body must contain the complete new snapshot name (VOL.NEW_SUFFIX)
+    assert '"ABP_data.HDBSNAP-2026-04-01-120000"' in cmd['command'], \
+        "PATCH body must contain the complete new snapshot name (VOL.NEW_SUFFIX)"
+    # Old name must appear in the ?names= URL parameter (to identify which snap to rename)
     assert 'HDBSNAP-2026-03-13-073434' in cmd['command'], \
         "Old snapshot name must appear in the ?names= parameter"
+
+
+def test_build_rename_curl_oracle_plain_timestamp():
+    """_build_rename_curl_commands handles Oracle VG snapshots (plain timestamp suffix).
+
+    Oracle FlashArray snapshots use a plain YYYY-MM-DD-HHmmss suffix without the
+    HDBSNAP- prefix, e.g. ``pod-x86-0304::vgA4T_1.2026-03-22-073617``.
+    The PATCH body must contain the NEW plain timestamp as the suffix,
+    NOT the old timestamp (which would be a no-op rename).
+    """
+    from app.routes.snaps import _build_rename_curl_commands
+    from unittest.mock import MagicMock
+
+    rec = MagicMock()
+    rec.sid = 'A4T'
+
+    locs = {
+        'flasharray_systems': [
+            {
+                'name': 'pure04',
+                'snapshot_names': ['pod-x86-0304::vgA4T_1.2026-03-22-073617'],
+            }
+        ],
+        'ontap_clusters': [],
+    }
+
+    new_ts = '2026-04-15-120000'
+    commands = _build_rename_curl_commands(rec, locs, new_ts)
+
+    assert len(commands) == 1
+    cmd = commands[0]
+    assert cmd['platform'] == 'FlashArray'
+    assert cmd['array'] == 'pure04'
+
+    # Must include authentication step
+    assert '/login' in cmd['command'], "Command must include login/auth step"
+    assert 'api-token' in cmd['command'], "Login step must reference api-token"
+    assert 'x-auth-token' in cmd['command'], "Command must use x-auth-token header"
+
+    # Old snapshot name must appear in the ?names= URL parameter
+    assert 'pod-x86-0304::vgA4T_1.2026-03-22-073617' in cmd['command'], \
+        "Old snapshot name must appear in the ?names= parameter"
+
+    # PATCH body must contain the complete new snapshot name (VOL.NEW_SUFFIX with pod prefix)
+    assert '"pod-x86-0304::vgA4T_1.2026-04-15-120000"' in cmd['command'], \
+        "PATCH body must contain the complete new snapshot name"
+
+    # Body must NOT still contain the old timestamp (that would be a no-op)
+    assert '"2026-03-22-073617"' not in cmd['command'], \
+        "PATCH body must not contain the old timestamp (rename would be a no-op)"
+
+    # Body must NOT gain a spurious HDBSNAP- prefix for Oracle snapshots
+    assert '"HDBSNAP-2026-04-15-120000"' not in cmd['command'], \
+        "PATCH body must not add HDBSNAP- prefix for Oracle snapshots"
+
+    # new_name field must also reflect the updated name
+    assert cmd['new_name'] == 'pod-x86-0304::vgA4T_1.2026-04-15-120000'
 
 
 def test_build_rename_curl_ontap_per_volume():
@@ -1348,8 +1408,11 @@ def test_delete_preview_endpoint(app, client):
     assert 'FlashArray' in platforms, "FlashArray delete command must be present"
     assert 'ONTAP' in platforms, "ONTAP delete command must be present"
 
-    # FlashArray command has both destroy + eradicate steps
+    # FlashArray command has authentication step + destroy + eradicate steps
     fa_cmd = next(c for c in cmds if c['platform'] == 'FlashArray')
+    assert '/login' in fa_cmd['command'], "FlashArray must include login/auth step"
+    assert 'api-token' in fa_cmd['command'], "FlashArray login step must reference api-token"
+    assert 'x-auth-token' in fa_cmd['command'], "FlashArray must include x-auth-token header"
     assert 'destroyed' in fa_cmd['command'], "FlashArray must include destroy step"
     assert 'DELETE' in fa_cmd['command'], "FlashArray must include eradicate step"
 
@@ -1363,3 +1426,64 @@ def test_delete_preview_endpoint(app, client):
         unchanged = SnapshotRecord.query.get(snap_id)
         assert unchanged.delete_marked is False
         assert unchanged.delete_deadline is None
+
+
+def test_update_ttl_endpoint_includes_auth_step(app, client):
+    """POST /snaps/api/update-ttl returns FlashArray curl commands with auth step.
+
+    The FlashArray rename command must include:
+      - Step 0: POST /login to obtain x-auth-token
+      - Step 1: PATCH with x-auth-token header (not bare <token>)
+    """
+    from app import db
+    from app.models import SnapshotRecord
+    import json
+    from datetime import datetime
+
+    with app.app_context():
+        rec = SnapshotRecord(
+            sid='ABP',
+            creation_time=datetime(2026, 3, 13, 19, 3, 49),
+            ttl=datetime(2026, 3, 17, 19, 1, 19),
+            flasharray_present=True,
+            ontap_present=False,
+            storage_locations=json.dumps({
+                'flasharray_systems': [
+                    {'name': 'pure04', 'snapshot_names': ['ABP_data.HDBSNAP-2026-03-17-190119']}
+                ],
+                'ontap_clusters': [],
+            }),
+        )
+        db.session.add(rec)
+        db.session.commit()
+        snap_id = rec.id
+
+    resp = client.post('/snaps/api/update-ttl',
+                       data=json.dumps({'id': snap_id, 'new_ttl': '2026-04-01 19:01:19'}),
+                       content_type='application/json')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['success'] is True
+
+    cmds = data['curl_commands']
+    assert len(cmds) >= 1
+
+    fa_cmd = next((c for c in cmds if c['platform'] == 'FlashArray'), None)
+    assert fa_cmd is not None, "FlashArray rename command must be present"
+
+    # Must include the login / auth step
+    assert '/login' in fa_cmd['command'], "Command must include POST /login auth step"
+    assert 'api-token' in fa_cmd['command'], "Login step must reference api-token"
+    assert 'x-auth-token' in fa_cmd['command'], "PATCH step must use x-auth-token header"
+
+    # PATCH rename step must reference the old snapshot name in the ?names= URL
+    assert 'HDBSNAP-2026-03-17-190119' in fa_cmd['command'], \
+        "Old snapshot name must appear in the PATCH ?names= parameter"
+    # PATCH body must contain the complete new snapshot name (VOL.NEW_SUFFIX)
+    assert '"ABP_data.HDBSNAP-2026-04-01-190119"' in fa_cmd['command'], \
+        "PATCH body must contain the complete new snapshot name"
+
+    # TTL must be updated in the DB
+    with app.app_context():
+        updated = SnapshotRecord.query.get(snap_id)
+        assert updated.ttl == datetime(2026, 4, 1, 19, 1, 19)
