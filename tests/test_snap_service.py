@@ -1370,3 +1370,64 @@ def test_delete_preview_endpoint(app, client):
         unchanged = SnapshotRecord.query.get(snap_id)
         assert unchanged.delete_marked is False
         assert unchanged.delete_deadline is None
+
+
+def test_update_ttl_endpoint_includes_auth_step(app, client):
+    """POST /snaps/api/update-ttl returns FlashArray curl commands with auth step.
+
+    The FlashArray rename command must include:
+      - Step 0: POST /login to obtain x-auth-token
+      - Step 1: PATCH with x-auth-token header (not bare <token>)
+    """
+    from app import db
+    from app.models import SnapshotRecord
+    import json
+    from datetime import datetime
+
+    with app.app_context():
+        rec = SnapshotRecord(
+            sid='ABP',
+            creation_time=datetime(2026, 3, 13, 19, 3, 49),
+            ttl=datetime(2026, 3, 17, 19, 1, 19),
+            flasharray_present=True,
+            ontap_present=False,
+            storage_locations=json.dumps({
+                'flasharray_systems': [
+                    {'name': 'pure04', 'snapshot_names': ['ABP_data.HDBSNAP-2026-03-17-190119']}
+                ],
+                'ontap_clusters': [],
+            }),
+        )
+        db.session.add(rec)
+        db.session.commit()
+        snap_id = rec.id
+
+    resp = client.post('/snaps/api/update-ttl',
+                       data=json.dumps({'id': snap_id, 'new_ttl': '2026-04-01 19:01:19'}),
+                       content_type='application/json')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['success'] is True
+
+    cmds = data['curl_commands']
+    assert len(cmds) >= 1
+
+    fa_cmd = next((c for c in cmds if c['platform'] == 'FlashArray'), None)
+    assert fa_cmd is not None, "FlashArray rename command must be present"
+
+    # Must include the login / auth step
+    assert '/login' in fa_cmd['command'], "Command must include POST /login auth step"
+    assert 'api-token' in fa_cmd['command'], "Login step must reference api-token"
+    assert 'x-auth-token' in fa_cmd['command'], "PATCH step must use x-auth-token header"
+
+    # PATCH rename step must reference the old snapshot name in the URL
+    assert 'HDBSNAP-2026-03-17-190119' in fa_cmd['command'], \
+        "Old snapshot name must appear in the PATCH ?names= parameter"
+    # and the new timestamp in the body
+    assert 'HDBSNAP-2026-04-01-190119' in fa_cmd['command'], \
+        "New timestamp must appear in the PATCH body"
+
+    # TTL must be updated in the DB
+    with app.app_context():
+        updated = SnapshotRecord.query.get(snap_id)
+        assert updated.ttl == datetime(2026, 4, 1, 19, 1, 19)
