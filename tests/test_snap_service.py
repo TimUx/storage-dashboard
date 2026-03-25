@@ -1222,7 +1222,63 @@ def test_build_rename_curl_uses_correct_patch_format():
         "Old snapshot name must appear in the ?names= parameter"
 
 
-def test_build_rename_curl_ontap_per_volume():
+def test_build_rename_curl_oracle_plain_timestamp():
+    """_build_rename_curl_commands handles Oracle VG snapshots (plain timestamp suffix).
+
+    Oracle FlashArray snapshots use a plain YYYY-MM-DD-HHmmss suffix without the
+    HDBSNAP- prefix, e.g. ``pod-x86-0304::vgA4T_1.2026-03-22-073617``.
+    The PATCH body must contain the NEW plain timestamp as the suffix,
+    NOT the old timestamp (which would be a no-op rename).
+    """
+    from app.routes.snaps import _build_rename_curl_commands
+    from unittest.mock import MagicMock
+
+    rec = MagicMock()
+    rec.sid = 'A4T'
+
+    locs = {
+        'flasharray_systems': [
+            {
+                'name': 'pure04',
+                'snapshot_names': ['pod-x86-0304::vgA4T_1.2026-03-22-073617'],
+            }
+        ],
+        'ontap_clusters': [],
+    }
+
+    new_ts = '2026-04-15-120000'
+    commands = _build_rename_curl_commands(rec, locs, new_ts)
+
+    assert len(commands) == 1
+    cmd = commands[0]
+    assert cmd['platform'] == 'FlashArray'
+    assert cmd['array'] == 'pure04'
+
+    # Must include authentication step
+    assert '/login' in cmd['command'], "Command must include login/auth step"
+    assert 'api-token' in cmd['command'], "Login step must reference api-token"
+    assert 'x-auth-token' in cmd['command'], "Command must use x-auth-token header"
+
+    # Old snapshot name must appear in the ?names= URL parameter
+    assert 'pod-x86-0304::vgA4T_1.2026-03-22-073617' in cmd['command'], \
+        "Old snapshot name must appear in the ?names= parameter"
+
+    # PATCH body must set the NEW plain timestamp (no HDBSNAP- prefix)
+    assert '"2026-04-15-120000"' in cmd['command'], \
+        "PATCH body must contain the new plain timestamp suffix"
+
+    # Body must NOT still contain the old timestamp (that would be a no-op)
+    assert '"2026-03-22-073617"' not in cmd['command'], \
+        "PATCH body must not contain the old timestamp (rename would be a no-op)"
+
+    # Body must NOT gain a spurious HDBSNAP- prefix
+    assert '"HDBSNAP-2026-04-15-120000"' not in cmd['command'], \
+        "PATCH body must not add HDBSNAP- prefix for Oracle snapshots"
+
+    # new_name field must also reflect the updated name
+    assert cmd['new_name'] == 'pod-x86-0304::vgA4T_1.2026-04-15-120000'
+
+
     """_build_rename_curl_commands emits one ONTAP command per volume.
 
     The popup must show a command for every affected ONTAP volume so the

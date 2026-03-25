@@ -315,6 +315,9 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
         Body: {"name": "<new_suffix>"}   ← suffix only, NOT the full name
         The full snapshot name is ``{source_volume}.{suffix}``; the API renames
         by setting the suffix portion via the ``name`` field in the request body.
+        Two suffix formats are handled:
+          - HANA:   ``HDBSNAP-YYYY-MM-DD-HHmmss``  (prefix is preserved)
+          - Oracle: ``YYYY-MM-DD-HHmmss``           (plain timestamp, no prefix)
         ActiveCluster arrays share pod volumes – renaming on one array propagates
         automatically, so only the first array per unique snapshot set is included.
 
@@ -341,13 +344,16 @@ def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
         seen_fa_snap_sets.add(snap_key)
 
         for snap_name in snap_names:
-            # Build the new suffix (only the part after the last '.')
-            # The suffix is the HDBSNAP-YYYY-MM-DD-HHMMSS portion.
+            # Build the new suffix (only the part after the last '.').
             # PATCH body must contain only the NEW SUFFIX, not the full name.
+            # Two naming conventions are handled:
+            #   HANA:   suffix = "HDBSNAP-YYYY-MM-DD-HHmmss"  → keep the "HDBSNAP-" prefix
+            #   Oracle: suffix = "YYYY-MM-DD-HHmmss"           → plain timestamp, no prefix
+            current_suffix = snap_name.split('.')[-1]
             new_suffix = re.sub(
-                r'(HDBSNAP-)\d{4}-\d{2}-\d{2}-\d{6}',
-                r'\g<1>' + new_ts_str,
-                snap_name.split('.')[-1],   # extract current suffix from full name
+                r'(HDBSNAP-)?\d{4}-\d{2}-\d{2}-\d{6}',
+                lambda m: (m.group(1) or '') + new_ts_str,
+                current_suffix,
             )
             # Build the new full name for display (source_vol.new_suffix)
             dot_idx = snap_name.rfind('.')
