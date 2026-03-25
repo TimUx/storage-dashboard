@@ -405,7 +405,10 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
             Die folgenden Befehle würden ausgeführt werden. Keine Änderungen wurden vorgenommen.
         </p>
         <div id="curl-commands-container"></div>
-        <button class="btn-secondary" onclick="closeCurlModal()" style="margin-top:.5rem;">Schließen</button>
+        <div style="margin-top:.5rem;display:flex;gap:.75rem;">
+            <button id="curl-modal-confirm" class="btn-delete" onclick="confirmCurlModal()" style="display:none;" aria-label="Snapshot-Löschung bestätigen">✓ Löschen bestätigen</button>
+            <button class="btn-secondary" onclick="closeCurlModal()">Schließen</button>
+        </div>
     </div>
 </div>
 
@@ -417,6 +420,7 @@ let _sortCol   = 'sid';
 let _sortDir   = 'asc';
 let _ttlEditId = null;        // snapshot id being edited
 let _deleteTimers = {};       // intervalId per snapshot id
+let _curlConfirmCallback = null; // pending confirm action for curl modal
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -787,7 +791,7 @@ async function saveTtl() {
 }
 
 // ─── CURL simulation modal ────────────────────────────────────────────────
-function showCurlModal(commands, title, desc) {
+function showCurlModal(commands, title, desc, confirmCallback) {
     document.getElementById('curl-modal-title').textContent =
         title || '🔍 Simulation – API-Operationen';
     document.getElementById('curl-modal-desc').textContent =
@@ -804,16 +808,32 @@ function showCurlModal(commands, title, desc) {
 <div class="curl-block">${escHtml(c.command)}</div>`;
         }).join('');
     }
+    _curlConfirmCallback = confirmCallback || null;
+    const confirmBtn = document.getElementById('curl-modal-confirm');
+    confirmBtn.style.display = _curlConfirmCallback ? '' : 'none';
     document.getElementById('curl-modal').classList.add('open');
 }
 
 function closeCurlModal() {
     document.getElementById('curl-modal').classList.remove('open');
+    _curlConfirmCallback = null;
+    document.getElementById('curl-modal-confirm').style.display = 'none';
+}
+
+async function confirmCurlModal() {
+    if (!_curlConfirmCallback) return;
+    const cb = _curlConfirmCallback;
+    closeCurlModal();
+    try {
+        await cb();
+    } catch(e) {
+        alert('Fehler: ' + e.message);
+    }
 }
 
 // ─── Delete / undo ────────────────────────────────────────────────────────
 async function markDelete(id) {
-    // Show a preview popup with the delete API calls instead of executing them.
+    // Show a preview popup with the delete API calls; confirm button triggers the actual mark.
     try {
         const resp = await fetch('/snaps/api/delete-preview', {
             method: 'POST',
@@ -825,8 +845,30 @@ async function markDelete(id) {
         showCurlModal(
             data.curl_commands || [],
             '🗑️ Simulation – Lösch-Operationen',
-            'Die folgenden API-Aufrufe würden zur Löschung des Snapshots ausgeführt werden. Es wurde nichts gelöscht.'
+            'Die folgenden API-Aufrufe würden zur Löschung des Snapshots ausgeführt werden. Bitte bestätigen Sie die Löschung.',
+            async () => {
+                await executeDelete(id);
+            }
         );
+    } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+async function executeDelete(id) {
+    try {
+        const resp = await fetch('/snaps/api/delete', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({id}),
+        });
+        const data = await resp.json();
+        if (!resp.ok) { alert('Fehler beim Löschen des Snapshots (Status: ' + resp.status + (data.error ? ' – ' + data.error : '') + ')'); return; }
+        const snap = _snapshots.find(s => s.id === id);
+        if (snap) {
+            snap.delete_marked = true;
+            snap.delete_deadline = data.delete_deadline;
+        }
+        renderTable();
+        startTimer(id, data.delete_deadline);
     } catch(e) { alert('Fehler: ' + e.message); }
 }
 
