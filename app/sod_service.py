@@ -1,9 +1,11 @@
-"""Storage on Demand – weekly Pure1 subscription-licence background refresh.
+"""Storage on Demand – daily Pure1 subscription-licence background refresh.
 
 Architecture mirrors ``capacity_service``:
 - A single daemon thread runs ``_background_loop`` and calls ``_do_refresh``
   once on startup, then sleeps for ``SOD_REFRESH_INTERVAL_SECONDS``.
-- If the SodHistory trend data is stale (last entry older than 7 days), the
+- The loop checks for new Pure1 data daily so that the latest weekly data
+  point is picked up as soon as Pure1 publishes it.
+- If the SodHistory trend data is stale (last entry 7 or more days old), the
   loop retries with a shorter ``SOD_CATCHUP_INTERVAL_SECONDS`` interval until
   the history is up to date again (automatic catch-up / backfill).
 - ``trigger_refresh`` spawns a one-shot thread for on-demand refreshes.
@@ -17,8 +19,10 @@ from datetime import datetime, date, timedelta
 
 logger = logging.getLogger(__name__)
 
-# Weekly automatic refresh
-SOD_REFRESH_INTERVAL_SECONDS = 7 * 24 * 60 * 60
+# Daily automatic refresh – ensures the latest weekly Pure1 data point is
+# picked up within 24 hours of it being published, keeping the SoD trend
+# chart up to date without waiting a full week between checks.
+SOD_REFRESH_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours
 
 # Retry interval when SodHistory data is stale (> 7 days old)
 SOD_CATCHUP_INTERVAL_SECONDS = 60 * 60  # 1 hour
@@ -91,7 +95,7 @@ def _is_sod_history_stale(app) -> bool:
             last_entry = SodHistory.query.order_by(SodHistory.date.desc()).first()
             if last_entry is None:
                 return True
-            return (date.today() - last_entry.date).days > SOD_STALE_THRESHOLD_DAYS
+            return (date.today() - last_entry.date).days >= SOD_STALE_THRESHOLD_DAYS
     except Exception:
         return False
 
@@ -169,7 +173,7 @@ def _background_loop(app):
 
 
 def start_background_refresh(app):
-    """Start the weekly SoD background-refresh thread (idempotent)."""
+    """Start the daily SoD background-refresh thread (idempotent)."""
     global _background_thread_started
     with _thread_lock:
         if _background_thread_started:
@@ -183,7 +187,7 @@ def start_background_refresh(app):
         thread.start()
         _background_thread_started = True
         logger.info(
-            "SoD background refresh thread started (interval=%ds).",
+            "SoD background refresh thread started (interval=%ds / daily).",
             SOD_REFRESH_INTERVAL_SECONDS,
         )
 

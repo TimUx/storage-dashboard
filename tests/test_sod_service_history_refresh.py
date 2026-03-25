@@ -101,13 +101,14 @@ class TestIsSodHistoryStale:
         _seed_sod_history(app_ctx, recent_date)
         assert _is_sod_history_stale(app_ctx) is False
 
-    def test_not_stale_when_last_entry_exactly_at_threshold(self, app_ctx):
+    def test_stale_when_last_entry_exactly_at_threshold(self, app_ctx):
         from app.sod_service import _is_sod_history_stale, SOD_STALE_THRESHOLD_DAYS
 
-        # days == threshold: NOT stale (≤ threshold)
+        # days == threshold: STALE (>= threshold), so the catch-up loop is triggered
+        # rather than waiting another full normal interval before retrying.
         threshold_date = date.today() - timedelta(days=SOD_STALE_THRESHOLD_DAYS)
         _seed_sod_history(app_ctx, threshold_date)
-        assert _is_sod_history_stale(app_ctx) is False
+        assert _is_sod_history_stale(app_ctx) is True
 
 
 # ---------------------------------------------------------------------------
