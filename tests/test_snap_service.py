@@ -604,7 +604,7 @@ def test_api_list_keeps_absent_snapshots_with_comment(app, client):
         ttl=datetime.utcnow() - timedelta(days=1),
         flasharray_present=False,
         ontap_present=False,
-        comment='Operator-Kommentar',
+        comment='Operator comment',
         storage_locations=None,
     )
     with app.app_context():

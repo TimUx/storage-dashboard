@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 
 from flask import Blueprint, render_template, jsonify, request, current_app
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, or_
 
 bp = Blueprint('snaps', __name__, url_prefix='/snaps')
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ def api_list():
             SnapshotRecord.delete_marked.is_(True),
             and_(
                 SnapshotRecord.comment.isnot(None),
-                func.length(func.trim(SnapshotRecord.comment)) > 0,
+                SnapshotRecord.comment != '',
             ),
         )
     )
