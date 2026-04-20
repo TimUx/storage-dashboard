@@ -702,8 +702,25 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                     rec.last_seen = run_start  # reset so it isn't stale next run
                     marked_absent += 1
                 else:
-                    db.session.delete(rec)
-                    removed += 1
+                    # Keep the run resilient: a single delete failure (e.g. legacy
+                    # FK constraints in older DB schemas) must not roll back the
+                    # whole collection run.
+                    try:
+                        with db.session.begin_nested():
+                            db.session.delete(rec)
+                            db.session.flush()
+                        removed += 1
+                    except Exception as delete_exc:
+                        logger.warning(
+                            "Snapshot collector: could not delete stale record %s "
+                            "(sid=%s), marking absent instead: %s",
+                            rec.id, rec.sid, delete_exc,
+                        )
+                        rec.flasharray_present = False
+                        rec.ontap_present = False
+                        rec.storage_locations = None
+                        rec.last_seen = run_start
+                        marked_absent += 1
 
             if removed or marked_absent:
                 logger.info(
