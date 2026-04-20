@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 
 from flask import Blueprint, render_template, jsonify, request, current_app
+from sqlalchemy import and_, or_
 
 bp = Blueprint('snaps', __name__, url_prefix='/snaps')
 logger = logging.getLogger(__name__)
@@ -42,7 +43,17 @@ def api_list():
 
     sid_filter = request.args.get('sid', '').strip().upper()
 
-    query = SnapshotRecord.query
+    query = SnapshotRecord.query.filter(
+        or_(
+            SnapshotRecord.flasharray_present.is_(True),
+            SnapshotRecord.ontap_present.is_(True),
+            SnapshotRecord.delete_marked.is_(True),
+            and_(
+                SnapshotRecord.comment.isnot(None),
+                SnapshotRecord.comment != '',
+            ),
+        )
+    )
 
     if sid_filter:
         query = query.filter(SnapshotRecord.sid == sid_filter)
