@@ -716,6 +716,9 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                             "(sid=%s), marking absent instead: %s",
                             rec.id, rec.sid, delete_exc,
                         )
+                        # Ensure the instance is managed for UPDATE even if a
+                        # failed delete attempt touched its state.
+                        db.session.add(rec)
                         rec.flasharray_present = False
                         rec.ontap_present = False
                         rec.storage_locations = None

@@ -776,16 +776,18 @@ def test_reconciliation_delete_failure_does_not_rollback_new_records(app):
         db.session.commit()
         stale_id = stale.id
 
-        ts = datetime(2026, 3, 18, 2, 47, 0)
-        fa_snap = {
-            'sid': 'ACP',
-            'snapshot_name': 'ACP_1.HDBSNAP-2026-03-18-024722',
-            'creation_time': ts,
-            'ttl': ts,
-            'array_name': 'fa01',
-        }
-        aggregated = _group_by_sid_and_time([fa_snap], [])
+    ts = datetime(2026, 3, 18, 2, 47, 0)
+    fa_snap = {
+        'sid': 'ACP',
+        'snapshot_name': 'ACP_1.HDBSNAP-2026-03-18-024722',
+        'creation_time': ts,
+        'ttl': ts,
+        'array_name': 'fa01',
+    }
+    aggregated = _group_by_sid_and_time([fa_snap], [])
 
+    with app.app_context():
+        from app import db
         original_delete = db.session.delete
 
         def fail_stale_delete(obj):
@@ -796,6 +798,8 @@ def test_reconciliation_delete_failure_does_not_rollback_new_records(app):
         with patch.object(db.session, 'delete', side_effect=fail_stale_delete):
             _upsert_snapshot_records(app, aggregated, systems_queried=1)
 
+    with app.app_context():
+        from app.models import SnapshotRecord
         # New records from this run are still committed.
         assert SnapshotRecord.query.filter_by(sid='ACP').count() == 1
 
