@@ -571,6 +571,54 @@ def test_api_list_sid_filter(app, client):
     assert all(s['sid'] == 'ACP' for s in data['snapshots'])
 
 
+def test_api_list_hides_absent_snapshots_without_comment(app, client):
+    from app import db
+    from app.models import SnapshotRecord
+
+    rec = SnapshotRecord(
+        sid='GONE',
+        creation_time=datetime.utcnow() - timedelta(days=10),
+        ttl=datetime.utcnow() - timedelta(days=1),
+        flasharray_present=False,
+        ontap_present=False,
+        storage_locations=None,
+    )
+    with app.app_context():
+        db.session.add(rec)
+        db.session.commit()
+
+    resp = client.get('/snaps/api/list')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['stats']['total'] == 0
+    assert data['snapshots'] == []
+
+
+def test_api_list_keeps_absent_snapshots_with_comment(app, client):
+    from app import db
+    from app.models import SnapshotRecord
+
+    rec = SnapshotRecord(
+        sid='NOTE',
+        creation_time=datetime.utcnow() - timedelta(days=10),
+        ttl=datetime.utcnow() - timedelta(days=1),
+        flasharray_present=False,
+        ontap_present=False,
+        comment='Operator-Kommentar',
+        storage_locations=None,
+    )
+    with app.app_context():
+        db.session.add(rec)
+        db.session.commit()
+
+    resp = client.get('/snaps/api/list')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['stats']['total'] == 1
+    assert len(data['snapshots']) == 1
+    assert data['snapshots'][0]['sid'] == 'NOTE'
+
+
 def test_api_comment(app, client):
     snap_id = _seed_snapshot(app)
     resp = client.post('/snaps/api/comment',
