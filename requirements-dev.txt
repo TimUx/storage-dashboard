@@ -1,0 +1,5 @@
+# Entwicklung & Test-Ausführung (optional zu requirements.txt)
+-r requirements.txt
+pytest-cov>=4.1.0
+pytest-xdist>=3.5.0
+ruff>=0.8.0
