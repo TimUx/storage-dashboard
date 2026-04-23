@@ -17,7 +17,7 @@ is required.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -25,6 +25,11 @@ import pytest
 # ---------------------------------------------------------------------------
 # Shared helpers (mirrors test_ontap_ems_alerts.py pattern)
 # ---------------------------------------------------------------------------
+
+def _ago(hours):
+    """ISO-8601 UTC timestamp *hours* before now (for EMS lookback window)."""
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
 
 def _make_response(status_code, body):
     resp = MagicMock()
@@ -754,7 +759,7 @@ class TestGetHealthStatusRestIntegration:
             'index': 99,
             'message': {'name': 'callhome.spares.low', 'severity': 'error'},
             'log_message': 'Spare capacity low',
-            'time': '2026-03-06T08:00:00+00:00',
+            'time': _ago(1),
             'node': {'name': 'node1'},
         }
         result = _run({
@@ -791,7 +796,7 @@ class TestGetHealthStatusRestIntegration:
             'index': 1,
             'message': {'name': 'cf.fsm.monitor.globalStatus.critical', 'severity': 'alert'},
             'log_message': 'Failover critical',
-            'time': '2026-03-01T08:00:00+00:00',
+            'time': _ago(1),
             'node': {'name': 'node1'},
             'parameters': [],
         }
