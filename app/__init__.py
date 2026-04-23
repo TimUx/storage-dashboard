@@ -125,10 +125,8 @@ def create_app():
     def inject_alert_count():
         """Inject the number of active (non-acknowledged) open alerts into all templates"""
         try:
-            from app.routes.alerts import collect_alerts
-            alerts = collect_alerts()
-            total = sum(1 for a in alerts if not a.get('acknowledged', False))
-            return dict(open_alerts_count=total)
+            from app.alert_count_cache import get_open_alerts_count_cached
+            return dict(open_alerts_count=get_open_alerts_count_cached())
         except Exception:
             return dict(open_alerts_count=0)
     
@@ -206,39 +204,44 @@ def create_app():
             app.logger.error("Please run 'python cli.py migrate' to apply migrations manually.")
             # Don't fail app startup completely, but log critical error for monitoring
     
-        # Start capacity background refresh thread
-        try:
-            from app.capacity_service import start_background_refresh
-            start_background_refresh(app)
-        except Exception as e:
-            app.logger.warning(f"Could not start capacity background refresh: {e}")
+        from app.background_jobs import should_start_background_threads
 
-        # Start SoD (Pure1 subscription licences) weekly background refresh thread
-        try:
-            from app.sod_service import start_background_refresh as start_sod_refresh
-            start_sod_refresh(app)
-        except Exception as e:
-            app.logger.warning(f"Could not start SoD background refresh: {e}")
+        if should_start_background_threads(app):
+            # Start capacity background refresh thread
+            try:
+                from app.capacity_service import start_background_refresh
+                start_background_refresh(app)
+            except Exception as e:
+                app.logger.warning(f"Could not start capacity background refresh: {e}")
 
-        # Start status background refresh thread (caches health status for the dashboard)
-        try:
-            from app.status_service import start_background_refresh as start_status_refresh
-            start_status_refresh(app)
-        except Exception as e:
-            app.logger.warning(f"Could not start status background refresh: {e}")
+            # Start SoD (Pure1 subscription licences) weekly background refresh thread
+            try:
+                from app.sod_service import start_background_refresh as start_sod_refresh
+                start_sod_refresh(app)
+            except Exception as e:
+                app.logger.warning(f"Could not start SoD background refresh: {e}")
 
-        # Start DR build background thread (weekly DR relationship discovery and artifact generation)
-        try:
-            from app.dr_service import start_background_refresh as start_dr_refresh
-            start_dr_refresh(app)
-        except Exception as e:
-            app.logger.warning(f"Could not start DR build background refresh: {e}")
+            # Start status background refresh thread (caches health status for the dashboard)
+            try:
+                from app.status_service import start_background_refresh as start_status_refresh
+                start_status_refresh(app)
+            except Exception as e:
+                app.logger.warning(f"Could not start status background refresh: {e}")
 
-        # Start snapshot background collector (every 15 minutes)
-        try:
-            from app.snap_service import start_background_refresh as start_snap_refresh
-            start_snap_refresh(app)
-        except Exception as e:
-            app.logger.warning(f"Could not start snapshot background collector: {e}")
+            # Start DR build background thread (weekly DR relationship discovery and artifact generation)
+            try:
+                from app.dr_service import start_background_refresh as start_dr_refresh
+                start_dr_refresh(app)
+            except Exception as e:
+                app.logger.warning(f"Could not start DR build background refresh: {e}")
+
+            # Start snapshot background collector (every 15 minutes)
+            try:
+                from app.snap_service import start_background_refresh as start_snap_refresh
+                start_snap_refresh(app)
+            except Exception as e:
+                app.logger.warning(f"Could not start snapshot background collector: {e}")
+        else:
+            app.logger.info('Background refresh threads not started on this worker (see BACKGROUND_JOBS_*).')
 
     return app
