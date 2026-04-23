@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""CLI interface for Storage Dashboard"""
-import click
+"""CLI interface for Storage Dashboard.
+
+Uses the Flask app and database directly (no HTTP ``/api/*`` calls). A server-side
+``API_ACCESS_TOKEN`` for the REST API does not affect this script.
+"""
 import sys
+
+import click
+from tabulate import tabulate
+
 from app import create_app, db
-from app.models import StorageSystem, AdminUser, AppSettings
 from app.api import get_client
 from app.migrations import run_all_migrations
-from tabulate import tabulate
+from app.models import AdminUser, StorageSystem
 
 
 @click.group()
@@ -21,32 +27,32 @@ def dashboard():
     app = create_app()
     with app.app_context():
         systems = StorageSystem.query.filter_by(enabled=True).all()
-        
+
         if not systems:
             click.echo("Keine Storage Systeme konfiguriert.")
             click.echo("Verwenden Sie 'cli.py admin list' um Systeme zu verwalten.")
             return
-        
+
         click.echo("\n=== Storage Dashboard ===\n")
-        
+
         # Group by vendor
         vendors = {}
         for system in systems:
             if system.vendor not in vendors:
                 vendors[system.vendor] = []
             vendors[system.vendor].append(system)
-        
+
         vendor_names = {
             'pure': 'Pure Storage',
             'netapp-ontap': 'NetApp ONTAP',
             'netapp-storagegrid': 'NetApp StorageGRID',
             'dell-datadomain': 'Dell DataDomain'
         }
-        
+
         for vendor, vendor_systems in vendors.items():
             click.echo(f"\n{vendor_names.get(vendor, vendor)}:")
             click.echo("=" * 80)
-            
+
             table_data = []
             for system in vendor_systems:
                 try:
@@ -59,7 +65,7 @@ def dashboard():
                         token=system.api_token
                     )
                     status = client.get_health_status()
-                    
+
                     table_data.append([
                         system.name,
                         system.ip_address,
@@ -81,7 +87,7 @@ def dashboard():
                         '-',
                         str(e)[:40]
                     ])
-            
+
             headers = ['Name', 'IP', 'Status', 'Hardware', 'Cluster', 'Alerts', 'Kapazität', 'Belegt']
             click.echo(tabulate(table_data, headers=headers, tablefmt='grid'))
 
@@ -98,11 +104,11 @@ def admin_list():
     app = create_app()
     with app.app_context():
         systems = StorageSystem.query.all()
-        
+
         if not systems:
             click.echo("Keine Storage Systeme vorhanden.")
             return
-        
+
         table_data = []
         for system in systems:
             table_data.append([
@@ -114,14 +120,14 @@ def admin_list():
                 'Ja' if system.enabled else 'Nein',
                 'Ja' if (system.api_username or system.api_token) else 'Nein'
             ])
-        
+
         headers = ['ID', 'Name', 'Hersteller', 'IP', 'Port', 'Aktiv', 'Credentials']
         click.echo(tabulate(table_data, headers=headers, tablefmt='grid'))
 
 
 @admin.command('add')
 @click.option('--name', prompt=True, help='System name')
-@click.option('--vendor', type=click.Choice(['pure', 'netapp-ontap', 'netapp-storagegrid', 'dell-datadomain']), 
+@click.option('--vendor', type=click.Choice(['pure', 'netapp-ontap', 'netapp-storagegrid', 'dell-datadomain']),
               prompt=True, help='Vendor type')
 @click.option('--ip', prompt=True, help='IP address or hostname')
 @click.option('--port', default=443, help='Port (default: 443)')
@@ -163,7 +169,7 @@ def admin_remove(system_id):
         if not system:
             click.echo(f"✗ System mit ID {system_id} nicht gefunden.", err=True)
             sys.exit(1)
-        
+
         name = system.name
         db.session.delete(system)
         db.session.commit()
@@ -180,7 +186,7 @@ def admin_enable(system_id):
         if not system:
             click.echo(f"✗ System mit ID {system_id} nicht gefunden.", err=True)
             sys.exit(1)
-        
+
         system.enabled = True
         db.session.commit()
         click.echo(f"✓ Storage System '{system.name}' aktiviert.")
@@ -196,7 +202,7 @@ def admin_disable(system_id):
         if not system:
             click.echo(f"✗ System mit ID {system_id} nicht gefunden.", err=True)
             sys.exit(1)
-        
+
         system.enabled = False
         db.session.commit()
         click.echo(f"✓ Storage System '{system.name}' deaktiviert.")
@@ -214,13 +220,13 @@ def admin_create_user(username, password):
         if existing:
             click.echo(f"✗ Benutzer '{username}' existiert bereits.", err=True)
             sys.exit(1)
-        
+
         # Create new admin user
         user = AdminUser(username=username)
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
-        
+
         click.echo(f"✓ Admin-Benutzer '{username}' erfolgreich erstellt.")
 
 
@@ -230,12 +236,12 @@ def admin_list_users():
     app = create_app()
     with app.app_context():
         users = AdminUser.query.all()
-        
+
         if not users:
             click.echo("Keine Admin-Benutzer vorhanden.")
             click.echo("Verwenden Sie 'cli.py admin create-user' um einen Benutzer zu erstellen.")
             return
-        
+
         table_data = []
         for user in users:
             table_data.append([
@@ -245,7 +251,7 @@ def admin_list_users():
                 user.last_login.strftime('%d.%m.%Y %H:%M') if user.last_login else '-',
                 user.created_at.strftime('%d.%m.%Y %H:%M') if user.created_at else '-'
             ])
-        
+
         headers = ['ID', 'Benutzername', 'Aktiv', 'Letzter Login', 'Erstellt']
         click.echo(tabulate(table_data, headers=headers, tablefmt='grid'))
 
