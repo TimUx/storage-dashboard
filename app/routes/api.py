@@ -1,11 +1,35 @@
 """API routes for programmatic access"""
-from flask import Blueprint, jsonify, current_app, request
+import os
+
+from flask import Blueprint, current_app, jsonify, request
+
 from app.models import StorageSystem
-from app.api import get_client
-from app.routes.main import fetch_system_status
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from app.parallel_system_status import fetch_system_status_parallel
+from app.services.system_status import fetch_system_status
 
 bp = Blueprint('api', __name__, url_prefix='/api')
+
+
+@bp.before_request
+def _require_api_access_token():
+    """Optional: ``API_ACCESS_TOKEN`` setzen, dann Header ``Authorization: Bearer …`` oder ``X-API-Key``."""
+    token = (os.environ.get('API_ACCESS_TOKEN') or '').strip()
+    if not token:
+        return None
+    if request.endpoint == 'api.api_health':
+        return None
+    auth = request.headers.get('Authorization', '')
+    if auth.startswith('Bearer ') and auth[7:].strip() == token:
+        return None
+    if request.headers.get('X-API-Key', '').strip() == token:
+        return None
+    return jsonify({'error': 'Unauthorized', 'hint': 'Send Authorization: Bearer <token> or X-API-Key'}), 401
+
+
+@bp.route('/health')
+def api_health():
+    """API-Liveness (von Auth ausgenommen)."""
+    return jsonify({'status': 'ok', 'service': 'storage-dashboard-api'})
 
 
 @bp.route('/systems')
@@ -19,32 +43,11 @@ def list_systems():
 def get_status():
     """Get status of all enabled systems (live – makes real-time API calls to storage systems)"""
     systems = StorageSystem.query.filter_by(enabled=True).all()
-    
+
     # Get current app for passing to threads
     app = current_app._get_current_object()
-    
-    # Determine optimal number of workers based on system count
-    # Support 16-32 systems in parallel as requested
-    max_workers = min(len(systems), 32) if systems else 1
-    
-    # Fetch status for all systems in parallel
-    systems_status = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(fetch_system_status, system, app): system for system in systems}
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-                systems_status.append(result)
-            except Exception as e:
-                system = futures[future]
-                systems_status.append({
-                    'system': system.to_dict(),
-                    'status': {
-                        'status': 'error',
-                        'error': str(e)
-                    }
-                })
-    
+
+    systems_status = fetch_system_status_parallel(systems, app, fetch_system_status)
     return jsonify(systems_status)
 
 
@@ -75,7 +78,7 @@ def get_cached_status():
     correctly shows OK once an operator has acknowledged the corresponding
     alert(s) in the Alerts view.
     """
-    from app.models import StatusCache, CapacitySnapshot
+    from app.models import CapacitySnapshot, StatusCache
 
     systems = StorageSystem.query.filter_by(enabled=True).all()
     result = []
@@ -232,9 +235,10 @@ def update_alert_state():
 
     Returns the number of affected alert keys.
     """
+    from datetime import datetime
+
     from app import db
     from app.models import AlertState, AssigneeHistory
-    from datetime import datetime
 
     data = request.get_json(silent=True) or {}
     alert_keys = data.get('alert_keys')
@@ -272,6 +276,8 @@ def update_alert_state():
             db.session.add(AssigneeHistory(name=assignee_name))
 
     db.session.commit()
+    from app.alert_count_cache import invalidate_open_alerts_count_cache
+    invalidate_open_alerts_count_cache()
     return jsonify({'updated': updated})
 
 
