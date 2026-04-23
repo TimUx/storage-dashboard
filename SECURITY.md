@@ -44,22 +44,29 @@ All dependencies have been scanned and updated to secure versions:
 - ✅ Firewall configuration guidance
 
 ### API Security
-- ✅ Read-only API access recommended
+- ✅ Optional **API access token** for all `/api/*` routes (except `/api/health`): set environment variable `API_ACCESS_TOKEN` and send `Authorization: Bearer <token>` or header `X-API-Key: <token>`. If unset, behaviour matches previous releases (public read API).
+- ✅ Dedicated **liveness** endpoints: `GET /health` (app) and `GET /api/health` (API blueprint, always exempt from token check).
+- ✅ Read-only storage accounts recommended
 - ✅ Credential isolation per system
 - ✅ Connection timeout protection
 - ✅ SSL verification configurable
 
+### Background jobs (multi-worker / Gunicorn)
+- ✅ **`BACKGROUND_JOBS_ENABLED`**: set to `0` / `false` to disable *all* background threads (capacity, status, SoD, DR, snapshots) in this process—useful for pure web workers.
+- ✅ **`BACKGROUND_JOB_LOCKFILE`**: path to a file; the first process that acquires an **exclusive non-blocking** `flock` starts the threads, others skip (Unix). Prevents duplicate polling when multiple Gunicorn workers would each start threads otherwise.
+
 ## Known Limitations
 
-### Password Storage
-⚠️ **Important**: API credentials are currently stored in plain text in the database.
+### Credential storage in the database
+Storage system credentials (API user/password/token) are stored **encrypted** at rest using `cryptography.fernet` and a key derived from `SECRET_KEY` (see `app/crypto_utils.py` and `StorageSystem` model properties).
 
-**Mitigation**: 
-- Use dedicated read-only accounts for storage systems
-- Restrict database file permissions (chmod 600)
-- Consider implementing encryption with `cryptography.fernet` for production
+**Mitigation**
+- Use a strong, random `SECRET_KEY` and protect database access.
+- Use dedicated read-only accounts on storage arrays.
+- Restrict database file permissions for SQLite (`chmod 600`).
 
-**Future Enhancement**: Implement credential encryption before storing in database.
+### Navbar alert count caching
+The open-alerts badge uses a short TTL cache (`OPEN_ALERTS_CACHE_SECONDS`, default 30) to reduce load; it is invalidated when alert acknowledgement state is updated via `POST /api/alerts/state`.
 
 ## Reporting Security Issues
 
@@ -134,6 +141,8 @@ Before deploying to production:
 - [ ] Set up regular backups
 - [ ] Document API credentials securely
 - [ ] Review and limit network access
+- [ ] Set `API_ACCESS_TOKEN` if the REST-API is reachable from untrusted networks
+- [ ] For multi-worker Gunicorn: use `BACKGROUND_JOB_LOCKFILE` or `BACKGROUND_JOBS_ENABLED=0` on web-only workers
 
 ## Compliance
 
