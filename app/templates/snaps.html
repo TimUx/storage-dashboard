@@ -343,8 +343,8 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
 
     <!-- Filters -->
     <div class="sn-filters">
-        <label>SID:</label>
-        <input type="text" id="filter-sid" placeholder="z.B. ACP" oninput="applyFilters()">
+        <label>Suchtext (SID, Kommentar, Speicherorte; * und ? als Platzhalter):</label>
+        <input type="text" id="filter-sid" placeholder="z.B. ACP, *PRD*, HDBSNAP-2026*" oninput="applyFilters()">
         <label>Erstellt nach:</label>
         <input type="date" id="filter-created-after" onchange="applyFilters()">
         <label>Erstellt vor:</label>
@@ -477,15 +477,61 @@ function renderStats(stats) {
 }
 
 // ─── Filters ──────────────────────────────────────────────────────────────
+/** Concatenate snapshot fields for free-text / glob search. */
+function snapshotSearchHaystack(s) {
+    const parts = [
+        s.sid || '',
+        s.comment || '',
+        s.db_override || '',
+        s.nfs_override || '',
+    ];
+    if (s.storage_locations && typeof s.storage_locations === 'object') {
+        try {
+            parts.push(JSON.stringify(s.storage_locations));
+        } catch (e) {
+            parts.push('');
+        }
+    }
+    return parts.join('\u0001');
+}
+
+/**
+ * Match *pattern* against *haystack* (case-insensitive).
+ * If the pattern contains ``*`` or ``?``, treat it as a shell-style glob
+ * (substring match). Otherwise require a substring match (legacy SID search).
+ */
+function snapshotTextSearchMatch(haystack, patternRaw) {
+    const pattern = patternRaw.trim();
+    if (!pattern) return true;
+    const hay = haystack.toUpperCase();
+    const pat = pattern.toUpperCase();
+    if (pat.indexOf('*') >= 0 || pat.indexOf('?') >= 0) {
+        let re = '';
+        for (let i = 0; i < pat.length; i++) {
+            const c = pat[i];
+            if (c === '*') re += '.*';
+            else if (c === '?') re += '.';
+            else if ('\\.^$+()[]{}'.indexOf(c) >= 0) re += '\\' + c;
+            else re += c;
+        }
+        try {
+            return new RegExp(re, 'i').test(hay);
+        } catch (e) {
+            return false;
+        }
+    }
+    return hay.indexOf(pat) >= 0;
+}
+
 function applyFilters() {
-    const sidF    = document.getElementById('filter-sid').value.trim().toUpperCase();
+    const textF   = document.getElementById('filter-sid').value;
     const caAfter = document.getElementById('filter-created-after').value;
     const caBefore= document.getElementById('filter-created-before').value;
     const taAfter = document.getElementById('filter-ttl-after').value;
     const taBefore= document.getElementById('filter-ttl-before').value;
 
     _filtered = _snapshots.filter(s => {
-        if (sidF && s.sid !== sidF) return false;
+        if (!snapshotTextSearchMatch(snapshotSearchHaystack(s), textF)) return false;
         if (caAfter  && s.creation_time && s.creation_time.slice(0,10) < caAfter)  return false;
         if (caBefore && s.creation_time && s.creation_time.slice(0,10) > caBefore) return false;
         if (taAfter  && s.ttl && s.ttl.slice(0,10) < taAfter)  return false;
