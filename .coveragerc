@@ -1,0 +1,12 @@
+[run]
+branch = True
+source = app
+omit =
+    app/static/*
+    */tests/*
+    */__pycache__/*
+
+[report]
+precision = 1
+show_missing = True
+skip_covered = False

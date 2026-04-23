@@ -1,9 +1,9 @@
 """Background status refresh service – polls all enabled storage systems and caches results."""
 import logging
 import threading
+import time
 import traceback
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -44,29 +44,18 @@ def _upsert_cache_entry(StatusCache, db, system_id, status, fetched_at):
 
 def _run_parallel_fetch(systems, app):
     """Fetch status for *systems* in parallel and return a list of result dicts."""
-    from app.routes.main import fetch_system_status
+    from app.parallel_system_status import fetch_system_status_parallel
+    from app.services.system_status import fetch_system_status
 
-    max_workers = min(len(systems), 32)
-    results = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(fetch_system_status, system, app): system for system in systems}
-        for future in as_completed(futures):
-            system = futures[future]
-            try:
-                results.append(future.result())
-            except Exception as exc:
-                logger.exception("Status refresh failed for %s", system.name)
-                results.append({
-                    'system': system.to_dict(),
-                    'status': {'status': 'error', 'error': str(exc)},
-                })
-    return results
+    return fetch_system_status_parallel(
+        systems, app, fetch_system_status, log_failures=True,
+    )
 
 
 def _do_refresh(app):
     """Fetch health status for all enabled systems and persist results in StatusCache."""
     from app import db
-    from app.models import StorageSystem, StatusCache
+    from app.models import StatusCache, StorageSystem
 
     with app.app_context():
         systems = StorageSystem.query.filter_by(enabled=True).all()
@@ -74,14 +63,20 @@ def _do_refresh(app):
             logger.info("Status refresh: no enabled systems found, skipping.")
             return
 
+        t0 = time.monotonic()
         results = _run_parallel_fetch(systems, app)
+        elapsed = time.monotonic() - t0
         now = datetime.utcnow()
         for result in results:
             _upsert_cache_entry(StatusCache, db, result['system']['id'], result['status'], now)
 
         try:
             db.session.commit()
-            logger.info("Status cache refreshed for %d system(s).", len(results))
+            logger.info(
+                "Status cache refreshed for %d system(s) in %.2fs.",
+                len(results),
+                elapsed,
+            )
         except Exception as exc:
             logger.error("Failed to commit status cache: %s", exc)
             db.session.rollback()
@@ -145,7 +140,7 @@ def do_refresh_sync(app):
     cache reflects the moment the DB was committed (not individual fetch times,
     which can vary by system), keeping the cache consistent.
     """
-    from app.models import StorageSystem, StatusCache
+    from app.models import StatusCache, StorageSystem
 
     with app.app_context():
         systems = StorageSystem.query.filter_by(enabled=True).all()

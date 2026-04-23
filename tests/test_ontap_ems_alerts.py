@@ -173,21 +173,24 @@ class TestONTAPEmsAlertFetch:
 
     def test_ems_events_set_alert_count(self):
         """EMS records → alerts count equals number of records."""
+        t0 = _ago(2)
+        t1 = (datetime.now(timezone.utc) - timedelta(hours=2, minutes=1)).isoformat()
         events = [
             {'index': 1, 'message': {'name': 'callhome.spares.low', 'severity': 'error'},
-             'log_message': 'Spare capacity low', 'time': '2026-03-06T08:00:00+00:00', 'node': {'name': 'node1'}},
+             'log_message': 'Spare capacity low', 'time': t0, 'node': {'name': 'node1'}},
             {'index': 2, 'message': {'name': 'raid.plex.offline', 'severity': 'alert'},
-             'log_message': 'RAID plex went offline', 'time': '2026-03-06T08:01:00+00:00', 'node': {'name': 'node1'}},
+             'log_message': 'RAID plex went offline', 'time': t1, 'node': {'name': 'node1'}},
         ]
         result = _run_client(_ems_response(events))
         assert result['alerts'] == 2
 
     def test_alert_details_fields_mapped_correctly(self):
         """alert_details entries carry the correct field mappings per ems_event schema."""
+        ts = _ago(1)
         events = [
             {'index': 42, 'message': {'name': 'callhome.spares.low', 'severity': 'error'},
              'log_message': 'Spare capacity is critically low on node1',
-             'time': '2026-03-06T08:00:00+00:00',
+             'time': ts,
              'node': {'name': 'node1'}},
         ]
         result = _run_client(_ems_response(events))
@@ -198,14 +201,14 @@ class TestONTAPEmsAlertFetch:
         assert detail['details'] == 'Spare capacity is critically low on node1'
         assert detail['severity'] == 'error'
         assert detail['error_code'] == 'callhome.spares.low'
-        assert detail['timestamp'] == '2026-03-06T08:00:00+00:00'
+        assert detail['timestamp'] == ts
         assert detail['component'] == 'node1'
 
     def test_emergency_severity_escalates_hardware_to_error(self):
         """An emergency EMS event must set hardware_status to 'error'."""
         events = [
             {'index': 1, 'message': {'name': 'callhome.emergency', 'severity': 'emergency'},
-             'log_message': 'Critical system failure', 'time': '2026-03-06T08:00:00+00:00',
+             'log_message': 'Critical system failure', 'time': _ago(1),
              'node': {'name': 'node1'}},
         ]
         result = _run_client(_ems_response(events))
@@ -215,7 +218,7 @@ class TestONTAPEmsAlertFetch:
         """An 'alert'-severity EMS event sets hardware_status to 'warning' when HW is OK."""
         events = [
             {'index': 1, 'message': {'name': 'raid.plex.offline', 'severity': 'alert'},
-             'log_message': 'RAID plex offline', 'time': '2026-03-06T08:00:00+00:00',
+             'log_message': 'RAID plex offline', 'time': _ago(1),
              'node': {'name': 'node1'}},
         ]
         result = _run_client(_ems_response(events))
@@ -225,7 +228,7 @@ class TestONTAPEmsAlertFetch:
         """An 'error'-severity EMS event sets hardware_status to at least 'warning'."""
         events = [
             {'index': 1, 'message': {'name': 'callhome.spares.low', 'severity': 'error'},
-             'log_message': 'Low spares', 'time': '2026-03-06T08:00:00+00:00',
+             'log_message': 'Low spares', 'time': _ago(1),
              'node': {'name': 'node1'}},
         ]
         result = _run_client(_ems_response(events))
@@ -271,7 +274,7 @@ class TestONTAPEmsAlertFetch:
         """Multiple emergency events all contribute to the count."""
         events = [
             {'index': i, 'message': {'name': f'event.{i}', 'severity': 'emergency'},
-             'log_message': f'Event {i}', 'time': '2026-03-06T08:00:00+00:00', 'node': {'name': 'node1'}}
+             'log_message': f'Event {i}', 'time': _ago(1), 'node': {'name': 'node1'}}
             for i in range(1, 4)
         ]
         result = _run_client(_ems_response(events))

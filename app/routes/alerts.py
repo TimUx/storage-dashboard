@@ -11,6 +11,42 @@ VENDOR_NAMES = {
     'dell-datadomain': 'Dell DataDomain',
 }
 
+# Synthetic alert when the dashboard cannot reach a system (stable id/title for AlertState).
+CONNECTIVITY_ALERT_ID = 'dashboard.connectivity'
+CONNECTIVITY_ALERT_TITLE = 'System nicht erreichbar'
+
+
+def _status_indicates_unreachable(status):
+    """True if cached status means the storage API was not successfully queried."""
+    if not status or not isinstance(status, dict):
+        return False
+    st = (status.get('status') or '').lower()
+    if st in ('error', 'offline'):
+        return True
+    if status.get('error') and st != 'online':
+        return True
+    return False
+
+
+def _synthetic_connectivity_alert(system, status, fetched_at):
+    """Build a normalised alert row for an unreachable / errored system."""
+    msg = status.get('error') if isinstance(status, dict) else None
+    details = (msg or '').strip() or (
+        'Das Speichersystem antwortet nicht oder die Anmeldung ist fehlgeschlagen.'
+    )
+    return {
+        'system_name': system.name,
+        'system_vendor': VENDOR_NAMES.get(system.vendor, system.vendor),
+        'alert_id': CONNECTIVITY_ALERT_ID,
+        'title': CONNECTIVITY_ALERT_TITLE,
+        'details': details,
+        'severity': 'error',
+        'error_code': 'CONNECTIVITY',
+        'timestamp': fetched_at or '-',
+        'component': system.ip_address,
+        'fetched_at': fetched_at,
+    }
+
 
 def _normalize_dd_alert(alert, system):
     """Normalise a DataDomain active_alerts entry to the common schema.
@@ -108,33 +144,30 @@ def collect_alerts():
             alert_dict['fetched_at'] = fetched_at
             return alert_dict
 
-        # DataDomain stores alert details under 'active_alerts'
+        # Vendor-specific alert rows (may coexist with a synthetic connectivity alert).
         if status.get('active_alerts'):
             for alert in status['active_alerts']:
                 all_alerts.append(_tag(_normalize_dd_alert(alert, system)))
-            continue
-
-        # Pure Storage / StorageGRID store alert details under 'alert_details'
-        if status.get('alert_details'):
+        elif status.get('alert_details'):
             for alert in status['alert_details']:
                 all_alerts.append(_tag(_normalize_alert_detail(alert, system)))
-            continue
+        else:
+            alert_count = status.get('alerts', 0)
+            if alert_count:
+                all_alerts.append(_tag({
+                    'system_name': system.name,
+                    'system_vendor': VENDOR_NAMES.get(system.vendor, system.vendor),
+                    'alert_id': '-',
+                    'title': f'{alert_count} offene{"r" if alert_count == 1 else ""} Alert{"" if alert_count == 1 else "s"}',
+                    'details': 'Keine Details verfügbar',
+                    'severity': 'unknown',
+                    'error_code': '-',
+                    'timestamp': '-',
+                    'component': '-',
+                }))
 
-        # Fallback: no details available but alerts count > 0
-        alert_count = status.get('alerts', 0)
-        if alert_count:
-            all_alerts.append({
-                'system_name': system.name,
-                'system_vendor': VENDOR_NAMES.get(system.vendor, system.vendor),
-                'alert_id': '-',
-                'title': f'{alert_count} offene{"r" if alert_count == 1 else ""} Alert{"" if alert_count == 1 else "s"}',
-                'details': 'Keine Details verfügbar',
-                'severity': 'unknown',
-                'error_code': '-',
-                'timestamp': '-',
-                'component': '-',
-                'fetched_at': fetched_at,
-            })
+        if _status_indicates_unreachable(status):
+            all_alerts.append(_tag(_synthetic_connectivity_alert(system, status, fetched_at)))
 
     _merge_alert_states(all_alerts)
     return all_alerts

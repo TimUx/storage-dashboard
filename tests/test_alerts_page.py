@@ -269,6 +269,83 @@ class TestOpenAlertsCountContextVar:
         assert 'alerts-active' in html
 
 
+class TestSyntheticConnectivityAlerts:
+    """Synthetic 'System nicht erreichbar' row when cached status is error/offline."""
+
+    def test_collect_alerts_adds_connectivity_on_status_error(self, app, db_session):
+        from app.routes.alerts import collect_alerts, CONNECTIVITY_ALERT_ID, CONNECTIVITY_ALERT_TITLE
+
+        system = _make_system(db_session, 'down-host', vendor='pure')
+        _make_cache(db_session, system, {
+            'status': 'error',
+            'alerts': 0,
+            'error': 'Connection refused',
+            'hardware_status': 'error',
+            'cluster_status': 'unknown',
+        })
+        db_session.session.commit()
+        with app.app_context():
+            rows = collect_alerts()
+        assert len(rows) == 1
+        assert rows[0]['alert_id'] == CONNECTIVITY_ALERT_ID
+        assert rows[0]['title'] == CONNECTIVITY_ALERT_TITLE
+        assert 'Connection refused' in rows[0]['details']
+        assert rows[0]['system_name'] == 'down-host'
+
+    def test_collect_alerts_no_connectivity_when_online(self, app, db_session):
+        from app.routes.alerts import collect_alerts
+
+        system = _make_system(db_session, 'up-host', vendor='pure')
+        _make_cache(db_session, system, {
+            'status': 'online',
+            'alerts': 0,
+            'hardware_status': 'ok',
+            'cluster_status': 'ok',
+        })
+        db_session.session.commit()
+        with app.app_context():
+            rows = collect_alerts()
+        assert rows == []
+
+    def test_connectivity_coexists_with_vendor_alert_details(self, app, db_session):
+        from app.routes.alerts import collect_alerts, CONNECTIVITY_ALERT_TITLE
+
+        system = _make_system(db_session, 'mixed-host', vendor='pure')
+        _make_cache(db_session, system, {
+            'status': 'error',
+            'error': 'Timeout',
+            'alerts': 1,
+            'alert_details': [{
+                'id': '1',
+                'title': 'StaleAlert',
+                'details': 'From last partial response',
+                'severity': 'warning',
+                'error_code': '-',
+                'timestamp': '-',
+                'component': 'X',
+            }],
+        })
+        db_session.session.commit()
+        with app.app_context():
+            rows = collect_alerts()
+        assert len(rows) == 2
+        titles = {r['title'] for r in rows}
+        assert 'StaleAlert' in titles
+        assert CONNECTIVITY_ALERT_TITLE in titles
+
+    def test_alerts_page_renders_connectivity_row(self, client, db_session):
+        system = _make_system(db_session, 'html-down', vendor='netapp-ontap')
+        _make_cache(db_session, system, {
+            'status': 'error',
+            'error': 'Name or service not known',
+            'alerts': 0,
+        })
+        db_session.session.commit()
+        html = client.get('/alerts/').data.decode()
+        assert 'System nicht erreichbar' in html
+        assert 'Name or service not known' in html
+
+
 # ---------------------------------------------------------------------------
 # /api/alerts JSON endpoint tests
 # ---------------------------------------------------------------------------
