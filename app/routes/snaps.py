@@ -57,6 +57,33 @@ logger = logging.getLogger(__name__)
 # Operators can cancel the deletion at any time during this window.
 _DELETE_DELAY_HOURS = 24
 
+# A snapshot whose remaining TTL is at or below this threshold is considered
+# "about to expire": the dashboard locks both the TTL edit and the delete
+# button for it.  Reasoning:
+#   * The scheduled deletion runs 24 h after the operator's click, so any
+#     snapshot whose own TTL elapses within that window would either be gone
+#     before the worker runs or race the worker.
+#   * A TTL change would push the timestamp into a window where it conflicts
+#     with the imminent natural expiry – that produces inconsistent state
+#     between the storage system's internal countdown and the dashboard.
+# 25 h gives one extra hour of margin on top of the 24 h delete delay.
+_TTL_ACTION_LOCK_HOURS = 25
+
+
+def _is_actions_locked(rec, now: datetime | None = None) -> bool:
+    """Return True if TTL edits and deletions are disabled for ``rec``.
+
+    Locked when the snapshot's TTL is set and the remaining time until the
+    TTL elapses is ``<= _TTL_ACTION_LOCK_HOURS`` (25 h by default).  This
+    includes already-expired TTLs (negative remaining time).
+    """
+    if rec.ttl is None:
+        return False
+    if now is None:
+        now = datetime.utcnow()
+    remaining = rec.ttl - now
+    return remaining <= timedelta(hours=_TTL_ACTION_LOCK_HOURS)
+
 
 # ---------------------------------------------------------------------------
 # UI route
@@ -131,14 +158,27 @@ def api_list():
         SnapshotCollectorMetadata.run_at.desc()
     ).first()
 
+    snapshots_payload = []
+    for rec in records:
+        d = rec.to_dict()
+        # Server-authoritative lock flag: TTL within the action-lock window.
+        d['actions_locked'] = _is_actions_locked(rec, now=now)
+        d['actions_lock_reason'] = (
+            f'TTL läuft in ≤ {_TTL_ACTION_LOCK_HOURS} Stunden ab; '
+            f'Bearbeitung und Löschung sind gesperrt.'
+            if d['actions_locked'] else None
+        )
+        snapshots_payload.append(d)
+
     return jsonify({
-        'snapshots': [r.to_dict() for r in records],
+        'snapshots': snapshots_payload,
         'stats': {
             'total': total,
             'older_5_days': older_5,
             'older_10_days': older_10,
             'last_update': (last_run.run_at.isoformat() + 'Z') if last_run else None,
             'last_update_status': last_run.status if last_run else None,
+            'actions_lock_hours': _TTL_ACTION_LOCK_HOURS,
         },
     })
 
@@ -173,6 +213,15 @@ def api_update_ttl():
     rec = SnapshotRecord.query.get(snap_id)
     if not rec:
         return jsonify({'error': 'Snapshot not found'}), 404
+
+    if _is_actions_locked(rec):
+        return jsonify({
+            'error': (
+                f'TTL-Änderung gesperrt: Snapshot läuft in '
+                f'≤ {_TTL_ACTION_LOCK_HOURS} Stunden ab.'
+            ),
+            'actions_locked': True,
+        }), 409
 
     new_ttl = _parse_dt(new_ttl_str)
     if not new_ttl:
@@ -239,6 +288,15 @@ def api_delete():
     rec = SnapshotRecord.query.get(snap_id)
     if not rec:
         return jsonify({'error': 'Snapshot not found'}), 404
+
+    if _is_actions_locked(rec):
+        return jsonify({
+            'error': (
+                f'Löschung gesperrt: Snapshot läuft in '
+                f'≤ {_TTL_ACTION_LOCK_HOURS} Stunden TTL-seitig ohnehin ab.'
+            ),
+            'actions_locked': True,
+        }), 409
 
     # Determine whether anything would actually be sent to a storage system
     # so the UI can distinguish between scheduled-delete and "stale-only"

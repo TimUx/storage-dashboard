@@ -573,11 +573,19 @@ def test_group_by_sid_oracle_two_fa_arrays_and_ontap():
 # ---------------------------------------------------------------------------
 
 def _seed_snapshot(ctx, sid='ACP', days_ago=2):
-    """Helper to insert a SnapshotRecord."""
+    """Helper to insert a SnapshotRecord.
+
+    The TTL is placed far enough in the future that the 25-hour action-lock
+    introduced by the snaps route does not kick in for the seeded record.
+    Tests that explicitly want a "locked" snapshot use
+    :func:`_seed_snapshot_with_ttl` instead.
+    """
     from app import db
     from app.models import SnapshotRecord
     ct = datetime.utcnow() - timedelta(days=days_ago)
-    ttl = ct + timedelta(days=3)
+    # Keep the TTL ≥ 26h in the future so the action-lock (≤ 25h) does not
+    # apply to records that the test does not specifically lock.
+    ttl = datetime.utcnow() + timedelta(days=5)
     locs = json.dumps({'flasharray_systems': [{'name': 'fa01', 'snapshot_names': ['ACP_1.HDBSNAP']}],
                        'ontap_clusters': []})
     rec = SnapshotRecord(
@@ -681,6 +689,97 @@ def test_api_comment(app, client):
     assert snap['comment'] == 'Test comment'
 
 
+def _seed_snapshot_with_ttl(ctx, ttl: datetime, sid='LCK', days_ago=2):
+    """Seed a SnapshotRecord with an explicit TTL value."""
+    from app import db
+    from app.models import SnapshotRecord
+    ct = datetime.utcnow() - timedelta(days=days_ago)
+    locs = json.dumps({
+        'flasharray_systems': [{'name': 'fa01', 'snapshot_names': [f'{sid}_1.HDBSNAP']}],
+        'ontap_clusters': [],
+    })
+    rec = SnapshotRecord(
+        sid=sid,
+        creation_time=ct,
+        ttl=ttl,
+        flasharray_present=True,
+        ontap_present=False,
+        storage_locations=locs,
+    )
+    with ctx.app_context():
+        db.session.add(rec)
+        db.session.commit()
+        return rec.id
+
+
+def test_actions_lock_flag_in_list_for_short_ttl(app, client):
+    """Snapshots with TTL ≤ 25h until expiry expose actions_locked=True."""
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() + timedelta(hours=10), sid='SOON',
+    )
+    data = client.get('/snaps/api/list').get_json()
+    snap = next(s for s in data['snapshots'] if s['id'] == snap_id)
+    assert snap['actions_locked'] is True
+    assert snap['actions_lock_reason']
+    assert data['stats']['actions_lock_hours'] == 25
+
+
+def test_actions_lock_flag_false_for_long_ttl(app, client):
+    """Snapshots with TTL well in the future are NOT locked."""
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() + timedelta(hours=72), sid='FREE',
+    )
+    data = client.get('/snaps/api/list').get_json()
+    snap = next(s for s in data['snapshots'] if s['id'] == snap_id)
+    assert snap['actions_locked'] is False
+    assert snap['actions_lock_reason'] is None
+
+
+def test_actions_lock_flag_true_for_already_expired_ttl(app, client):
+    """An already-expired TTL also locks the row."""
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() - timedelta(hours=1), sid='EXP',
+    )
+    data = client.get('/snaps/api/list').get_json()
+    snap = next(s for s in data['snapshots'] if s['id'] == snap_id)
+    assert snap['actions_locked'] is True
+
+
+def test_api_update_ttl_blocked_when_actions_locked(app, client):
+    """update-ttl rejects a locked snapshot with HTTP 409."""
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() + timedelta(hours=10), sid='LOCK',
+    )
+    resp = client.post('/snaps/api/update-ttl',
+                       json={'id': snap_id, 'new_ttl': '2099-12-31 00:00:00'},
+                       content_type='application/json')
+    assert resp.status_code == 409
+    body = resp.get_json()
+    assert body.get('actions_locked') is True
+    assert 'gesperrt' in body['error'].lower()
+
+
+def test_api_delete_blocked_when_actions_locked(app, client):
+    """delete rejects a locked snapshot with HTTP 409 and does NOT mark it."""
+    from app.models import SnapshotRecord
+
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() + timedelta(hours=10), sid='DLCK',
+    )
+    resp = client.post('/snaps/api/delete',
+                       json={'id': snap_id},
+                       content_type='application/json')
+    assert resp.status_code == 409
+    body = resp.get_json()
+    assert body.get('actions_locked') is True
+
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        assert rec is not None
+        assert rec.delete_marked is False
+        assert rec.delete_deadline is None
+
+
 def test_api_delete_schedules_with_24h_deadline(app, client):
     """POST /snaps/api/delete schedules the deletion 24h ahead, no live execution."""
     snap_id = _seed_snapshot(app)
@@ -718,7 +817,9 @@ def test_api_delete_drops_record_when_no_storage_steps(app, client):
         rec = SnapshotRecord(
             sid='ORPH',
             creation_time=datetime.utcnow() - timedelta(days=1),
-            ttl=datetime.utcnow() + timedelta(days=1),
+            # TTL well outside the 25h action-lock window so the lock check
+            # does not interfere with this scenario.
+            ttl=datetime.utcnow() + timedelta(days=5),
             flasharray_present=False,
             ontap_present=False,
             comment='Stale row',

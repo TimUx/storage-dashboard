@@ -188,6 +188,13 @@ td.ttl-cell .ttl-display {
 }
 td.ttl-cell .ttl-display:hover { background: rgba(0,0,0,.06); }
 td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
+td.ttl-cell .ttl-display.ttl-locked {
+    cursor: not-allowed;
+    color: var(--sn-muted);
+    opacity: .65;
+}
+td.ttl-cell .ttl-display.ttl-locked:hover { background: transparent; }
+td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
 
 /* Delete column */
 .btn-delete {
@@ -201,6 +208,13 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
     transition: opacity .2s;
 }
 .btn-delete:hover { opacity: .8; }
+.btn-delete:disabled,
+.btn-delete[aria-disabled="true"] {
+    background: var(--sn-muted);
+    cursor: not-allowed;
+    opacity: .5;
+}
+.btn-delete:disabled:hover { opacity: .5; }
 .btn-undo {
     background: var(--sn-warn);
     color: #fff;
@@ -713,12 +727,29 @@ function renderTable() {
     let html = '';
     for (const s of rows) {
         const isPending = s.delete_marked && s.delete_deadline;
+        const isLocked  = !!s.actions_locked;   // TTL ≤ 25h until expiry
         const rowClass  = isPending ? ' class="delete-pending"' : '';
         const expandId  = `detail-${s.id}`;
         const btnId     = `expand-btn-${s.id}`;
 
         // TTL display
         const ttlDisp = s.ttl ? formatDt(s.ttl) : '–';
+        const lockReason = s.actions_lock_reason
+            || 'TTL läuft in ≤ 25 Stunden ab; Bearbeitung und Löschung sind gesperrt.';
+
+        // TTL cell – click only when not locked
+        let ttlCellHtml;
+        if (isLocked) {
+            ttlCellHtml = `
+                <span class="ttl-display ttl-locked" title="${escHtml(lockReason)}" aria-disabled="true">
+                    ${escHtml(ttlDisp)}<span class="ttl-edit-icon" aria-hidden="true">🔒</span>
+                </span>`;
+        } else {
+            ttlCellHtml = `
+                <span class="ttl-display" onclick="openTtlModal(${s.id})" title="TTL bearbeiten">
+                    ${escHtml(ttlDisp)}<span class="ttl-edit-icon">✏️</span>
+                </span>`;
+        }
 
         // Delete column
         let delCol;
@@ -727,6 +758,8 @@ function renderTable() {
             delCol = `
                 <span class="delete-timer" id="timer-${s.id}" title="Verbleibende Zeit bis zur Ausführung der Löschung">${remaining}</span>
                 <button class="btn-undo" onclick="undoDelete(${s.id})" title="Geplante Löschung stornieren">↩ Rückgängig</button>`;
+        } else if (isLocked) {
+            delCol = `<button class="btn-delete" disabled aria-disabled="true" title="${escHtml(lockReason)}">✕</button>`;
         } else {
             delCol = `<button class="btn-delete" onclick="markDelete(${s.id})" title="Löschung in 24h einplanen">✕</button>`;
         }
@@ -806,9 +839,7 @@ function renderTable() {
             <td><strong>${escHtml(s.sid)}</strong></td>
             <td style="white-space:nowrap">${s.creation_time ? formatDt(s.creation_time) : '–'}</td>
             <td class="ttl-cell">
-                <span class="ttl-display" onclick="openTtlModal(${s.id})" title="TTL bearbeiten">
-                    ${escHtml(ttlDisp)}<span class="ttl-edit-icon">✏️</span>
-                </span>
+                ${ttlCellHtml}
             </td>
             <td class="${s.flasharray_present ? 'badge-ok' : 'badge-miss'}" style="text-align:center">
                 ${s.flasharray_present ? '✔' : '✘'}
@@ -900,9 +931,14 @@ async function saveComment(id) {
 
 // ─── TTL editing ──────────────────────────────────────────────────────────
 function openTtlModal(id) {
-    _ttlEditId = id;
     const snap = _snapshots.find(s => s.id === id);
     if (!snap) return;
+    if (snap.actions_locked) {
+        alert(snap.actions_lock_reason
+            || 'TTL läuft in ≤ 25 Stunden ab; Bearbeitung ist gesperrt.');
+        return;
+    }
+    _ttlEditId = id;
 
     document.getElementById('ttl-modal-info').textContent =
         `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
@@ -943,6 +979,12 @@ async function saveTtl() {
 
 // ─── Delete / undo ────────────────────────────────────────────────────────
 async function markDelete(id) {
+    const snap = _snapshots.find(s => s.id === id);
+    if (snap && snap.actions_locked) {
+        alert(snap.actions_lock_reason
+            || 'Löschung gesperrt: Snapshot läuft in ≤ 25 Stunden TTL-seitig ohnehin ab.');
+        return;
+    }
     if (!confirm(
         'Snapshot zur Löschung in 24 Stunden vormerken?\n\n' +
         'Die Lösch-Operation wird erst nach Ablauf des Countdowns auf den ' +
