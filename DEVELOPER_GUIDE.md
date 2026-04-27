@@ -829,8 +829,8 @@ def start_background_thread(app):
 | `/snaps/` | GET | Snapshot-Übersichtsseite (HTML) |
 | `/snaps/api/list` | GET | Alle Snapshot-Einträge mit Stats (JSON) |
 | `/snaps/api/update-ttl` | POST | Live-Rename des Snapshots auf den Storages – streamt Fortschritt als ndjson |
-| `/snaps/api/delete` | POST | Snapshot **live** löschen – streamt Fortschritt als ndjson; FA → `destroyed=true`, ONTAP → `expiry_time=jetzt` + DELETE |
-| `/snaps/api/undo-delete` | POST | Hebt eine Legacy-Soft-Delete-Markierung auf |
+| `/snaps/api/delete` | POST | Löschung in 24 h einplanen (`delete_marked` + `delete_deadline`); ausgeführt vom Background-Worker, FA → `destroyed=true`, ONTAP → `expiry_time=jetzt` + DELETE |
+| `/snaps/api/undo-delete` | POST | Geplante Löschung innerhalb der 24 h stornieren |
 | `/snaps/api/comment` | POST | Operator-Kommentar speichern |
 | `/snaps/api/trigger-collect` | POST | Sofortigen Collector-Lauf auslösen |
 

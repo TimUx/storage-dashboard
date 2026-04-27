@@ -1,16 +1,31 @@
 """Snapshot management routes – /snaps/
 
-Live-execution endpoints
+Live-execution streaming
 ------------------------
-Both *delete* (``/snaps/api/delete``) and *TTL update*
-(``/snaps/api/update-ttl``) now execute the underlying storage operations
-**for real** instead of returning a CURL simulation.  The endpoints stream
-their progress as newline-delimited JSON (``application/x-ndjson``) so the
-front-end can render a step-by-step status modal with a collapsible
-"terminal" view.
+The *TTL update* endpoint (``/snaps/api/update-ttl``) executes the underlying
+storage operations **for real** and streams its progress as newline-delimited
+JSON (``application/x-ndjson``) so the front-end can render a step-by-step
+status modal with a collapsible "terminal" view.
 
-Stream events
-~~~~~~~~~~~~~
+Deferred deletion
+-----------------
+The *delete* endpoint (``/snaps/api/delete``) does **not** execute the
+delete operation immediately.  Instead it schedules the deletion 24 hours
+in the future by setting ``delete_marked=True`` and
+``delete_deadline = now + 24h`` on the :class:`SnapshotRecord`.  The
+front-end shows a countdown of the remaining hours and exposes a
+"↩ Rückgängig" button that calls ``/snaps/api/undo-delete`` to clear the
+marker.
+
+The actual storage-level deletion is performed by the background snapshot
+collector once the deadline has elapsed (see
+``app.snap_service._process_expired_deletions``).  The execution uses the
+same plan / streaming machinery as the live TTL update; for scheduled
+deletions the events are recorded only in the application log because no
+HTTP client is connected at that point.
+
+Stream events (TTL update)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 Each line is one JSON object with an ``event`` field.  The following event
 types are emitted:
 
@@ -30,13 +45,17 @@ types are emitted:
 """
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 from sqlalchemy import and_, or_
 
 bp = Blueprint('snaps', __name__, url_prefix='/snaps')
 logger = logging.getLogger(__name__)
+
+# How far in the future a delete request schedules the actual deletion.
+# Operators can cancel the deletion at any time during this window.
+_DELETE_DELAY_HOURS = 24
 
 
 # ---------------------------------------------------------------------------
@@ -179,26 +198,37 @@ def api_update_ttl():
 
 
 # ---------------------------------------------------------------------------
-# Live execution – delete snapshot
+# Schedule deletion (24h delay)
 # ---------------------------------------------------------------------------
 
 @bp.route('/api/delete', methods=['POST'])
 def api_delete():
-    """Execute the real deletion of a snapshot and stream per-step progress.
+    """Schedule the deletion of a snapshot 24 hours in the future.
 
-    Pure FlashArray – mark the snapshot as ``destroyed=true`` (the array
-    eradicates destroyed snapshots automatically after the eradication
-    delay; the dashboard does not issue the DELETE).
+    The operation is **not** executed immediately on the storage systems.
+    Instead the snapshot record is marked with ``delete_marked=True`` and
+    ``delete_deadline = now + 24h``.  Within the 24-hour window the
+    operator can cancel the deletion via :func:`api_undo_delete`; the
+    front-end shows a live countdown of the remaining hours.
 
-    ONTAP – first PATCH ``expiry_time`` to "now" (otherwise ONTAP refuses
-    deletion of snapshots whose retention has not yet expired) and then
-    DELETE the snapshot.
+    Once the deadline has elapsed, the snapshot collector background worker
+    (:func:`app.snap_service._process_expired_deletions`) executes the
+    actual delete plan against the storage systems.
 
     Request JSON:
         id (int) – snapshot record ID
 
-    Response: streamed ``application/x-ndjson`` progress events.
+    Response JSON:
+        success (bool)             – ``True`` if the deletion was scheduled.
+        delete_deadline (str)      – ISO-8601 UTC timestamp when the
+                                     deletion will be executed.
+        delete_planned (bool)      – False if no storage locations would
+                                     produce any plan steps.  In that case
+                                     the record is removed from the DB
+                                     immediately because nothing is left
+                                     to delete on a storage system.
     """
+    from app import db
     from app.models import SnapshotRecord
 
     data = request.get_json(force=True) or {}
@@ -210,32 +240,45 @@ def api_delete():
     if not rec:
         return jsonify({'error': 'Snapshot not found'}), 404
 
-    locs = rec.get_storage_locations()
-    plan = _build_delete_plan(rec, locs)
+    # Determine whether anything would actually be sent to a storage system
+    # so the UI can distinguish between scheduled-delete and "stale-only"
+    # records (which we drop right away).
+    plan = _build_delete_plan(rec, rec.get_storage_locations())
     if not plan:
-        return jsonify({'error': 'No storage locations to delete'}), 400
+        db.session.delete(rec)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'delete_planned': False,
+            'message': ('Keine Storage-Operationen nötig – '
+                        'Datensatz wurde direkt entfernt.'),
+        })
 
-    app = current_app._get_current_object()
+    rec.delete_marked = True
+    rec.delete_deadline = datetime.utcnow() + timedelta(hours=_DELETE_DELAY_HOURS)
+    db.session.commit()
 
-    def generator():
-        yield from _stream_run(
-            app=app,
-            title=f'Snapshot löschen – SID {rec.sid} ({rec.creation_time:%d.%m.%Y %H:%M:%S})',
-            snap_id=rec.id,
-            steps=plan,
-            on_success=lambda: _finalize_delete(app, rec.id),
-        )
-
-    return current_app.response_class(generator(), mimetype='application/x-ndjson')
+    return jsonify({
+        'success': True,
+        'delete_planned': True,
+        'delete_deadline': rec.delete_deadline.isoformat(),
+        'snapshot': rec.to_dict(),
+    })
 
 
 # ---------------------------------------------------------------------------
-# API – cancel pending soft-delete (legacy state on existing records)
+# API – cancel pending deletion
 # ---------------------------------------------------------------------------
 
 @bp.route('/api/undo-delete', methods=['POST'])
 def api_undo_delete():
-    """Cancel a pending (legacy) soft-deletion marker on a snapshot record."""
+    """Cancel a pending deletion so the storage delete plan is **not** run.
+
+    Only effective while ``delete_deadline`` is still in the future.  Once
+    the worker has started executing the plan, the deletion can no longer
+    be cancelled (the worker clears ``delete_marked`` only after a
+    successful run).
+    """
     from app import db
     from app.models import SnapshotRecord
 
@@ -252,7 +295,7 @@ def api_undo_delete():
     rec.delete_deadline = None
     db.session.commit()
 
-    return jsonify({'success': True})
+    return jsonify({'success': True, 'snapshot': rec.to_dict()})
 
 
 # ---------------------------------------------------------------------------

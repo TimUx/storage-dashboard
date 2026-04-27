@@ -86,10 +86,9 @@ import logging
 import os
 import re
 import threading
-import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import or_
 
@@ -649,7 +648,7 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
     are never overwritten by the collector.
     """
     from app import db
-    from app.models import SnapshotRecord, SnapshotCollectorMetadata, SnapshotAuditLog
+    from app.models import SnapshotAuditLog, SnapshotCollectorMetadata, SnapshotRecord
 
     with app.app_context():
         run_start = datetime.utcnow()
@@ -771,11 +770,25 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
 # ---------------------------------------------------------------------------
 
 def _process_expired_deletions(app):
-    """Delete snapshot records whose delete_deadline has passed.
+    """Execute deletions for SnapshotRecords whose delete_deadline has passed.
 
-    This function is called after each collection run.  Actual storage-system
-    snapshot deletion is intentionally omitted (simulation mode per spec) –
-    only the database record is removed.
+    Operators schedule deletions via the ``/snaps/api/delete`` endpoint.
+    The endpoint sets ``delete_marked=True`` and
+    ``delete_deadline = now + 24h`` and returns immediately so the deletion
+    can still be cancelled via ``/snaps/api/undo-delete``.
+
+    This worker runs after every collection cycle and:
+
+    1. Loads every record with ``delete_marked=True`` whose
+       ``delete_deadline`` has passed.
+    2. Builds the live execution plan for the record (Pure
+       ``destroyed=true`` per LUN; ONTAP ``expiry_time=now`` followed by
+       ``DELETE`` per volume).
+    3. Executes each step.  If every step succeeds the record is removed
+       from the database.  If any step fails the marker is left in place
+       and the worker will retry on the next collection cycle (so a
+       transient Pure / ONTAP outage does not silently swallow the
+       request).
     """
     from app import db
     from app.models import SnapshotRecord
@@ -787,18 +800,84 @@ def _process_expired_deletions(app):
                 SnapshotRecord.delete_marked,
                 SnapshotRecord.delete_deadline <= now,
             ).all()
-            if expired:
-                for rec in expired:
-                    logger.info(
-                        "Snapshot collector: deleting expired record %s sid=%s ct=%s",
-                        rec.id, rec.sid, rec.creation_time,
-                    )
-                    db.session.delete(rec)
-                db.session.commit()
-                logger.info("Snapshot collector: deleted %d expired snapshot records", len(expired))
         except Exception as exc:
             db.session.rollback()
-            logger.error("Snapshot collector delete worker error: %s", exc)
+            logger.error("Snapshot collector delete worker query error: %s", exc)
+            return
+
+        if not expired:
+            return
+
+        for rec in expired:
+            try:
+                _execute_scheduled_deletion(app, rec)
+            except Exception as exc:
+                logger.error(
+                    "Snapshot collector: scheduled deletion for record %s sid=%s failed: %s",
+                    rec.id, rec.sid, exc,
+                )
+
+
+def _execute_scheduled_deletion(app, rec):
+    """Run the storage delete plan for ``rec`` and remove the DB row on success."""
+    from app import db
+    from app.routes.snaps import _build_delete_plan
+
+    locs = rec.get_storage_locations()
+    plan = _build_delete_plan(rec, locs)
+    rec_id = rec.id
+    sid = rec.sid
+
+    if not plan:
+        # Nothing to do on the storage side – just drop the row.
+        logger.info(
+            "Snapshot collector: dropping expired record %s sid=%s (no storage steps)",
+            rec_id, sid,
+        )
+        db.session.delete(rec)
+        db.session.commit()
+        return
+
+    logger.info(
+        "Snapshot collector: executing scheduled deletion for record %s sid=%s "
+        "(%d storage step(s))",
+        rec_id, sid, len(plan),
+    )
+
+    all_ok = True
+    for idx, step in enumerate(plan, start=1):
+        label = step.get('label', f'Schritt {idx}')
+        try:
+            ok, info = step['execute']()
+        except Exception as exc:
+            ok, info = False, {'error': str(exc)}
+            logger.exception("Scheduled-delete step %d (%s) crashed", idx, label)
+
+        if ok:
+            logger.info(
+                "Scheduled-delete record %s step %d/%d ok: %s",
+                rec_id, idx, len(plan), label,
+            )
+        else:
+            all_ok = False
+            logger.error(
+                "Scheduled-delete record %s step %d/%d FAILED: %s – %s",
+                rec_id, idx, len(plan), label, info,
+            )
+            # Stop early – downstream steps would just fail too.
+            break
+
+    if not all_ok:
+        # Leave the record marked so the next collector cycle retries.
+        db.session.rollback()
+        return
+
+    db.session.delete(rec)
+    db.session.commit()
+    logger.info(
+        "Scheduled-delete record %s sid=%s completed and removed from DB",
+        rec_id, sid,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -681,81 +681,73 @@ def test_api_comment(app, client):
     assert snap['comment'] == 'Test comment'
 
 
-def test_api_delete_executes_live_and_streams_events(app, client):
-    """POST /snaps/api/delete now executes the deletion live and streams ndjson.
-
-    The endpoint streams ``run_start`` / ``step_start`` / ``step_done`` /
-    ``run_done`` events.  After a successful run the SnapshotRecord row
-    is removed from the database (the storage no longer reports it).
-    """
-    snap_id = _seed_snapshot(app)
-    patches = _patch_storage_clients()
-    for p in patches:
-        p.start()
-    try:
-        resp = client.post('/snaps/api/delete',
-                           json={'id': snap_id},
-                           content_type='application/json')
-        assert resp.status_code == 200
-        events = _consume_ndjson(resp)
-    finally:
-        for p in patches:
-            p.stop()
-
-    event_kinds = [e['event'] for e in events]
-    assert event_kinds[0] == 'run_start'
-    assert event_kinds[-1] == 'run_done'
-    assert events[-1]['status'] == 'ok'
-    assert any(e['event'] == 'step_done' and e['status'] == 'ok' for e in events)
-
-    # SnapshotRecord row is removed after a successful delete run.
-    list_data = client.get('/snaps/api/list').get_json()
-    assert all(s['id'] != snap_id for s in list_data['snapshots'])
-
-
-def test_api_delete_aborts_on_storage_failure(app, client):
-    """Storage error during delete -> run_done.status == 'error' and DB row preserved."""
+def test_api_delete_schedules_with_24h_deadline(app, client):
+    """POST /snaps/api/delete schedules the deletion 24h ahead, no live execution."""
     snap_id = _seed_snapshot(app)
 
-    failing_pure = MagicMock()
-    failing_pure.destroy_volume_snapshot.return_value = (
-        False, {'status_code': 500, 'text': 'Internal Server Error'}
-    )
-    patches = _patch_storage_clients(monkey_pure=failing_pure)
-    for p in patches:
-        p.start()
-    try:
-        resp = client.post('/snaps/api/delete',
-                           json={'id': snap_id},
-                           content_type='application/json')
-        assert resp.status_code == 200
-        events = _consume_ndjson(resp)
-    finally:
-        for p in patches:
-            p.stop()
+    before = datetime.utcnow()
+    resp = client.post('/snaps/api/delete',
+                       json={'id': snap_id},
+                       content_type='application/json')
+    after = datetime.utcnow()
 
-    assert events[-1]['event'] == 'run_done'
-    assert events[-1]['status'] == 'error'
-    error_steps = [e for e in events
-                   if e['event'] == 'step_done' and e['status'] == 'error']
-    assert error_steps, 'Expected at least one failing step'
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['success'] is True
+    assert data['delete_planned'] is True
+    assert 'delete_deadline' in data and data['delete_deadline']
 
-    # Snapshot must still be present – delete was not finalized.
+    deadline = datetime.fromisoformat(data['delete_deadline'])
+    # Allow a small tolerance so the test does not flake on slow runners.
+    assert deadline >= before + timedelta(hours=24) - timedelta(seconds=2)
+    assert deadline <= after + timedelta(hours=24) + timedelta(seconds=2)
+
+    # Snapshot must still be present and marked for deletion.
     list_data = client.get('/snaps/api/list').get_json()
-    assert any(s['id'] == snap_id for s in list_data['snapshots'])
+    snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
+    assert snap['delete_marked'] is True
+    assert snap['delete_deadline']
 
 
-def test_undo_delete_clears_legacy_marker(app, client):
-    """The /api/undo-delete endpoint still clears any legacy soft-delete marker."""
+def test_api_delete_drops_record_when_no_storage_steps(app, client):
+    """A record with no storage locations is removed immediately on delete."""
     from app import db
     from app.models import SnapshotRecord
 
-    snap_id = _seed_snapshot(app)
     with app.app_context():
-        rec = SnapshotRecord.query.get(snap_id)
-        rec.delete_marked = True
-        rec.delete_deadline = datetime.utcnow() + timedelta(hours=24)
+        rec = SnapshotRecord(
+            sid='ORPH',
+            creation_time=datetime.utcnow() - timedelta(days=1),
+            ttl=datetime.utcnow() + timedelta(days=1),
+            flasharray_present=False,
+            ontap_present=False,
+            comment='Stale row',
+            storage_locations=json.dumps({'flasharray_systems': [], 'ontap_clusters': []}),
+        )
+        db.session.add(rec)
         db.session.commit()
+        snap_id = rec.id
+
+    resp = client.post('/snaps/api/delete',
+                       json={'id': snap_id},
+                       content_type='application/json')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['success'] is True
+    assert data['delete_planned'] is False
+
+    with app.app_context():
+        assert SnapshotRecord.query.get(snap_id) is None
+
+
+def test_api_undo_delete_cancels_pending_deletion(app, client):
+    """/api/undo-delete clears delete_marked and delete_deadline."""
+    snap_id = _seed_snapshot(app)
+    # Schedule first
+    sched = client.post('/snaps/api/delete',
+                        json={'id': snap_id},
+                        content_type='application/json').get_json()
+    assert sched['delete_planned'] is True
 
     resp = client.post('/snaps/api/undo-delete',
                        json={'id': snap_id},
@@ -767,6 +759,101 @@ def test_undo_delete_clears_legacy_marker(app, client):
     snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
     assert snap['delete_marked'] is False
     assert snap['delete_deadline'] is None
+
+
+def test_process_expired_deletions_runs_storage_plan_when_due(app):
+    """The collector worker executes the storage delete plan once the deadline expires."""
+    from app import db
+    from app.models import SnapshotRecord
+    from app.snap_service import _process_expired_deletions
+
+    snap_id = _seed_snapshot(app)
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        rec.delete_marked = True
+        rec.delete_deadline = datetime.utcnow() - timedelta(minutes=1)  # already due
+        db.session.commit()
+
+    pure = MagicMock()
+    pure.destroy_volume_snapshot.return_value = (True, {'status_code': 200, 'text': ''})
+
+    patches = _patch_storage_clients(monkey_pure=pure)
+    for p in patches:
+        p.start()
+    try:
+        _process_expired_deletions(app)
+    finally:
+        for p in patches:
+            p.stop()
+
+    # destroy_volume_snapshot must have been called for the seeded LUN.
+    pure.destroy_volume_snapshot.assert_called()
+    # Record must be removed from the DB.
+    with app.app_context():
+        assert SnapshotRecord.query.get(snap_id) is None
+
+
+def test_process_expired_deletions_keeps_record_on_failure(app):
+    """If a storage step fails the record is preserved for the next retry."""
+    from app import db
+    from app.models import SnapshotRecord
+    from app.snap_service import _process_expired_deletions
+
+    snap_id = _seed_snapshot(app)
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        rec.delete_marked = True
+        rec.delete_deadline = datetime.utcnow() - timedelta(minutes=1)
+        db.session.commit()
+
+    pure = MagicMock()
+    pure.destroy_volume_snapshot.return_value = (
+        False, {'status_code': 500, 'text': 'boom'}
+    )
+    patches = _patch_storage_clients(monkey_pure=pure)
+    for p in patches:
+        p.start()
+    try:
+        _process_expired_deletions(app)
+    finally:
+        for p in patches:
+            p.stop()
+
+    # Record must still be in the DB and still marked for deletion so the
+    # next collection cycle retries.
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        assert rec is not None
+        assert rec.delete_marked is True
+
+
+def test_process_expired_deletions_skips_records_not_yet_due(app):
+    """Records whose deadline lies in the future must be left untouched."""
+    from app import db
+    from app.models import SnapshotRecord
+    from app.snap_service import _process_expired_deletions
+
+    snap_id = _seed_snapshot(app)
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        rec.delete_marked = True
+        rec.delete_deadline = datetime.utcnow() + timedelta(hours=1)  # not yet due
+        db.session.commit()
+
+    pure = MagicMock()
+    pure.destroy_volume_snapshot.return_value = (True, {'status_code': 200, 'text': ''})
+    patches = _patch_storage_clients(monkey_pure=pure)
+    for p in patches:
+        p.start()
+    try:
+        _process_expired_deletions(app)
+    finally:
+        for p in patches:
+            p.stop()
+
+    pure.destroy_volume_snapshot.assert_not_called()
+    with app.app_context():
+        assert SnapshotRecord.query.get(snap_id) is not None
 
 
 def test_api_update_ttl_streams_and_persists(app, client):

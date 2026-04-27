@@ -723,13 +723,12 @@ function renderTable() {
         // Delete column
         let delCol;
         if (isPending) {
-            const deadline = new Date(s.delete_deadline);
-            const hoursLeft = Math.max(0, Math.ceil((deadline - now) / 3600000));
+            const remaining = formatRemaining(new Date(s.delete_deadline) - now);
             delCol = `
-                <span class="delete-timer" id="timer-${s.id}">${hoursLeft}h</span>
-                <button class="btn-undo" onclick="undoDelete(${s.id})">↩ Rückgängig</button>`;
+                <span class="delete-timer" id="timer-${s.id}" title="Verbleibende Zeit bis zur Ausführung der Löschung">${remaining}</span>
+                <button class="btn-undo" onclick="undoDelete(${s.id})" title="Geplante Löschung stornieren">↩ Rückgängig</button>`;
         } else {
-            delCol = `<button class="btn-delete" onclick="markDelete(${s.id})" title="Löschen planen">✕</button>`;
+            delCol = `<button class="btn-delete" onclick="markDelete(${s.id})" title="Löschung in 24h einplanen">✕</button>`;
         }
 
         // Storage locations detail
@@ -944,13 +943,37 @@ async function saveTtl() {
 
 // ─── Delete / undo ────────────────────────────────────────────────────────
 async function markDelete(id) {
-    if (!confirm('Snapshot wirklich löschen? Die Operation wird sofort auf den Storages ausgeführt.')) return;
-    await runExecution({
-        url: '/snaps/api/delete',
-        body: {id},
-        title: 'Snapshot löschen',
-        defaultBanner: 'Lösch-Operation läuft auf den Storages…'
-    });
+    if (!confirm(
+        'Snapshot zur Löschung in 24 Stunden vormerken?\n\n' +
+        'Die Lösch-Operation wird erst nach Ablauf des Countdowns auf den ' +
+        'Storage-Systemen ausgeführt. Innerhalb der 24 Stunden kann sie ' +
+        'jederzeit über den Rückgängig-Button storniert werden.'
+    )) return;
+
+    try {
+        const resp = await fetch('/snaps/api/delete', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({id}),
+        });
+        const data = await resp.json();
+        if (!resp.ok) { alert('Fehler: ' + (data.error || resp.status)); return; }
+
+        if (data.delete_planned === false) {
+            // Nothing left to delete on the storages – record was dropped immediately.
+            _snapshots = _snapshots.filter(s => s.id !== id);
+            applyFilters();
+            return;
+        }
+
+        const snap = _snapshots.find(s => s.id === id);
+        if (snap) {
+            snap.delete_marked = true;
+            snap.delete_deadline = data.delete_deadline;
+        }
+        renderTable();
+        if (data.delete_deadline) startTimer(id, data.delete_deadline);
+    } catch(e) { alert('Fehler: ' + e.message); }
 }
 
 async function undoDelete(id) {
@@ -1157,19 +1180,35 @@ function closeExecModal() {
 }
 
 // ─── Delete countdown timer ────────────────────────────────────────────────
+function formatRemaining(ms) {
+    if (ms <= 0) return 'fällig';
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}h ${String(minutes).padStart(2,'0')}m`;
+    if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2,'0')}s`;
+    return `${seconds}s`;
+}
+
 function startTimer(id, deadline) {
     if (_deleteTimers[id]) clearInterval(_deleteTimers[id]);
-    _deleteTimers[id] = setInterval(() => {
+    const deadlineMs = new Date(deadline).getTime();
+    const tick = () => {
         const timerEl = document.getElementById(`timer-${id}`);
         if (!timerEl) { clearInterval(_deleteTimers[id]); delete _deleteTimers[id]; return; }
-        const hoursLeft = Math.max(0, Math.ceil((new Date(deadline) - Date.now()) / 3600000));
-        timerEl.textContent = `${hoursLeft}h`;
-        if (hoursLeft <= 0) {
+        const remaining = deadlineMs - Date.now();
+        timerEl.textContent = formatRemaining(remaining);
+        if (remaining <= 0) {
             clearInterval(_deleteTimers[id]);
             delete _deleteTimers[id];
-            loadSnapshots(); // Reload to remove deleted row
+            // Reload after a short delay so the background worker has a chance
+            // to run and the row to disappear.
+            setTimeout(loadSnapshots, 5000);
         }
-    }, 60000); // update every minute
+    };
+    tick();                                                  // immediate render
+    _deleteTimers[id] = setInterval(tick, 30000);            // refresh every 30s
 }
 
 // ─── Manual trigger ───────────────────────────────────────────────────────
