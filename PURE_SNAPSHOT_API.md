@@ -368,10 +368,10 @@ Bei Erfolg antwortet die API mit HTTP `200` und leerem Body oder `{}`.
 
 > **Hinweis (Dashboard-Verhalten):** Das Dashboard führt diesen Schritt **nicht** aus.
 > Das FlashArray eradiziert destroyed-Snapshots automatisch nach Ablauf der konfigurierten
-> Eradication-Delay (Default 24 Stunden). Der Dashboard-Workflow beschränkt sich auf
-> *Expiration-Date anpassen* (Rename auf „jetzt") gefolgt von *Destroy* (`destroyed=true`).
-> Das verhindert sowohl das versehentliche endgültige Löschen als auch das Scheitern
-> der Destroy-Operation, solange das Expiration-Date noch in der Zukunft liegt.
+> Eradication-Delay (Default 24 Stunden). Der Dashboard-Workflow für das Löschen eines
+> Pure-Snapshots besteht daher ausschließlich aus *Destroy* (`destroyed=true`); ein
+> vorgelagerter Rename / eine Anpassung des Expiration-Dates ist auf dem FlashArray
+> nicht erforderlich (zwingend nur auf ONTAP, dort über `expiry_time`).
 
 ---
 

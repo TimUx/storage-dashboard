@@ -1433,13 +1433,14 @@ def test_build_rename_curl_ontap_per_volume():
             "Command must set expiry_time in ISO format"
 
 
-def test_build_delete_curl_flasharray_no_eradication_and_expiration_adjust():
+def test_build_delete_curl_flasharray_destroy_only():
     """FlashArray delete command must:
 
-    1. Adjust the expiration date (rename suffix to 'now') BEFORE destroying.
-       The expiration date encoded in the snapshot suffix prevents premature
-       deletion until the timestamp is in the past.
-    2. Mark the snapshot as destroyed (PATCH destroyed=true).
+    1. Mark the snapshot as destroyed (PATCH destroyed=true).
+    2. NOT rename the snapshot or adjust an expiration date – FlashArray does
+       not require any such adjustment to allow the destroy operation. The
+       snapshot-name timestamp is purely a TTL convention used by the
+       dashboard, not enforced by the array.
     3. NOT issue an eradication DELETE call – the FlashArray performs the
        final eradication automatically after the eradication delay (24h).
     """
@@ -1471,21 +1472,23 @@ def test_build_delete_curl_flasharray_no_eradication_and_expiration_adjust():
         assert cmd['platform'] == 'FlashArray'
         body = cmd['command']
 
-        # Step 1: Expiration date adjustment via PATCH ... {"name": "<...>"}
-        assert 'PATCH' in body, "Must include PATCH step"
-        assert 'Expiration-Date' in body or 'expiration' in body.lower(), \
-            "Must mention the expiration-date adjustment step"
-        assert '"name"' in body, \
-            "Step 1 must rename the snapshot to a 'now' timestamp"
+        # Login step must be present
+        assert '/login' in body, "Login step must remain"
 
-        # Step 2: Destroy
+        # Destroy step required
+        assert 'PATCH' in body, "Must include PATCH step"
         assert '"destroyed":true' in body, \
             "Must mark snapshot as destroyed"
+
+        # No rename / expiration-date adjustment for FlashArray
+        assert '"name"' not in body, \
+            "FlashArray must NOT rename the snapshot for deletion"
+        assert 'Expiration-Date' not in body, \
+            "FlashArray must NOT show an expiration-date adjustment step"
 
         # Eradication DELETE must NOT be present
         assert 'curl -X DELETE' not in body, \
             "Eradication is performed automatically by the storage – DELETE must not be issued"
-        assert '/login' in body, "Login step must remain"
 
 
 def test_build_delete_curl_ontap_per_volume():
@@ -1571,10 +1574,12 @@ def test_delete_preview_endpoint(app, client):
     assert 'FlashArray' in platforms, "FlashArray delete command must be present"
     assert 'ONTAP' in platforms, "ONTAP delete command must be present"
 
-    # FlashArray command has authentication step + expiration adjust + destroy step.
+    # FlashArray command has authentication step + destroy step only.
     # The eradication DELETE call is intentionally NOT issued from the dashboard:
     # the FlashArray performs eradication automatically after the configured
     # eradication delay (default 24h).
+    # FlashArray does not require a snapshot rename / expiration-date adjustment
+    # before the destroy step.
     fa_cmd = next(c for c in cmds if c['platform'] == 'FlashArray')
     assert '/login' in fa_cmd['command'], "FlashArray must include login/auth step"
     assert 'api-token' in fa_cmd['command'], "FlashArray login step must reference api-token"
@@ -1582,9 +1587,9 @@ def test_delete_preview_endpoint(app, client):
     assert 'destroyed' in fa_cmd['command'], "FlashArray must include destroy step"
     assert 'curl -X DELETE' not in fa_cmd['command'], \
         "FlashArray must NOT issue eradication DELETE – Storage eradicates automatically after 24h"
-    # Expiration-Date adjustment must precede the destroy step
-    assert 'Expiration-Date' in fa_cmd['command'] or 'expiration' in fa_cmd['command'].lower(), \
-        "FlashArray must include the expiration-date adjustment step"
+    # No rename / expiration-date adjustment for FlashArray
+    assert '"name"' not in fa_cmd['command'], \
+        "FlashArray must NOT rename the snapshot before destroy"
 
     # ONTAP command references volume name and includes the expiry_time adjustment
     # before the actual DELETE so ONTAP doesn't refuse the deletion.
