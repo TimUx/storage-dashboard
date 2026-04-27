@@ -4,16 +4,65 @@ Covers:
 1. SID extraction (extract_sid)
 2. TTL extraction (extract_ttl)
 3. Snapshot grouping / deduplication (_group_by_sid_and_time)
-4. API endpoints: list, comment, delete, undo-delete, update-ttl, update-presence
+4. API endpoints: list, comment, delete (live), undo-delete, update-ttl (live)
 5. Statistics calculation
+6. Live execution streaming (delete & rename)
 """
 
 import json
 import os
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+def _consume_ndjson(resp) -> list[dict]:
+    """Decode an ndjson streaming response into a list of event dicts."""
+    out = []
+    for line in resp.get_data(as_text=True).splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        out.append(json.loads(line))
+    return out
+
+
+class _OkPureClient:
+    """Stub Pure client whose snapshot operations succeed."""
+    def rename_volume_snapshot(self, *a, **kw):
+        return True, {'status_code': 200, 'text': '{"items":[]}'}
+
+    def destroy_volume_snapshot(self, *a, **kw):
+        return True, {'status_code': 200, 'text': '{"items":[]}'}
+
+
+class _OkOntapClient:
+    """Stub ONTAP client whose snapshot operations succeed."""
+    def rename_volume_snapshot(self, *a, **kw):
+        return True, {'status_code': 200, 'text': '', 'volume_uuid': 'vol-uuid', 'snap_uuid': 'snap-uuid'}
+
+    def update_snapshot_expiry(self, *a, **kw):
+        return True, {'status_code': 200, 'text': '', 'volume_uuid': 'vol-uuid', 'snap_uuid': 'snap-uuid'}
+
+    def delete_volume_snapshot(self, *a, **kw):
+        return True, {'status_code': 200, 'text': '', 'volume_uuid': 'vol-uuid', 'snap_uuid': 'snap-uuid'}
+
+
+def _patch_storage_clients(monkey_pure=None, monkey_ontap=None):
+    """Return patch context managers that swap the snaps route's client lookups.
+
+    ``monkey_pure``/``monkey_ontap`` may be a client instance or ``None`` to
+    use the default success stub.
+    """
+    pure_client = monkey_pure if monkey_pure is not None else _OkPureClient()
+    ontap_client = monkey_ontap if monkey_ontap is not None else _OkOntapClient()
+    return [
+        patch('app.routes.snaps._get_pure_client',
+              lambda name: (pure_client, None)),
+        patch('app.routes.snaps._get_ontap_client',
+              lambda name: (ontap_client, None)),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -632,49 +681,145 @@ def test_api_comment(app, client):
     assert snap['comment'] == 'Test comment'
 
 
-def test_api_delete_and_undo(app, client):
+def test_api_delete_executes_live_and_streams_events(app, client):
+    """POST /snaps/api/delete now executes the deletion live and streams ndjson.
+
+    The endpoint streams ``run_start`` / ``step_start`` / ``step_done`` /
+    ``run_done`` events.  After a successful run the SnapshotRecord row
+    is removed from the database (the storage no longer reports it).
+    """
+    snap_id = _seed_snapshot(app)
+    patches = _patch_storage_clients()
+    for p in patches:
+        p.start()
+    try:
+        resp = client.post('/snaps/api/delete',
+                           json={'id': snap_id},
+                           content_type='application/json')
+        assert resp.status_code == 200
+        events = _consume_ndjson(resp)
+    finally:
+        for p in patches:
+            p.stop()
+
+    event_kinds = [e['event'] for e in events]
+    assert event_kinds[0] == 'run_start'
+    assert event_kinds[-1] == 'run_done'
+    assert events[-1]['status'] == 'ok'
+    assert any(e['event'] == 'step_done' and e['status'] == 'ok' for e in events)
+
+    # SnapshotRecord row is removed after a successful delete run.
+    list_data = client.get('/snaps/api/list').get_json()
+    assert all(s['id'] != snap_id for s in list_data['snapshots'])
+
+
+def test_api_delete_aborts_on_storage_failure(app, client):
+    """Storage error during delete -> run_done.status == 'error' and DB row preserved."""
     snap_id = _seed_snapshot(app)
 
-    # Mark for deletion
-    resp = client.post('/snaps/api/delete',
+    failing_pure = MagicMock()
+    failing_pure.destroy_volume_snapshot.return_value = (
+        False, {'status_code': 500, 'text': 'Internal Server Error'}
+    )
+    patches = _patch_storage_clients(monkey_pure=failing_pure)
+    for p in patches:
+        p.start()
+    try:
+        resp = client.post('/snaps/api/delete',
+                           json={'id': snap_id},
+                           content_type='application/json')
+        assert resp.status_code == 200
+        events = _consume_ndjson(resp)
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert events[-1]['event'] == 'run_done'
+    assert events[-1]['status'] == 'error'
+    error_steps = [e for e in events
+                   if e['event'] == 'step_done' and e['status'] == 'error']
+    assert error_steps, 'Expected at least one failing step'
+
+    # Snapshot must still be present – delete was not finalized.
+    list_data = client.get('/snaps/api/list').get_json()
+    assert any(s['id'] == snap_id for s in list_data['snapshots'])
+
+
+def test_undo_delete_clears_legacy_marker(app, client):
+    """The /api/undo-delete endpoint still clears any legacy soft-delete marker."""
+    from app import db
+    from app.models import SnapshotRecord
+
+    snap_id = _seed_snapshot(app)
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        rec.delete_marked = True
+        rec.delete_deadline = datetime.utcnow() + timedelta(hours=24)
+        db.session.commit()
+
+    resp = client.post('/snaps/api/undo-delete',
                        json={'id': snap_id},
                        content_type='application/json')
     assert resp.status_code == 200
-    data = resp.get_json()
-    assert data['success'] is True
-    assert 'delete_deadline' in data
+    assert resp.get_json()['success'] is True
 
-    # Confirm marked in list
     list_data = client.get('/snaps/api/list').get_json()
     snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
-    assert snap['delete_marked'] is True
-
-    # Undo
-    resp2 = client.post('/snaps/api/undo-delete',
-                        json={'id': snap_id},
-                        content_type='application/json')
-    assert resp2.status_code == 200
-    assert resp2.get_json()['success'] is True
-
-    # Confirm cancelled
-    list_data2 = client.get('/snaps/api/list').get_json()
-    snap2 = next(s for s in list_data2['snapshots'] if s['id'] == snap_id)
-    assert snap2['delete_marked'] is False
-    assert snap2['delete_deadline'] is None
+    assert snap['delete_marked'] is False
+    assert snap['delete_deadline'] is None
 
 
-def test_api_update_ttl(app, client):
+def test_api_update_ttl_streams_and_persists(app, client):
+    """POST /snaps/api/update-ttl streams progress and updates ttl on success."""
     snap_id = _seed_snapshot(app)
-    resp = client.post('/snaps/api/update-ttl',
-                       json={'id': snap_id, 'new_ttl': '2026-04-01 12:00:00'},
-                       content_type='application/json')
-    assert resp.status_code == 200
-    data = resp.get_json()
-    assert data['success'] is True
-    assert '2026-04-01' in data['new_ttl']
+    patches = _patch_storage_clients()
+    for p in patches:
+        p.start()
+    try:
+        resp = client.post('/snaps/api/update-ttl',
+                           json={'id': snap_id, 'new_ttl': '2026-04-01 12:00:00'},
+                           content_type='application/json')
+        assert resp.status_code == 200
+        events = _consume_ndjson(resp)
+    finally:
+        for p in patches:
+            p.stop()
 
-    # curl_commands is a list (may be empty if no storage locations with HDBSNAP)
-    assert isinstance(data['curl_commands'], list)
+    assert events[0]['event'] == 'run_start'
+    assert events[-1]['event'] == 'run_done'
+    assert events[-1]['status'] == 'ok'
+
+    # Persisted TTL on the record
+    list_data = client.get('/snaps/api/list').get_json()
+    snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
+    assert '2026-04-01' in snap['ttl']
+
+
+def test_api_update_ttl_does_not_persist_on_failure(app, client):
+    """If the storage rename fails, the TTL must NOT be updated in the DB."""
+    snap_id = _seed_snapshot(app)
+    failing_pure = MagicMock()
+    failing_pure.rename_volume_snapshot.return_value = (
+        False, {'status_code': 400, 'text': 'Bad request'}
+    )
+    patches = _patch_storage_clients(monkey_pure=failing_pure)
+    for p in patches:
+        p.start()
+    try:
+        resp = client.post('/snaps/api/update-ttl',
+                           json={'id': snap_id, 'new_ttl': '2026-04-01 12:00:00'},
+                           content_type='application/json')
+        events = _consume_ndjson(resp)
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert events[-1]['status'] == 'error'
+
+    list_data = client.get('/snaps/api/list').get_json()
+    snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
+    # The seeded ttl is creation_time + 3 days, definitely not 2026-04-01.
+    assert snap['ttl'] is None or '2026-04-01' not in snap['ttl']
 
 
 def test_api_update_ttl_bad_format(app, client):
@@ -717,11 +862,23 @@ def test_snap_page_renders(client):
 
 
 def test_audit_log_created_on_ttl_change(app, client):
-    """Updating TTL should write an audit log entry."""
+    """A successful live TTL change writes exactly one audit log entry."""
     snap_id = _seed_snapshot(app)
-    client.post('/snaps/api/update-ttl',
-                json={'id': snap_id, 'new_ttl': '2026-05-01 00:00:00', 'user': 'operator1'},
-                content_type='application/json')
+    patches = _patch_storage_clients()
+    for p in patches:
+        p.start()
+    try:
+        resp = client.post('/snaps/api/update-ttl',
+                           json={'id': snap_id, 'new_ttl': '2026-05-01 00:00:00',
+                                 'user': 'operator1'},
+                           content_type='application/json')
+        assert resp.status_code == 200
+        # Drain the stream so the on_success callback runs
+        events = _consume_ndjson(resp)
+        assert events[-1]['status'] == 'ok'
+    finally:
+        for p in patches:
+            p.stop()
 
     with app.app_context():
         from app.models import SnapshotAuditLog
@@ -729,6 +886,31 @@ def test_audit_log_created_on_ttl_change(app, client):
         assert len(logs) == 1
         assert logs[0].changed_by == 'operator1'
         assert logs[0].new_ttl.year == 2026
+
+
+def test_audit_log_not_created_on_ttl_failure(app, client):
+    """Failed live TTL change must NOT write an audit log entry."""
+    snap_id = _seed_snapshot(app)
+    failing_pure = MagicMock()
+    failing_pure.rename_volume_snapshot.return_value = (
+        False, {'status_code': 500, 'text': 'boom'}
+    )
+    patches = _patch_storage_clients(monkey_pure=failing_pure)
+    for p in patches:
+        p.start()
+    try:
+        client.post('/snaps/api/update-ttl',
+                    json={'id': snap_id, 'new_ttl': '2026-05-01 00:00:00',
+                          'user': 'operator1'},
+                    content_type='application/json')
+    finally:
+        for p in patches:
+            p.stop()
+
+    with app.app_context():
+        from app.models import SnapshotAuditLog
+        logs = SnapshotAuditLog.query.filter_by(snapshot_id=snap_id).all()
+        assert logs == []
 
 
 def test_reconciliation_removes_stale_records(app):
@@ -1281,64 +1463,16 @@ def test_get_volume_snapshots_filters_destroyed():
             "API call must include destroyed=false to exclude pending-eradication snapshots"
 
 
-def test_build_rename_curl_uses_correct_patch_format():
-    """_build_rename_curl_commands must use the correct Pure Storage PATCH format.
-
-    Per api/pure_swagger.json:
-      PATCH /api/<ver>/volume-snapshots?names=<full_old_name>
-      Body: {"name": "<new_full_snapshot_name>"}
-      The 'name' field is "The new name for the resource" – the complete new
-      snapshot name (VOL.NEW_SUFFIX), not just the suffix portion.
+def test_build_update_ttl_plan_flasharray_full_rename():
+    """``_build_update_ttl_plan`` produces a FlashArray rename step with the
+    correct *full* new snapshot name (VOL.SUFFIX, including pod prefix).
     """
-    from app.routes.snaps import _build_rename_curl_commands
-    from unittest.mock import MagicMock
-
-    rec = MagicMock()
-    rec.sid = 'ABP'
-
-    locs = {
-        'flasharray_systems': [
-            {
-                'name': 'fa01',
-                'snapshot_names': ['ABP_data.HDBSNAP-2026-03-13-073434'],
-            }
-        ],
-        'ontap_clusters': [],
-    }
-
-    new_ts = '2026-04-01-120000'
-    commands = _build_rename_curl_commands(rec, locs, new_ts)
-
-    assert len(commands) == 1
-    cmd = commands[0]
-    assert cmd['platform'] == 'FlashArray'
-    # Must include authentication step (Step 0)
-    assert '/login' in cmd['command'], "Command must include login/auth step"
-    assert 'api-token' in cmd['command'], "Login step must reference api-token"
-    assert 'x-auth-token' in cmd['command'], "Command must use x-auth-token header"
-    # URL must use ?names= query parameter, not /id path segment
-    assert '?names=' in cmd['command'], "PATCH must use ?names= query param"
-    # Body must contain the complete new snapshot name (VOL.NEW_SUFFIX)
-    assert '"ABP_data.HDBSNAP-2026-04-01-120000"' in cmd['command'], \
-        "PATCH body must contain the complete new snapshot name (VOL.NEW_SUFFIX)"
-    # Old name must appear in the ?names= URL parameter (to identify which snap to rename)
-    assert 'HDBSNAP-2026-03-13-073434' in cmd['command'], \
-        "Old snapshot name must appear in the ?names= parameter"
-
-
-def test_build_rename_curl_oracle_plain_timestamp():
-    """_build_rename_curl_commands handles Oracle VG snapshots (plain timestamp suffix).
-
-    Oracle FlashArray snapshots use a plain YYYY-MM-DD-HHmmss suffix without the
-    HDBSNAP- prefix, e.g. ``pod-x86-0304::vgA4T_1.2026-03-22-073617``.
-    The PATCH body must contain the NEW plain timestamp as the suffix,
-    NOT the old timestamp (which would be a no-op rename).
-    """
-    from app.routes.snaps import _build_rename_curl_commands
+    from app.routes.snaps import _build_update_ttl_plan
     from unittest.mock import MagicMock
 
     rec = MagicMock()
     rec.sid = 'A4T'
+    rec.ttl = datetime(2026, 3, 22, 7, 36, 17)
 
     locs = {
         'flasharray_systems': [
@@ -1350,55 +1484,25 @@ def test_build_rename_curl_oracle_plain_timestamp():
         'ontap_clusters': [],
     }
 
-    new_ts = '2026-04-15-120000'
-    commands = _build_rename_curl_commands(rec, locs, new_ts)
-
-    assert len(commands) == 1
-    cmd = commands[0]
-    assert cmd['platform'] == 'FlashArray'
-    assert cmd['array'] == 'pure04'
-
-    # Must include authentication step
-    assert '/login' in cmd['command'], "Command must include login/auth step"
-    assert 'api-token' in cmd['command'], "Login step must reference api-token"
-    assert 'x-auth-token' in cmd['command'], "Command must use x-auth-token header"
-
-    # Old snapshot name must appear in the ?names= URL parameter
-    assert 'pod-x86-0304::vgA4T_1.2026-03-22-073617' in cmd['command'], \
-        "Old snapshot name must appear in the ?names= parameter"
-
-    # PATCH body must contain the complete new snapshot name (VOL.NEW_SUFFIX with pod prefix)
-    assert '"pod-x86-0304::vgA4T_1.2026-04-15-120000"' in cmd['command'], \
-        "PATCH body must contain the complete new snapshot name"
-
-    # Body must NOT still contain the old timestamp (that would be a no-op)
-    assert '"2026-03-22-073617"' not in cmd['command'], \
-        "PATCH body must not contain the old timestamp (rename would be a no-op)"
-
-    # Body must NOT gain a spurious HDBSNAP- prefix for Oracle snapshots
-    assert '"HDBSNAP-2026-04-15-120000"' not in cmd['command'], \
-        "PATCH body must not add HDBSNAP- prefix for Oracle snapshots"
-
-    # new_name field must also reflect the updated name
-    assert cmd['new_name'] == 'pod-x86-0304::vgA4T_1.2026-04-15-120000'
+    plan = _build_update_ttl_plan(rec, locs, datetime(2026, 4, 15, 12, 0, 0))
+    assert len(plan) == 1
+    step = plan[0]
+    assert step['platform'] == 'FlashArray'
+    assert step['target'] == 'pure04'
+    # Command shown to the user must reference both the old name (in ?names=)
+    # and the new full name (in the JSON body).
+    assert 'pod-x86-0304::vgA4T_1.2026-03-22-073617' in step['command']
+    assert '"pod-x86-0304::vgA4T_1.2026-04-15-120000"' in step['command']
 
 
-def test_build_rename_curl_ontap_per_volume():
-    """_build_rename_curl_commands emits one ONTAP command per volume.
-
-    The popup must show a command for every affected ONTAP volume so the
-    operator can copy the correct curl call.  Each command must:
-      - show the volume name in the platform label (returned as 'volume' key)
-      - include both a GET (find snapshot UUID) and a PATCH (rename) step
-      - set the new snapshot name and expiry_time
-    """
-    from app.routes.snaps import _build_rename_curl_commands
+def test_build_update_ttl_plan_ontap_one_step_per_volume():
+    """ONTAP rename steps are emitted per volume with new name + expiry_time."""
+    from app.routes.snaps import _build_update_ttl_plan
     from unittest.mock import MagicMock
-    from datetime import datetime
 
     rec = MagicMock()
     rec.sid = 'ABP'
-    rec.ttl = datetime(2026, 3, 13, 19, 3, 49)   # old TTL → 2026-03-13-190349
+    rec.ttl = datetime(2026, 3, 13, 19, 3, 49)
 
     locs = {
         'flasharray_systems': [],
@@ -1406,47 +1510,26 @@ def test_build_rename_curl_ontap_per_volume():
             {
                 'cluster': 'FASMC1',
                 'svm': 'nfs01',
-                'volumes': ['HANA_ABP', 'HANA_ABP_log', 'HANA_ABP_data'],
+                'volumes': [
+                    {'volume': 'HANA_ABP', 'snap': 'ABP_HDBSNAP-2026-03-13-190349'},
+                    {'volume': 'HANA_ABP_log',
+                     'snap': 'ABP_HDBSNAP-2026-03-13-190349'},
+                ],
             }
         ],
     }
-
-    new_ts = '2026-04-01-190349'
-    commands = _build_rename_curl_commands(rec, locs, new_ts)
-
-    # Must produce one command per volume
-    assert len(commands) == 3
-    vols = [c['volume'] for c in commands]
-    assert vols == ['HANA_ABP', 'HANA_ABP_log', 'HANA_ABP_data']
-
-    for cmd in commands:
-        assert cmd['platform'] == 'ONTAP'
-        assert cmd['cluster'] == 'FASMC1'
-        assert cmd['svm'] == 'nfs01'
-        # Must contain find step (GET)
-        assert 'HDBSNAP-2026-03-13-190349' in cmd['command'], \
-            "Command must reference the old TTL pattern to find the snapshot UUID"
-        # Must contain rename step (PATCH) with new name and expiry_time
-        assert 'ABP_HDBSNAP-2026-04-01-190349' in cmd['command'], \
-            "Command must set the new snapshot name"
-        assert '2026-04-01T19:03:49Z' in cmd['command'], \
-            "Command must set expiry_time in ISO format"
+    plan = _build_update_ttl_plan(rec, locs, datetime(2026, 4, 1, 19, 3, 49))
+    ontap_steps = [s for s in plan if s['platform'] == 'ONTAP']
+    assert len(ontap_steps) == 2
+    for step in ontap_steps:
+        assert 'ABP_HDBSNAP-2026-04-01-190349' in step['command']
+        assert '2026-04-01T19:03:49Z' in step['command']
 
 
-def test_build_delete_curl_flasharray_destroy_only():
-    """FlashArray delete command must:
-
-    1. Mark the snapshot as destroyed (PATCH destroyed=true).
-    2. NOT rename the snapshot or adjust an expiration date – FlashArray does
-       not require any such adjustment to allow the destroy operation. The
-       snapshot-name timestamp is purely a TTL convention used by the
-       dashboard, not enforced by the array.
-    3. NOT issue an eradication DELETE call – the FlashArray performs the
-       final eradication automatically after the eradication delay (24h).
-    """
-    from app.routes.snaps import _build_delete_curl_commands
+def test_build_delete_plan_flasharray_destroy_only():
+    """FlashArray delete plan: a single destroy step per snapshot LUN, no rename, no DELETE."""
+    from app.routes.snaps import _build_delete_plan
     from unittest.mock import MagicMock
-    from datetime import datetime
 
     rec = MagicMock()
     rec.sid = 'Z8T'
@@ -1465,44 +1548,26 @@ def test_build_delete_curl_flasharray_destroy_only():
         'ontap_clusters': [],
     }
 
-    commands = _build_delete_curl_commands(rec, locs)
-
-    assert len(commands) == 2
-    for cmd in commands:
-        assert cmd['platform'] == 'FlashArray'
-        body = cmd['command']
-
-        # Login step must be present
-        assert '/login' in body, "Login step must remain"
-
-        # Destroy step required
-        assert 'PATCH' in body, "Must include PATCH step"
-        assert '"destroyed":true' in body, \
-            "Must mark snapshot as destroyed"
-
-        # No rename / expiration-date adjustment for FlashArray
-        assert '"name"' not in body, \
-            "FlashArray must NOT rename the snapshot for deletion"
-        assert 'Expiration-Date' not in body, \
-            "FlashArray must NOT show an expiration-date adjustment step"
-
-        # Eradication DELETE must NOT be present
-        assert 'curl -X DELETE' not in body, \
-            "Eradication is performed automatically by the storage – DELETE must not be issued"
+    plan = _build_delete_plan(rec, locs)
+    assert len(plan) == 2
+    for step in plan:
+        assert step['platform'] == 'FlashArray'
+        body = step['command']
+        assert 'PATCH' in body
+        assert '"destroyed":true' in body
+        # No rename, no eradication DELETE on FlashArray.
+        assert '"name"' not in body
+        assert 'curl -X DELETE' not in body
 
 
-def test_build_delete_curl_ontap_per_volume():
-    """_build_delete_curl_commands emits one ONTAP command per volume.
-
-    The popup must show delete commands for every affected ONTAP volume.
-    """
-    from app.routes.snaps import _build_delete_curl_commands
+def test_build_delete_plan_ontap_two_steps_per_volume():
+    """ONTAP delete plan: expiry_time adjustment followed by DELETE per volume."""
+    from app.routes.snaps import _build_delete_plan
     from unittest.mock import MagicMock
-    from datetime import datetime
 
     rec = MagicMock()
     rec.sid = 'ABP'
-    rec.ttl = datetime(2026, 3, 17, 19, 1, 19)   # TTL → 2026-03-17-190119
+    rec.ttl = datetime(2026, 3, 17, 19, 1, 19)
 
     locs = {
         'flasharray_systems': [],
@@ -1510,158 +1575,27 @@ def test_build_delete_curl_ontap_per_volume():
             {
                 'cluster': 'FASMC1',
                 'svm': 'nfs01',
-                'volumes': ['HANA_ABP', 'HANA_ABP_log'],
+                'volumes': [
+                    {'volume': 'HANA_ABP', 'snap': 'ABP_HDBSNAP-2026-03-17-190119'},
+                    {'volume': 'HANA_ABP_log',
+                     'snap': 'ABP_HDBSNAP-2026-03-17-190119'},
+                ],
             }
         ],
     }
 
-    commands = _build_delete_curl_commands(rec, locs)
+    plan = _build_delete_plan(rec, locs)
+    # Two volumes × (expiry + delete) = 4 steps
+    assert len(plan) == 4
+    vol_names = sorted({s['target'] for s in plan})
+    assert any('HANA_ABP' in name for name in vol_names)
 
-    assert len(commands) == 2
-    vols = [c['volume'] for c in commands]
-    assert vols == ['HANA_ABP', 'HANA_ABP_log']
+    expiry_steps = [s for s in plan if 'expiry_time' in s['command']]
+    delete_steps = [s for s in plan if 'curl -X DELETE' in s['command']]
+    assert len(expiry_steps) == 2
+    assert len(delete_steps) == 2
 
-    for cmd in commands:
-        assert cmd['platform'] == 'ONTAP'
-        # Must contain find step referencing current TTL
-        assert 'HDBSNAP-2026-03-17-190119' in cmd['command'], \
-            "Delete command must search by current TTL pattern"
-        # Must contain expiry_time adjustment (before deletion is permitted)
-        assert 'expiry_time' in cmd['command'], \
-            "Delete command must adjust expiry_time before issuing DELETE"
-        # Must contain DELETE step
-        assert 'DELETE' in cmd['command']
-
-
-def test_delete_preview_endpoint(app, client):
-    """GET /snaps/api/delete-preview returns CURL commands without modifying the DB."""
-    from app import db
-    from app.models import SnapshotRecord
-    import json
-    from datetime import datetime
-
-    with app.app_context():
-        rec = SnapshotRecord(
-            sid='ABP',
-            creation_time=datetime(2026, 3, 13, 19, 3, 49),
-            ttl=datetime(2026, 3, 17, 19, 1, 19),
-            flasharray_present=True,
-            ontap_present=True,
-            storage_locations=json.dumps({
-                'flasharray_systems': [
-                    {'name': 'fa01', 'snapshot_names': ['ABP_data.HDBSNAP-2026-03-17-190119']}
-                ],
-                'ontap_clusters': [
-                    {'cluster': 'FASMC1', 'svm': 'nfs01', 'volumes': ['HANA_ABP']}
-                ],
-            }),
-        )
-        db.session.add(rec)
-        db.session.commit()
-        snap_id = rec.id
-
-    resp = client.post('/snaps/api/delete-preview',
-                       data=json.dumps({'id': snap_id}),
-                       content_type='application/json')
-    assert resp.status_code == 200
-    data = resp.get_json()
-    assert data['success'] is True
-
-    cmds = data['curl_commands']
-    platforms = [c['platform'] for c in cmds]
-
-    # Both platforms present
-    assert 'FlashArray' in platforms, "FlashArray delete command must be present"
-    assert 'ONTAP' in platforms, "ONTAP delete command must be present"
-
-    # FlashArray command has authentication step + destroy step only.
-    # The eradication DELETE call is intentionally NOT issued from the dashboard:
-    # the FlashArray performs eradication automatically after the configured
-    # eradication delay (default 24h).
-    # FlashArray does not require a snapshot rename / expiration-date adjustment
-    # before the destroy step.
-    fa_cmd = next(c for c in cmds if c['platform'] == 'FlashArray')
-    assert '/login' in fa_cmd['command'], "FlashArray must include login/auth step"
-    assert 'api-token' in fa_cmd['command'], "FlashArray login step must reference api-token"
-    assert 'x-auth-token' in fa_cmd['command'], "FlashArray must include x-auth-token header"
-    assert 'destroyed' in fa_cmd['command'], "FlashArray must include destroy step"
-    assert 'curl -X DELETE' not in fa_cmd['command'], \
-        "FlashArray must NOT issue eradication DELETE – Storage eradicates automatically after 24h"
-    # No rename / expiration-date adjustment for FlashArray
-    assert '"name"' not in fa_cmd['command'], \
-        "FlashArray must NOT rename the snapshot before destroy"
-
-    # ONTAP command references volume name and includes the expiry_time adjustment
-    # before the actual DELETE so ONTAP doesn't refuse the deletion.
-    ontap_cmd = next(c for c in cmds if c['platform'] == 'ONTAP')
-    assert ontap_cmd.get('volume') == 'HANA_ABP'
-    assert 'DELETE' in ontap_cmd['command']
-    assert 'expiry_time' in ontap_cmd['command'], \
-        "ONTAP must adjust expiry_time before deletion"
-
-    # DB must NOT be modified
-    with app.app_context():
-        unchanged = SnapshotRecord.query.get(snap_id)
-        assert unchanged.delete_marked is False
-        assert unchanged.delete_deadline is None
-
-
-def test_update_ttl_endpoint_includes_auth_step(app, client):
-    """POST /snaps/api/update-ttl returns FlashArray curl commands with auth step.
-
-    The FlashArray rename command must include:
-      - Step 0: POST /login to obtain x-auth-token
-      - Step 1: PATCH with x-auth-token header (not bare <token>)
-    """
-    from app import db
-    from app.models import SnapshotRecord
-    import json
-    from datetime import datetime
-
-    with app.app_context():
-        rec = SnapshotRecord(
-            sid='ABP',
-            creation_time=datetime(2026, 3, 13, 19, 3, 49),
-            ttl=datetime(2026, 3, 17, 19, 1, 19),
-            flasharray_present=True,
-            ontap_present=False,
-            storage_locations=json.dumps({
-                'flasharray_systems': [
-                    {'name': 'pure04', 'snapshot_names': ['ABP_data.HDBSNAP-2026-03-17-190119']}
-                ],
-                'ontap_clusters': [],
-            }),
-        )
-        db.session.add(rec)
-        db.session.commit()
-        snap_id = rec.id
-
-    resp = client.post('/snaps/api/update-ttl',
-                       data=json.dumps({'id': snap_id, 'new_ttl': '2026-04-01 19:01:19'}),
-                       content_type='application/json')
-    assert resp.status_code == 200
-    data = resp.get_json()
-    assert data['success'] is True
-
-    cmds = data['curl_commands']
-    assert len(cmds) >= 1
-
-    fa_cmd = next((c for c in cmds if c['platform'] == 'FlashArray'), None)
-    assert fa_cmd is not None, "FlashArray rename command must be present"
-
-    # Must include the login / auth step
-    assert '/login' in fa_cmd['command'], "Command must include POST /login auth step"
-    assert 'api-token' in fa_cmd['command'], "Login step must reference api-token"
-    assert 'x-auth-token' in fa_cmd['command'], "PATCH step must use x-auth-token header"
-
-    # PATCH rename step must reference the old snapshot name in the ?names= URL
-    assert 'HDBSNAP-2026-03-17-190119' in fa_cmd['command'], \
-        "Old snapshot name must appear in the PATCH ?names= parameter"
-    # PATCH body must contain the complete new snapshot name (VOL.NEW_SUFFIX)
-    assert '"ABP_data.HDBSNAP-2026-04-01-190119"' in fa_cmd['command'], \
-        "PATCH body must contain the complete new snapshot name"
-
-    # TTL must be updated in the DB
-    with app.app_context():
-        updated = SnapshotRecord.query.get(snap_id)
-        assert updated.ttl == datetime(2026, 4, 1, 19, 1, 19)
+    # Order matters: each (expiry, delete) pair appears in that sequence.
+    for i in range(0, len(plan), 2):
+        assert 'expiry_time' in plan[i]['command']
+        assert 'curl -X DELETE' in plan[i + 1]['command']

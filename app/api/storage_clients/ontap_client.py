@@ -995,6 +995,205 @@ class NetAppONTAPClient(StorageClient):
             logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
 
+    # ------------------------------------------------------------------
+    # Volume-snapshot management (used by /snaps/ live execution)
+    # ------------------------------------------------------------------
+
+    def _resolve_snapshot_uuid(self, vol_uuid: str, snap_name: str,
+                               auth, headers, ssl_verify) -> tuple[str | None, dict]:
+        """Look up the ONTAP snapshot UUID for ``snap_name`` on ``vol_uuid``.
+
+        Returns ``(snap_uuid, raw_response_json)``.  ``snap_uuid`` is None if
+        the snapshot cannot be found.  The raw response is returned for
+        diagnostic logging by callers.
+        """
+        resp = local_session().get(
+            f"{self.base_url}/api/storage/volumes/{vol_uuid}/snapshots",
+            auth=auth, headers=headers, verify=ssl_verify, timeout=30,
+            params={'name': snap_name, 'fields': 'name,uuid,expiry_time'},
+        )
+        body = {}
+        try:
+            body = resp.json() if resp.status_code == 200 else {}
+        except Exception:
+            body = {}
+        if resp.status_code != 200:
+            return None, {'status_code': resp.status_code, 'text': resp.text[:300]}
+        records = body.get('records', [])
+        if not records:
+            return None, body
+        return records[0].get('uuid'), body
+
+    def _resolve_volume_uuid(self, svm: str, volume_name: str,
+                             auth, headers, ssl_verify) -> str | None:
+        """Look up the ONTAP volume UUID by SVM and volume name."""
+        params = {'name': volume_name, 'fields': 'name,uuid,svm'}
+        if svm:
+            params['svm.name'] = svm
+        resp = local_session().get(
+            f"{self.base_url}/api/storage/volumes",
+            auth=auth, headers=headers, verify=ssl_verify, timeout=30,
+            params=params,
+        )
+        if resp.status_code != 200:
+            return None
+        try:
+            records = resp.json().get('records', [])
+        except Exception:
+            return None
+        if not records:
+            return None
+        return records[0].get('uuid')
+
+    def _snapshot_ops_session(self):
+        """Return ``(auth, headers, ssl_verify)`` for snapshot REST operations."""
+        if not self.username or not self.password:
+            raise RuntimeError("No credentials configured for ONTAP")
+        ssl_verify = get_ssl_verify(self.resolved_address)
+        auth = (self.username, self.password)
+        headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
+        return auth, headers, ssl_verify
+
+    def update_snapshot_expiry(self, svm: str, volume_name: str,
+                               snap_name: str, expiry_iso: str | None) -> tuple[bool, dict]:
+        """Set ``expiry_time`` on an ONTAP volume snapshot.
+
+        ``expiry_iso`` may be ``None``/empty to clear the expiry.  ONTAP
+        refuses snapshot deletion while ``expiry_time`` is still in the future
+        (errors 1638555 / 53412007); callers about to delete a snapshot should
+        first push the expiry into the past via this method.
+
+        Returns ``(success, info_dict)`` – info contains ``status_code`` and
+        ``text`` for diagnostic display.
+        """
+        try:
+            auth, headers, ssl_verify = self._snapshot_ops_session()
+            vol_uuid = self._resolve_volume_uuid(svm, volume_name, auth, headers, ssl_verify)
+            if not vol_uuid:
+                return False, {'error': f'Volume {volume_name} not found on SVM {svm}'}
+            snap_uuid, lookup = self._resolve_snapshot_uuid(
+                vol_uuid, snap_name, auth, headers, ssl_verify
+            )
+            if not snap_uuid:
+                return False, {'error': f'Snapshot {snap_name} not found on volume {volume_name}',
+                               'lookup': lookup}
+            body = {'expiry_time': expiry_iso} if expiry_iso else {'expiry_time': ''}
+            resp = local_session().patch(
+                f"{self.base_url}/api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}",
+                auth=auth, headers=headers, verify=ssl_verify, timeout=30,
+                json=body,
+            )
+            ok = resp.status_code in (200, 202)
+            info = {'status_code': resp.status_code, 'text': resp.text[:500],
+                    'volume_uuid': vol_uuid, 'snap_uuid': snap_uuid}
+            if ok:
+                logger.info("ONTAP %s: set expiry_time on %s/%s (uuid=%s) → %s",
+                            self.ip_address, volume_name, snap_name, snap_uuid, expiry_iso)
+            else:
+                logger.warning("ONTAP %s: set expiry_time on %s/%s failed (HTTP %d): %s",
+                               self.ip_address, volume_name, snap_name,
+                               resp.status_code, resp.text[:200])
+            return ok, info
+        except Exception as exc:
+            logger.warning("ONTAP update_snapshot_expiry error %s/%s: %s",
+                           self.ip_address, volume_name, exc)
+            return False, {'error': str(exc)}
+
+    def delete_volume_snapshot(self, svm: str, volume_name: str,
+                               snap_name: str) -> tuple[bool, dict]:
+        """Delete an ONTAP volume snapshot via the REST API.
+
+        Workflow performed by this method:
+            1. Resolve volume UUID via ``GET /api/storage/volumes``.
+            2. Resolve snapshot UUID via
+               ``GET /api/storage/volumes/{vol_uuid}/snapshots?name=...``.
+            3. ``DELETE /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}``.
+
+        Note: callers that need to remove the protection imposed by a future
+        ``expiry_time`` must first call :py:meth:`update_snapshot_expiry`
+        with an expiry in the past – this method does NOT adjust the expiry
+        automatically because the caller (live-execution flow) needs to log
+        the adjustment as its own step.
+
+        Returns ``(success, info_dict)``.
+        """
+        try:
+            auth, headers, ssl_verify = self._snapshot_ops_session()
+            vol_uuid = self._resolve_volume_uuid(svm, volume_name, auth, headers, ssl_verify)
+            if not vol_uuid:
+                return False, {'error': f'Volume {volume_name} not found on SVM {svm}'}
+            snap_uuid, lookup = self._resolve_snapshot_uuid(
+                vol_uuid, snap_name, auth, headers, ssl_verify
+            )
+            if not snap_uuid:
+                return False, {'error': f'Snapshot {snap_name} not found on volume {volume_name}',
+                               'lookup': lookup}
+            resp = local_session().delete(
+                f"{self.base_url}/api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}",
+                auth=auth, headers=headers, verify=ssl_verify, timeout=60,
+            )
+            ok = resp.status_code in (200, 202)
+            info = {'status_code': resp.status_code, 'text': resp.text[:500],
+                    'volume_uuid': vol_uuid, 'snap_uuid': snap_uuid}
+            if ok:
+                logger.info("ONTAP %s: deleted snapshot %s/%s (uuid=%s)",
+                            self.ip_address, volume_name, snap_name, snap_uuid)
+            else:
+                logger.warning("ONTAP %s: delete snapshot %s/%s failed (HTTP %d): %s",
+                               self.ip_address, volume_name, snap_name,
+                               resp.status_code, resp.text[:200])
+            return ok, info
+        except Exception as exc:
+            logger.warning("ONTAP delete_volume_snapshot error %s/%s: %s",
+                           self.ip_address, volume_name, exc)
+            return False, {'error': str(exc)}
+
+    def rename_volume_snapshot(self, svm: str, volume_name: str,
+                               snap_name: str, new_name: str,
+                               new_expiry_iso: str | None = None) -> tuple[bool, dict]:
+        """Rename an ONTAP volume snapshot, optionally updating ``expiry_time``.
+
+        Used by the TTL-update flow: the snapshot is renamed to embed the new
+        timestamp in the suffix and ``expiry_time`` is set to the same point
+        in time.
+
+        Returns ``(success, info_dict)``.
+        """
+        try:
+            auth, headers, ssl_verify = self._snapshot_ops_session()
+            vol_uuid = self._resolve_volume_uuid(svm, volume_name, auth, headers, ssl_verify)
+            if not vol_uuid:
+                return False, {'error': f'Volume {volume_name} not found on SVM {svm}'}
+            snap_uuid, lookup = self._resolve_snapshot_uuid(
+                vol_uuid, snap_name, auth, headers, ssl_verify
+            )
+            if not snap_uuid:
+                return False, {'error': f'Snapshot {snap_name} not found on volume {volume_name}',
+                               'lookup': lookup}
+            body: dict = {'name': new_name}
+            if new_expiry_iso:
+                body['expiry_time'] = new_expiry_iso
+            resp = local_session().patch(
+                f"{self.base_url}/api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}",
+                auth=auth, headers=headers, verify=ssl_verify, timeout=30,
+                json=body,
+            )
+            ok = resp.status_code in (200, 202)
+            info = {'status_code': resp.status_code, 'text': resp.text[:500],
+                    'volume_uuid': vol_uuid, 'snap_uuid': snap_uuid}
+            if ok:
+                logger.info("ONTAP %s: renamed snapshot %s/%s → %s",
+                            self.ip_address, volume_name, snap_name, new_name)
+            else:
+                logger.warning("ONTAP %s: rename snapshot %s/%s failed (HTTP %d): %s",
+                               self.ip_address, volume_name, snap_name,
+                               resp.status_code, resp.text[:200])
+            return ok, info
+        except Exception as exc:
+            logger.warning("ONTAP rename_volume_snapshot error %s/%s: %s",
+                           self.ip_address, volume_name, exc)
+            return False, {'error': str(exc)}
+
     def get_volume_snapshots(self):
         """Return ONTAP volume snapshots via REST API.
 

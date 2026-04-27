@@ -147,7 +147,7 @@ Durch Klick auf den ▶-Button wird eine Zeile aufgeklappt und zeigt die konkret
 | **Automatische Erfassung** | Hintergrund-Collector (alle 15 Min.) liest FlashArray- und ONTAP-Snapshots via REST API |
 | **Abgleich mit Storage** | Bei jedem Lauf werden Datenbankeinträge, die nicht mehr auf dem Storage existieren, gelöscht oder als abwesend markiert |
 | **SID-Erkennung** | Extraktion der 3–5-stelligen SAP-SID aus dem Snapshot-Namen (z.B. `ACP_1_data.HDBSNAP-…` → SID `ACP`) |
-| **TTL-Anzeige & Bearbeitung** | Ablaufzeitstempel wird aus dem Snapshot-Namen extrahiert, per ✏️-Modal bearbeitbar; generiert CURL-Simulation für Rename |
+| **TTL-Anzeige & Bearbeitung** | Ablaufzeitstempel wird aus dem Snapshot-Namen extrahiert; per ✏️-Modal bearbeitbar – die Rename-Operation wird live auf den Storages ausgeführt und der Fortschritt im Status-Modal mit ein-/ausklappbarer Terminal-Ansicht angezeigt |
 | **DB / NFS-Präsenz** | Automatisch befüllt: ✔ wenn FlashArray-Snapshot vorhanden, ✔ wenn ONTAP-Snapshot vorhanden |
 | **Operator-Kommentare** | Freitext-Bemerkung pro Snapshot, in-place editierbar |
 | **Lösch-Planung** | Lösch-Markierung mit 24h-Countdown und Rückgängig-Funktion |

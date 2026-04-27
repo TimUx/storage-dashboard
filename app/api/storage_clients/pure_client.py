@@ -649,27 +649,31 @@ class PureStorageClient(StorageClient):
         except Exception:
             pass
 
-    def rename_volume_snapshot(self, snap_full_name: str, new_suffix: str) -> bool:
-        """Rename a volume snapshot by replacing its suffix.
+    def rename_volume_snapshot(self, snap_full_name: str, new_name_or_suffix: str) -> tuple[bool, dict]:
+        """Rename a volume snapshot.
 
         Uses the Pure Storage REST API 2.x rename operation:
 
             PATCH /api/<ver>/volume-snapshots?names=<snap_full_name>
-            Body: {"name": "<new_suffix>"}
+            Body: {"name": "<new_name_or_suffix>"}
 
         Per ``api/pure_swagger.json`` (PATCH /api/2.26/volume-snapshots):
             - The ``names`` query parameter takes the **full** snapshot name
               (``{source_volume}.{old_suffix}``).
-            - The request body ``name`` field sets the **new suffix only**
-              (not the full name). The array rebuilds the full name as
-              ``{source_volume}.{new_suffix}`` automatically.
+            - The request body ``name`` field is the new resource name; for
+              renaming a snapshot's suffix the full new name (``VOL.SUFFIX``)
+              is the safest value as it matches the resource name returned
+              by GET.
 
         Args:
-            snap_full_name: Full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
-            new_suffix:     New suffix to assign, e.g. ``HDBSNAP-2026-04-01-120000``
+            snap_full_name:    Full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
+            new_name_or_suffix: New snapshot name (``VOL.SUFFIX``) or just a
+                                new suffix.
 
         Returns:
-            True on success (HTTP 200), False on failure.
+            ``(success, info_dict)`` where ``info_dict`` contains
+            ``status_code`` and ``text`` (response body excerpt) for
+            diagnostic purposes.
         """
         try:
             api_version, _session_token, ssl_verify, headers = self._authenticated_session()
@@ -678,23 +682,25 @@ class PureStorageClient(StorageClient):
                     f"{self.base_url}/api/{api_version}/volume-snapshots",
                     headers=headers,
                     params={'names': snap_full_name},
-                    json={'name': new_suffix},
+                    json={'name': new_name_or_suffix},
                     verify=ssl_verify,
                     timeout=30,
                 )
+                info = {'status_code': resp.status_code, 'text': resp.text[:500],
+                        'api_version': api_version}
                 if resp.status_code == 200:
                     logger.info(
-                        "FlashArray %s: renamed snapshot %s → suffix %s",
-                        self.ip_address, snap_full_name, new_suffix,
+                        "FlashArray %s: renamed snapshot %s → %s",
+                        self.ip_address, snap_full_name, new_name_or_suffix,
                     )
-                    return True
+                    return True, info
                 else:
                     logger.warning(
                         "FlashArray %s: rename snapshot %s failed (HTTP %d): %s",
                         self.ip_address, snap_full_name, resp.status_code,
                         resp.text[:200],
                     )
-                    return False
+                    return False, info
             finally:
                 self._logout(api_version, headers, ssl_verify)
         except Exception as exc:
@@ -702,33 +708,29 @@ class PureStorageClient(StorageClient):
                 "FlashArray rename_volume_snapshot error for %s / %s: %s",
                 self.ip_address, snap_full_name, exc,
             )
-            return False
+            return False, {'error': str(exc)}
 
-    def destroy_volume_snapshot(self, snap_full_name: str) -> bool:
+    def destroy_volume_snapshot(self, snap_full_name: str) -> tuple[bool, dict]:
         """Mark a volume snapshot as destroyed (pending eradication).
 
-        This is the **first step** of the two-step deletion workflow:
+        Per ``api/pure_swagger.json`` (PATCH /api/2.26/volume-snapshots):
 
-            Step 1 – Destroy (this method):
-                PATCH /api/<ver>/volume-snapshots?names=<snap_full_name>
-                Body: {"destroyed": true}
-
-            Step 2 – Eradicate (see :py:meth:`eradicate_volume_snapshot`):
-                DELETE /api/<ver>/volume-snapshots?names=<snap_full_name>
+            PATCH /api/<ver>/volume-snapshots?names=<snap_full_name>
+            Body: {"destroyed": true}
 
         After destruction the snapshot enters a ``time_remaining`` countdown
         (default 24 h on most arrays) during which it can be recovered by
-        calling PATCH with ``{"destroyed": false}``.  Once eradicated via
-        DELETE it is permanently gone and cannot be recovered.
-
-        Per ``api/pure_swagger.json`` (PATCH /api/2.26/volume-snapshots):
-            ``destroyed=true`` starts the eradication countdown.
+        calling PATCH with ``{"destroyed": false}``.  The dashboard does
+        **not** issue the final eradication DELETE: the FlashArray eradicates
+        destroyed snapshots automatically once the eradication-delay expires.
 
         Args:
             snap_full_name: Full snapshot name, e.g. ``ABP_data.HDBSNAP-2026-03-13-073434``
 
         Returns:
-            True on success (HTTP 200), False on failure.
+            ``(success, info_dict)`` where ``info_dict`` contains
+            ``status_code``, ``text`` (response body excerpt) and
+            ``api_version`` for diagnostic purposes.
         """
         try:
             api_version, _session_token, ssl_verify, headers = self._authenticated_session()
@@ -741,19 +743,21 @@ class PureStorageClient(StorageClient):
                     verify=ssl_verify,
                     timeout=30,
                 )
+                info = {'status_code': resp.status_code, 'text': resp.text[:500],
+                        'api_version': api_version}
                 if resp.status_code == 200:
                     logger.info(
                         "FlashArray %s: destroyed snapshot %s (pending eradication)",
                         self.ip_address, snap_full_name,
                     )
-                    return True
+                    return True, info
                 else:
                     logger.warning(
                         "FlashArray %s: destroy snapshot %s failed (HTTP %d): %s",
                         self.ip_address, snap_full_name, resp.status_code,
                         resp.text[:200],
                     )
-                    return False
+                    return False, info
             finally:
                 self._logout(api_version, headers, ssl_verify)
         except Exception as exc:
@@ -761,7 +765,7 @@ class PureStorageClient(StorageClient):
                 "FlashArray destroy_volume_snapshot error for %s / %s: %s",
                 self.ip_address, snap_full_name, exc,
             )
-            return False
+            return False, {'error': str(exc)}
 
     def eradicate_volume_snapshot(self, snap_full_name: str) -> bool:
         """Permanently eradicate a previously destroyed volume snapshot.

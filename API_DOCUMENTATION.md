@@ -745,9 +745,9 @@ Das Storage Dashboard stellt unter `/snaps/` eine REST-API für die zentrale Ver
 |---------|---------|-------------|
 | `/snaps/` | GET | Snapshot-Übersichtsseite (HTML) |
 | `/snaps/api/list` | GET | Alle Snapshot-Datensätze mit Statistik |
-| `/snaps/api/update-ttl` | POST | TTL eines Snapshots ändern + CURL-Simulation |
-| `/snaps/api/delete` | POST | Snapshot für Löschung markieren (24h Deadline) |
-| `/snaps/api/undo-delete` | POST | Löschmarkierung aufheben |
+| `/snaps/api/update-ttl` | POST | TTL eines Snapshots ändern – führt Rename-Operationen live aus und streamt den Fortschritt als ndjson |
+| `/snaps/api/delete` | POST | Snapshot löschen – führt die Operation live aus und streamt den Fortschritt als ndjson |
+| `/snaps/api/undo-delete` | POST | Legacy: hebt eine Soft-Delete-Markierung auf bestehenden Datensätzen auf |
 | `/snaps/api/comment` | POST | Operator-Kommentar speichern |
 | `/snaps/api/trigger-collect` | POST | Sofortigen Collector-Lauf auslösen |
 
@@ -827,7 +827,8 @@ curl -s "http://localhost:5000/snaps/api/list?created_before=2026-03-11" | pytho
 
 ### `POST /snaps/api/update-ttl`
 
-Aktualisiert den TTL eines Snapshot-Datensatzes und gibt eine CURL-Simulation zurück, die zeigt, welche Rename-Befehle auf den Storage-Systemen ausgeführt werden müssten.
+Führt die TTL-Änderung eines Snapshot-Datensatzes **live** auf den Storage-Systemen aus und streamt den Fortschritt als newline-delimited JSON (`application/x-ndjson`).
+Auf FlashArray wird der Snapshot per `PATCH /api/<ver>/volume-snapshots` umbenannt; auf ONTAP wird zusätzlich `expiry_time` auf den neuen Zeitstempel gesetzt.
 
 **Request Body (JSON):**
 
@@ -842,42 +843,30 @@ Aktualisiert den TTL eines Snapshot-Datensatzes und gibt eine CURL-Simulation zu
 ```bash
 curl -s -X POST http://localhost:5000/snaps/api/update-ttl \
   -H "Content-Type: application/json" \
-  -d '{"id": 1, "new_ttl": "2026-04-01 00:00:00", "user": "operator1"}' \
-  | python3 -m json.tool
+  -d '{"id": 1, "new_ttl": "2026-04-01 00:00:00", "user": "operator1"}'
 ```
 
-**Antwort (200 OK):**
+**Antwort (200 OK, `application/x-ndjson`):** Eine Sequenz von JSON-Zeilen.
+Jede Zeile ist ein Event mit folgenden Typen:
 
-```json
-{
-  "success": true,
-  "old_ttl": "2026-03-18T04:00:00",
-  "new_ttl": "2026-04-01T00:00:00",
-  "curl_commands": [
-    {
-      "platform": "FlashArray",
-      "array": "fa-prod-dc1",
-      "old_name": "ACP_1_data.HDBSNAP-2026-03-18-040000",
-      "new_name": "ACP_1_data.HDBSNAP-2026-04-01-000000",
-      "command": "curl -X PATCH https://fa-prod-dc1/api/volume-snapshots/{id} -H 'x-auth-token: <token>' -d '{\"name\":\"ACP_1_data.HDBSNAP-2026-04-01-000000\"}'"
-    },
-    {
-      "platform": "ONTAP",
-      "cluster": "ontap-prod-dc1",
-      "svm": "svm_hana",
-      "new_snap_name": "ACP_HDBSNAP-2026-04-01-000000",
-      "expiry_time": "2026-04-01T00:00:00Z",
-      "command": "curl -X PATCH https://ontap-prod-dc1/api/storage/volumes/{uuid}/snapshots/{snap_uuid} -u admin:<password> -d '{\"name\":\"ACP_HDBSNAP-2026-04-01-000000\",\"expiry_time\":\"2026-04-01T00:00:00Z\"}'"
-    }
-  ]
-}
-```
+| `event` | Felder | Bedeutung |
+|---------|--------|-----------|
+| `run_start` | `title`, `snap_id`, `total_steps` | Run beginnt |
+| `step_start` | `step_id`, `label`, `target`, `command`, `platform` | Einzelner Schritt startet |
+| `step_log` | `step_id`, `message` | Zusätzliche Log-Ausgabe (Response-Body, HTTP-Status etc.) |
+| `step_done` | `step_id`, `status` (`ok`/`error`/`skipped`), optional `message` | Schritt beendet |
+| `run_done` | `status` (`ok`/`error`), `message`, `snapshot` | Run beendet; bei Erfolg ggf. der aktualisierte Snapshot |
+
+Schlägt ein Schritt fehl, werden die folgenden Schritte als `skipped` gemeldet und das `run_done`-Event meldet `status: "error"`. Die TTL wird in der DB nur aktualisiert, wenn alle Schritte erfolgreich sind.
 
 ---
 
 ### `POST /snaps/api/delete`
 
-Markiert einen Snapshot für Löschung mit 24h Countdown.
+Führt die **echte** Löschung eines Snapshots auf den Storage-Systemen aus und streamt den Fortschritt als newline-delimited JSON.
+
+- **Pure FlashArray:** ein Schritt pro Snapshot-LUN: `PATCH /api/<ver>/volume-snapshots?names=… -d '{"destroyed":true}'`. Die endgültige Eradication führt der Storage automatisch nach Ablauf der Eradication-Delay (Default 24 h) durch.
+- **ONTAP:** zwei Schritte pro Volume: `PATCH …/snapshots/{uuid} -d '{"expiry_time":"<jetzt>"}'`, anschließend `DELETE …/snapshots/{uuid}`.
 
 **Request Body (JSON):**
 
@@ -888,25 +877,18 @@ Markiert einen Snapshot für Löschung mit 24h Countdown.
 **Beispiel:**
 
 ```bash
-curl -s -X POST http://localhost:5000/snaps/api/delete \
+curl -sN -X POST http://localhost:5000/snaps/api/delete \
   -H "Content-Type: application/json" \
-  -d '{"id": 5}' | python3 -m json.tool
+  -d '{"id": 5}'
 ```
 
-**Antwort (200 OK):**
-
-```json
-{
-  "success": true,
-  "delete_deadline": "2026-03-17T08:00:00"
-}
-```
+**Antwort (200 OK, `application/x-ndjson`):** Streamende Events identisch zur Tabelle bei `update-ttl`. Bei erfolgreichem Abschluss wird der `SnapshotRecord` aus der Datenbank entfernt.
 
 ---
 
 ### `POST /snaps/api/undo-delete`
 
-Hebt eine Löschmarkierung auf.
+Hebt eine ältere Soft-Delete-Markierung (`delete_marked`/`delete_deadline`) auf einem Datensatz auf. Wird nur noch für Bestandsdaten benötigt – das aktuelle `delete`-Verhalten ist sofortig.
 
 ```bash
 curl -s -X POST http://localhost:5000/snaps/api/undo-delete \
