@@ -366,6 +366,13 @@ curl -sk -X DELETE "https://${ARRAY}/api/${VERSION}/volume-snapshots?names=${SNA
 
 Bei Erfolg antwortet die API mit HTTP `200` und leerem Body oder `{}`.
 
+> **Hinweis (Dashboard-Verhalten):** Das Dashboard führt diesen Schritt **nicht** aus.
+> Das FlashArray eradiziert destroyed-Snapshots automatisch nach Ablauf der konfigurierten
+> Eradication-Delay (Default 24 Stunden). Der Dashboard-Workflow beschränkt sich auf
+> *Expiration-Date anpassen* (Rename auf „jetzt") gefolgt von *Destroy* (`destroyed=true`).
+> Das verhindert sowohl das versehentliche endgültige Löschen als auch das Scheitern
+> der Destroy-Operation, solange das Expiration-Date noch in der Zukunft liegt.
+
 ---
 
 ## 10. Session beenden (Logout)
