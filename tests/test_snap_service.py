@@ -1433,6 +1433,64 @@ def test_build_rename_curl_ontap_per_volume():
             "Command must set expiry_time in ISO format"
 
 
+def test_build_delete_curl_flasharray_destroy_only():
+    """FlashArray delete command must:
+
+    1. Mark the snapshot as destroyed (PATCH destroyed=true).
+    2. NOT rename the snapshot or adjust an expiration date – FlashArray does
+       not require any such adjustment to allow the destroy operation. The
+       snapshot-name timestamp is purely a TTL convention used by the
+       dashboard, not enforced by the array.
+    3. NOT issue an eradication DELETE call – the FlashArray performs the
+       final eradication automatically after the eradication delay (24h).
+    """
+    from app.routes.snaps import _build_delete_curl_commands
+    from unittest.mock import MagicMock
+    from datetime import datetime
+
+    rec = MagicMock()
+    rec.sid = 'Z8T'
+    rec.ttl = datetime(2026, 4, 28, 23, 0, 36)
+
+    locs = {
+        'flasharray_systems': [
+            {
+                'name': 'pure03',
+                'snapshot_names': [
+                    'pod-x86-0304::Z8T_1_data_htz315.HDBSNAP-2026-04-28-230036',
+                    'pod-x86-0304::Z8T_1_log_htz315.HDBSNAP-2026-04-28-230036',
+                ],
+            }
+        ],
+        'ontap_clusters': [],
+    }
+
+    commands = _build_delete_curl_commands(rec, locs)
+
+    assert len(commands) == 2
+    for cmd in commands:
+        assert cmd['platform'] == 'FlashArray'
+        body = cmd['command']
+
+        # Login step must be present
+        assert '/login' in body, "Login step must remain"
+
+        # Destroy step required
+        assert 'PATCH' in body, "Must include PATCH step"
+        assert '"destroyed":true' in body, \
+            "Must mark snapshot as destroyed"
+
+        # No rename / expiration-date adjustment for FlashArray
+        assert '"name"' not in body, \
+            "FlashArray must NOT rename the snapshot for deletion"
+        assert 'Expiration-Date' not in body, \
+            "FlashArray must NOT show an expiration-date adjustment step"
+
+        # Eradication DELETE must NOT be present
+        assert 'curl -X DELETE' not in body, \
+            "Eradication is performed automatically by the storage – DELETE must not be issued"
+
+
 def test_build_delete_curl_ontap_per_volume():
     """_build_delete_curl_commands emits one ONTAP command per volume.
 
@@ -1468,6 +1526,9 @@ def test_build_delete_curl_ontap_per_volume():
         # Must contain find step referencing current TTL
         assert 'HDBSNAP-2026-03-17-190119' in cmd['command'], \
             "Delete command must search by current TTL pattern"
+        # Must contain expiry_time adjustment (before deletion is permitted)
+        assert 'expiry_time' in cmd['command'], \
+            "Delete command must adjust expiry_time before issuing DELETE"
         # Must contain DELETE step
         assert 'DELETE' in cmd['command']
 
@@ -1513,18 +1574,30 @@ def test_delete_preview_endpoint(app, client):
     assert 'FlashArray' in platforms, "FlashArray delete command must be present"
     assert 'ONTAP' in platforms, "ONTAP delete command must be present"
 
-    # FlashArray command has authentication step + destroy + eradicate steps
+    # FlashArray command has authentication step + destroy step only.
+    # The eradication DELETE call is intentionally NOT issued from the dashboard:
+    # the FlashArray performs eradication automatically after the configured
+    # eradication delay (default 24h).
+    # FlashArray does not require a snapshot rename / expiration-date adjustment
+    # before the destroy step.
     fa_cmd = next(c for c in cmds if c['platform'] == 'FlashArray')
     assert '/login' in fa_cmd['command'], "FlashArray must include login/auth step"
     assert 'api-token' in fa_cmd['command'], "FlashArray login step must reference api-token"
     assert 'x-auth-token' in fa_cmd['command'], "FlashArray must include x-auth-token header"
     assert 'destroyed' in fa_cmd['command'], "FlashArray must include destroy step"
-    assert 'DELETE' in fa_cmd['command'], "FlashArray must include eradicate step"
+    assert 'curl -X DELETE' not in fa_cmd['command'], \
+        "FlashArray must NOT issue eradication DELETE – Storage eradicates automatically after 24h"
+    # No rename / expiration-date adjustment for FlashArray
+    assert '"name"' not in fa_cmd['command'], \
+        "FlashArray must NOT rename the snapshot before destroy"
 
-    # ONTAP command references volume name
+    # ONTAP command references volume name and includes the expiry_time adjustment
+    # before the actual DELETE so ONTAP doesn't refuse the deletion.
     ontap_cmd = next(c for c in cmds if c['platform'] == 'ONTAP')
     assert ontap_cmd.get('volume') == 'HANA_ABP'
     assert 'DELETE' in ontap_cmd['command']
+    assert 'expiry_time' in ontap_cmd['command'], \
+        "ONTAP must adjust expiry_time before deletion"
 
     # DB must NOT be modified
     with app.app_context():

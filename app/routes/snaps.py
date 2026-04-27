@@ -465,27 +465,41 @@ def _build_delete_curl_commands(rec, locs: dict) -> list[dict]:
     Returns a list of dicts with keys: platform, command, …
     No actual API calls are made.
 
-    FlashArray deletion is a **two-step** process
-    (api/pure_swagger.json, PATCH + DELETE /api/2.26/volume-snapshots):
+    FlashArray deletion (api/pure_swagger.json, PATCH /api/2.26/volume-snapshots):
 
         Step 1 – Destroy (moves to eradication-pending state):
             PATCH /api/<ver>/volume-snapshots?names=<full_snap_name>
             Body: {"destroyed": true}
 
-        Step 2 – Eradicate (permanent deletion, cannot be recovered):
-            DELETE /api/<ver>/volume-snapshots?names=<full_snap_name>
-
-        ActiveCluster arrays share pod volumes – only one array needs the command.
+        FlashArray does NOT enforce a snapshot-level expiration window that
+        would block destruction, so no rename/expiration adjustment is required
+        prior to destroy.  Eradication (DELETE /api/<ver>/volume-snapshots) is
+        also NOT issued from the dashboard – the FlashArray performs the final
+        eradication automatically after the configured eradication delay
+        (default 24h).
+        ActiveCluster arrays share pod volumes – only one array needs the
+        command.
 
     ONTAP deletion (ONTAP REST API) – one command per volume:
         Step 1 – Find snapshot UUID:
             GET  /api/storage/volumes/{vol_uuid}/snapshots?name=<snap_name>
-        Step 2 – Delete snapshot:
+        Step 2 – Adjust expiration date (set expiry_time to now):
+            PATCH /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}
+            Body: {"expiry_time": "<now-ISO>"}
+            ONTAP refuses snapshot deletion while expiry_time is still in
+            the future (error code 1638555 / 53412007).  This step is
+            mandatory only on ONTAP.
+        Step 3 – Delete snapshot:
             DELETE /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}
     """
     commands = []
 
-    # FlashArray two-step delete commands (one per snapshot LUN).
+    # ONTAP requires the expiration date to be adjusted to the past before a
+    # snapshot can be deleted.  Build a "now" ISO timestamp once for reuse.
+    now_dt = datetime.utcnow()
+    now_iso = now_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    # FlashArray delete commands (one per snapshot LUN).
     # Deduplicate ActiveCluster partner arrays: arrays with identical snapshot sets
     # share pod volumes, so only one array needs to receive the delete command.
     seen_fa_snap_sets: set[tuple] = set()
@@ -513,11 +527,9 @@ def _build_delete_curl_commands(rec, locs: dict) -> list[dict]:
                     f" -H 'x-auth-token: <x-auth-token>'"
                     f" -H 'Content-Type: application/json'"
                     f" -d '{{\"destroyed\":true}}'\n\n"
-                    f"# Schritt 2: Snapshot endgueltig loeschen (Eradication)\n"
-                    f"curl -X DELETE 'https://{array_name}/api/2.26/volume-snapshots"
-                    f"?names={snap_name}'"
-                    f" -H 'x-auth-token: <x-auth-token>'"
-                    f" -H 'Content-Type: application/json'"
+                    f"# Hinweis: Die endgueltige Eradication (DELETE) wird vom Storage\n"
+                    f"# automatisch nach Ablauf der Eradication-Delay (Default 24h)\n"
+                    f"# durchgefuehrt und ist hier nicht erforderlich."
                 ),
             })
 
@@ -545,12 +557,21 @@ def _build_delete_curl_commands(rec, locs: dict) -> list[dict]:
                 'cluster': cluster,
                 'svm': svm,
                 'volume': vol_name,
+                'expiry_time': now_iso,
                 'command': (
                     f"# Schritt 1: Snapshot-UUID ermitteln (Volume: {vol_name}, SVM: {svm})\n"
                     f"curl 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
                     f"/snapshots?name={search_name}'"
                     f" -u admin:<password>\n\n"
-                    f"# Schritt 2: Snapshot löschen\n"
+                    f"# Schritt 2: Expiration-Date anpassen (expiry_time auf 'jetzt' setzen)\n"
+                    f"# ONTAP verweigert das Loeschen, solange expiry_time noch in der\n"
+                    f"# Zukunft liegt (Fehler 1638555 / 53412007).\n"
+                    f"curl -X PATCH 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
+                    f"/snapshots/{{snap_uuid}}'"
+                    f" -u admin:<password>"
+                    f" -H 'Content-Type: application/json'"
+                    f" -d '{{\"expiry_time\":\"{now_iso}\"}}'\n\n"
+                    f"# Schritt 3: Snapshot löschen\n"
                     f"curl -X DELETE 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
                     f"/snapshots/{{snap_uuid}}'"
                     f" -u admin:<password>"
