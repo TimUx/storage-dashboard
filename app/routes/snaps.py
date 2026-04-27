@@ -1,16 +1,42 @@
-"""Snapshot management routes – /snaps/"""
+"""Snapshot management routes – /snaps/
+
+Live-execution endpoints
+------------------------
+Both *delete* (``/snaps/api/delete``) and *TTL update*
+(``/snaps/api/update-ttl``) now execute the underlying storage operations
+**for real** instead of returning a CURL simulation.  The endpoints stream
+their progress as newline-delimited JSON (``application/x-ndjson``) so the
+front-end can render a step-by-step status modal with a collapsible
+"terminal" view.
+
+Stream events
+~~~~~~~~~~~~~
+Each line is one JSON object with an ``event`` field.  The following event
+types are emitted:
+
+- ``run_start``    – overall run starts; payload: ``title``, ``snap_id``,
+                     ``total_steps``.
+- ``step_start``   – a new step begins; payload: ``step_id`` (1-based index),
+                     ``label``, ``target`` (storage system display name),
+                     ``command`` (curl-equivalent description for the
+                     terminal view).
+- ``step_log``     – additional log output for the current step; payload:
+                     ``step_id``, ``message``.
+- ``step_done``    – step finished; payload: ``step_id``, ``status``
+                     (``ok`` or ``error``), optional ``message``.
+- ``run_done``     – overall run finished; payload: ``status``,
+                     ``message`` and optional updated ``snapshot`` dict for
+                     the front-end to refresh its local state.
+"""
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from flask import Blueprint, render_template, jsonify, request, current_app
+from flask import Blueprint, current_app, jsonify, render_template, request
 from sqlalchemy import and_, or_
 
 bp = Blueprint('snaps', __name__, url_prefix='/snaps')
 logger = logging.getLogger(__name__)
-
-# Offset added to deletion timestamp (24 hours)
-_DELETE_DELAY_HOURS = 24
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +65,7 @@ def api_list():
         created_before – ISO-8601 date filter on creation_time
         created_after  – ISO-8601 date filter on creation_time
     """
-    from app.models import SnapshotRecord, SnapshotCollectorMetadata
+    from app.models import SnapshotCollectorMetadata, SnapshotRecord
 
     sid_filter = request.args.get('sid', '').strip().upper()
 
@@ -82,7 +108,6 @@ def api_list():
     older_5 = sum(1 for r in records if r.creation_time and (now - r.creation_time).days >= 5)
     older_10 = sum(1 for r in records if r.creation_time and (now - r.creation_time).days >= 10)
 
-    # Last collector run
     last_run = SnapshotCollectorMetadata.query.order_by(
         SnapshotCollectorMetadata.run_at.desc()
     ).first()
@@ -100,20 +125,23 @@ def api_list():
 
 
 # ---------------------------------------------------------------------------
-# API – update TTL
+# Live execution – update TTL (rename snapshot)
 # ---------------------------------------------------------------------------
 
 @bp.route('/api/update-ttl', methods=['POST'])
 def api_update_ttl():
-    """Update the TTL of a snapshot record and return the CURL simulation preview.
+    """Execute a TTL change live and stream the per-step progress.
 
     Request JSON:
         id       (int)  – snapshot record ID
         new_ttl  (str)  – new TTL in ISO-8601 or DD.MM.YYYY HH:MM:SS format
         user     (str)  – operator name (optional)
+
+    Response: streamed ``application/x-ndjson`` progress events (see module
+    docstring for the event schema).  HTTP errors before streaming begins
+    are returned as a plain JSON error body with the appropriate status.
     """
-    from app import db
-    from app.models import SnapshotRecord, SnapshotAuditLog
+    from app.models import SnapshotRecord
 
     data = request.get_json(force=True) or {}
     snap_id = data.get('id')
@@ -131,79 +159,45 @@ def api_update_ttl():
     if not new_ttl:
         return jsonify({'error': f'Cannot parse new_ttl: {new_ttl_str!r}'}), 400
 
-    old_ttl = rec.ttl
-    new_ts_str = new_ttl.strftime('%Y-%m-%d-%H%M%S')
-
-    # Build CURL simulation commands
     locs = rec.get_storage_locations()
-    curl_commands = _build_rename_curl_commands(rec, locs, new_ts_str)
+    plan = _build_update_ttl_plan(rec, locs, new_ttl)
+    if not plan:
+        return jsonify({'error': 'No storage locations to update'}), 400
 
-    # Persist TTL change
-    rec.ttl = new_ttl
-    audit = SnapshotAuditLog(
-        snapshot_id=rec.id,
-        old_ttl=old_ttl,
-        new_ttl=new_ttl,
-        changed_by=user,
-        changed_at=datetime.utcnow(),
-    )
-    db.session.add(audit)
-    db.session.commit()
+    app = current_app._get_current_object()
 
-    return jsonify({
-        'success': True,
-        'old_ttl': old_ttl.isoformat() if old_ttl else None,
-        'new_ttl': new_ttl.isoformat(),
-        'curl_commands': curl_commands,
-    })
+    def generator():
+        yield from _stream_run(
+            app=app,
+            title=f'TTL ändern – SID {rec.sid} ({rec.creation_time:%d.%m.%Y %H:%M:%S})',
+            snap_id=rec.id,
+            steps=plan,
+            on_success=lambda: _persist_ttl_update(app, rec.id, new_ttl, user),
+        )
+
+    return current_app.response_class(generator(), mimetype='application/x-ndjson')
 
 
 # ---------------------------------------------------------------------------
-# API – mark/unmark deletion
+# Live execution – delete snapshot
 # ---------------------------------------------------------------------------
 
 @bp.route('/api/delete', methods=['POST'])
 def api_delete():
-    """Mark a snapshot record for deletion (sets 24h deadline).
+    """Execute the real deletion of a snapshot and stream per-step progress.
 
-    Request JSON:
-        id (int) – snapshot record ID
-    """
-    from app import db
-    from app.models import SnapshotRecord
+    Pure FlashArray – mark the snapshot as ``destroyed=true`` (the array
+    eradicates destroyed snapshots automatically after the eradication
+    delay; the dashboard does not issue the DELETE).
 
-    data = request.get_json(force=True) or {}
-    snap_id = data.get('id')
-    if not snap_id:
-        return jsonify({'error': 'id required'}), 400
-
-    rec = SnapshotRecord.query.get(snap_id)
-    if not rec:
-        return jsonify({'error': 'Snapshot not found'}), 404
-
-    rec.delete_marked = True
-    rec.delete_deadline = datetime.utcnow() + timedelta(hours=_DELETE_DELAY_HOURS)
-    db.session.commit()
-
-    return jsonify({
-        'success': True,
-        'delete_deadline': rec.delete_deadline.isoformat(),
-    })
-
-
-@bp.route('/api/delete-preview', methods=['POST'])
-def api_delete_preview():
-    """Return the CURL commands that *would* delete a snapshot, without any DB change.
-
-    This endpoint is used by the frontend to show operators the exact API calls
-    that will be executed when a snapshot is eventually deleted.
-    No storage API calls are made; no database state is modified.
+    ONTAP – first PATCH ``expiry_time`` to "now" (otherwise ONTAP refuses
+    deletion of snapshots whose retention has not yet expired) and then
+    DELETE the snapshot.
 
     Request JSON:
         id (int) – snapshot record ID
 
-    Response JSON:
-        curl_commands (list) – list of command dicts (platform, command, …)
+    Response: streamed ``application/x-ndjson`` progress events.
     """
     from app.models import SnapshotRecord
 
@@ -217,18 +211,31 @@ def api_delete_preview():
         return jsonify({'error': 'Snapshot not found'}), 404
 
     locs = rec.get_storage_locations()
-    curl_commands = _build_delete_curl_commands(rec, locs)
+    plan = _build_delete_plan(rec, locs)
+    if not plan:
+        return jsonify({'error': 'No storage locations to delete'}), 400
 
-    return jsonify({'success': True, 'curl_commands': curl_commands})
+    app = current_app._get_current_object()
 
+    def generator():
+        yield from _stream_run(
+            app=app,
+            title=f'Snapshot löschen – SID {rec.sid} ({rec.creation_time:%d.%m.%Y %H:%M:%S})',
+            snap_id=rec.id,
+            steps=plan,
+            on_success=lambda: _finalize_delete(app, rec.id),
+        )
+
+    return current_app.response_class(generator(), mimetype='application/x-ndjson')
+
+
+# ---------------------------------------------------------------------------
+# API – cancel pending soft-delete (legacy state on existing records)
+# ---------------------------------------------------------------------------
 
 @bp.route('/api/undo-delete', methods=['POST'])
 def api_undo_delete():
-    """Cancel a pending deletion.
-
-    Request JSON:
-        id (int) – snapshot record ID
-    """
+    """Cancel a pending (legacy) soft-deletion marker on a snapshot record."""
     from app import db
     from app.models import SnapshotRecord
 
@@ -291,7 +298,7 @@ def api_trigger_collect():
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers – datetime parsing
 # ---------------------------------------------------------------------------
 
 def _parse_dt(s: str) -> datetime | None:
@@ -315,268 +322,447 @@ def _parse_dt(s: str) -> datetime | None:
     return None
 
 
-def _build_rename_curl_commands(rec, locs: dict, new_ts_str: str) -> list[dict]:
-    """Build simulated CURL rename commands for a TTL change.
+# ---------------------------------------------------------------------------
+# Plan builders – translate a SnapshotRecord into ordered execution steps
+# ---------------------------------------------------------------------------
 
-    Returns a list of dicts with keys: platform, command.
-    No actual API calls are made.
+def _build_update_ttl_plan(rec, locs: dict, new_ttl: datetime) -> list[dict]:
+    """Build the ordered execution plan for a TTL change.
 
-    FlashArray rename (Pure Storage REST API 2.x, api/pure_swagger.json):
-        PATCH /api/<ver>/volume-snapshots?names=<full_old_snap_name>
-        Body: {"name": "<new_full_snap_name>"}
-        Per the API spec: "To rename the suffix of a volume snapshot, set name
-        to the new suffix name." – name is "The new name for the resource",
-        i.e. the complete new snapshot name in ``VOL.SUFFIX`` form.
-        Two suffix formats are handled:
-          - HANA:   ``VOL.HDBSNAP-YYYY-MM-DD-HHmmss``  (HDBSNAP prefix preserved)
-          - Oracle: ``VOL.YYYY-MM-DD-HHmmss``           (plain timestamp, no prefix)
-        Pod-hosted volumes carry the pod name as a ``pod::`` prefix, which is
-        kept in the body name so it matches the resource name returned by GET.
-        ActiveCluster arrays share pod volumes – renaming on one array propagates
-        automatically, so only the first array per unique snapshot set is included.
+    Each plan entry is a dict with keys:
 
-    ONTAP rename (ONTAP REST API, api/ontap_swagger.yaml) – one command per volume:
-        Step 1 – Find snapshot UUID:
-            GET  /api/storage/volumes/{vol_uuid}/snapshots?name=<exact_snap_name>
-        Step 2 – Rename and update expiry_time:
-            PATCH /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}
-            Body: {"name": "<new_snap_name>", "expiry_time": "<ISO>"}
+        ``label``      – human-readable step title (German UI)
+        ``platform``   – ``'FlashArray'`` or ``'ONTAP'``
+        ``target``     – display name shown in the modal header line for the
+                         step (e.g. array or ``cluster / svm – volume``)
+        ``command``    – curl-equivalent string shown in the terminal view
+        ``execute``    – callable ``() -> tuple[bool, dict]`` performing the
+                         actual REST call.  The ``dict`` is rendered as the
+                         command response in the terminal view.
     """
     import re
-    commands = []
 
-    # FlashArray rename commands.
-    # Deduplicate ActiveCluster partner arrays: arrays with identical snapshot sets
-    # share pod volumes, so only one array needs to receive the rename command.
+    new_ts_str = new_ttl.strftime('%Y-%m-%d-%H%M%S')
+    new_iso = new_ttl.strftime('%Y-%m-%dT%H:%M:%SZ')
+    plan: list[dict] = []
+
     seen_fa_snap_sets: set[tuple] = set()
     for fa in locs.get('flasharray_systems', []):
-        array_name = fa.get('name', 'fa-unknown')
-        snap_names = fa.get('snapshot_names', [])
+        array_name = fa.get('name', '')
+        snap_names = list(fa.get('snapshot_names', []))
         snap_key = tuple(sorted(snap_names))
         if snap_key in seen_fa_snap_sets:
-            continue  # already emitted for an ActiveCluster partner with same snapshots
+            continue  # ActiveCluster partner shares the same snapshot set
         seen_fa_snap_sets.add(snap_key)
 
         for snap_name in snap_names:
-            # Compute the new suffix by replacing the timestamp in the old suffix.
-            # Two naming conventions are handled:
-            #   HANA:   suffix = "HDBSNAP-YYYY-MM-DD-HHmmss"  → keep the "HDBSNAP-" prefix
-            #   Oracle: suffix = "YYYY-MM-DD-HHmmss"           → plain timestamp, no prefix
             current_suffix = snap_name.split('.')[-1]
             new_suffix = re.sub(
                 r'(HDBSNAP-)?\d{4}-\d{2}-\d{2}-\d{6}',
                 lambda m: (m.group(1) or '') + new_ts_str,
                 current_suffix,
             )
-            # Build the new full snapshot name (source_vol.new_suffix, pod prefix included).
-            # The Pure Storage API PATCH body requires the complete new snapshot name,
-            # not just the suffix: "name" = "The new name for the resource".
             dot_idx = snap_name.rfind('.')
             new_full_name = (snap_name[:dot_idx + 1] + new_suffix) if dot_idx != -1 else snap_name
-            commands.append({
+
+            command = (
+                f"curl -X PATCH 'https://{array_name}/api/<ver>/volume-snapshots"
+                f"?names={snap_name}' "
+                f"-H 'x-auth-token: <session>' "
+                f"-H 'Content-Type: application/json' "
+                f"-d '{{\"name\":\"{new_full_name}\"}}'"
+            )
+            plan.append({
+                'label': f'FlashArray Rename: {snap_name} → {new_full_name}',
                 'platform': 'FlashArray',
-                'array': array_name,
-                # Pure Storage REST API 2.x PATCH /api/<ver>/volume-snapshots:
-                #   ?names=<full_old_name>   – identifies the snapshot to rename
-                #   Body: {"name": "<new_full_name>"}  – complete new snapshot name
-                'command': (
-                    f"# Schritt 0: Authentifizierung – x-auth-token ermitteln\n"
-                    f"curl -X POST 'https://{array_name}/api/2.26/login'"
-                    f" -H 'api-token: <api-token>'\n"
-                    f"# Der x-auth-token wird im Response-Header zurueckgegeben\n\n"
-                    f"# Schritt 1: Snapshot umbenennen\n"
-                    f"curl -X PATCH 'https://{array_name}/api/2.26/volume-snapshots"
-                    f"?names={snap_name}'"
-                    f" -H 'x-auth-token: <x-auth-token>'"
-                    f" -H 'Content-Type: application/json'"
-                    f" -d '{{\"name\":\"{new_full_name}\"}}'"
-                ),
-                'old_name': snap_name,
-                'new_name': new_full_name,
+                'target': array_name,
+                'command': command,
+                'execute': _make_fa_rename_executor(array_name, snap_name, new_full_name),
             })
 
-    # ONTAP rename commands – one entry per volume so the operator can see exactly
-    # which volumes are affected and copy the correct command for each.
     for oc in locs.get('ontap_clusters', []):
-        cluster = oc.get('cluster', 'ontap-unknown')
+        cluster = oc.get('cluster', '')
         svm = oc.get('svm', '')
-        volumes = oc.get('volumes', [])
-
-        # Convert YYYY-MM-DD-HHMMSS → ISO-8601 for expiry_time field
-        try:
-            expiry_dt = datetime.strptime(new_ts_str, '%Y-%m-%d-%H%M%S')
-            expiry_iso = expiry_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-        except Exception:
-            expiry_iso = new_ts_str
-
-        for vol_entry in (volumes or []):
-            # volumes entries are dicts {'volume': <vol_name>, 'snap': <snap_name>}
+        for vol_entry in (oc.get('volumes') or []):
             if isinstance(vol_entry, dict):
                 vol_name = vol_entry.get('volume', '')
-                old_snap_name = vol_entry.get('snap', '')
+                snap_name = vol_entry.get('snap', '')
             else:
                 vol_name = vol_entry
-                old_snap_name = ''
+                snap_name = ''
+            if not snap_name:
+                # Fall back to a SID-derived name (older records)
+                old_ts = rec.ttl.strftime('%Y-%m-%d-%H%M%S') if rec.ttl else ''
+                snap_name = f'{rec.sid}_HDBSNAP-{old_ts}' if old_ts else f'{rec.sid}_HDBSNAP'
 
-            # Derive new snap name: replace old timestamp in snap name with new one.
-            # Fall back to SID-based convention if snap name is not available.
-            if old_snap_name:
-                new_snap_name = re.sub(
-                    r'(HDBSNAP-)\d{4}-\d{2}-\d{2}-\d{6}',
-                    r'\g<1>' + new_ts_str,
-                    old_snap_name,
-                )
-                # If the pattern was not found, fall back to SID-based convention
-                if new_snap_name == old_snap_name:
-                    new_snap_name = f"{rec.sid}_HDBSNAP-{new_ts_str}"
-                search_name = old_snap_name
-            else:
-                old_ts_str = rec.ttl.strftime('%Y-%m-%d-%H%M%S') if rec.ttl else '<alter-ttl-ts>'
-                new_snap_name = f"{rec.sid}_HDBSNAP-{new_ts_str}"
-                search_name = f"*HDBSNAP-{old_ts_str}*"
+            new_snap_name = re.sub(
+                r'(HDBSNAP-)?\d{4}-\d{2}-\d{2}-\d{6}',
+                lambda m: (m.group(1) or '') + new_ts_str,
+                snap_name,
+            )
+            if new_snap_name == snap_name:
+                # No timestamp pattern found – append the new timestamp.
+                new_snap_name = f'{rec.sid}_HDBSNAP-{new_ts_str}'
 
-            commands.append({
+            command = (
+                f"curl -X PATCH 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
+                f"/snapshots/{{snap_uuid}}' "
+                f"-u <user>:<password> "
+                f"-H 'Content-Type: application/json' "
+                f"-d '{{\"name\":\"{new_snap_name}\",\"expiry_time\":\"{new_iso}\"}}'"
+            )
+            plan.append({
+                'label': f'ONTAP Rename: {vol_name}/{snap_name} → {new_snap_name}',
                 'platform': 'ONTAP',
-                'cluster': cluster,
-                'svm': svm,
-                'volume': vol_name,
-                'command': (
-                    f"# Schritt 1: Snapshot-UUID ermitteln (Volume: {vol_name}, SVM: {svm})\n"
-                    f"curl 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
-                    f"/snapshots?name={search_name}'"
-                    f" -u admin:<password>\n\n"
-                    f"# Schritt 2: Snapshot umbenennen und TTL setzen\n"
-                    f"curl -X PATCH 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
-                    f"/snapshots/{{snap_uuid}}'"
-                    f" -u admin:<password>"
-                    f" -H 'Content-Type: application/json'"
-                    f" -d '{{\"name\":\"{new_snap_name}\",\"expiry_time\":\"{expiry_iso}\"}}'"
+                'target': f'{cluster} / {svm} – {vol_name}',
+                'command': command,
+                'execute': _make_ontap_rename_executor(
+                    cluster, svm, vol_name, snap_name, new_snap_name, new_iso,
                 ),
-                'new_snap_name': new_snap_name,
-                'expiry_time': expiry_iso,
             })
 
-    return commands
+    return plan
 
 
-def _build_delete_curl_commands(rec, locs: dict) -> list[dict]:
-    """Build simulated CURL delete commands for a snapshot record.
+def _build_delete_plan(rec, locs: dict) -> list[dict]:
+    """Build the ordered execution plan for a snapshot deletion.
 
-    Returns a list of dicts with keys: platform, command, …
-    No actual API calls are made.
+    Pure FlashArray: a single ``destroyed=true`` step per snapshot LUN; the
+    array auto-eradicates after its configured eradication delay (default
+    24 h).  No rename / expiration adjustment is necessary on Pure.
 
-    FlashArray deletion (api/pure_swagger.json, PATCH /api/2.26/volume-snapshots):
-
-        Step 1 – Destroy (moves to eradication-pending state):
-            PATCH /api/<ver>/volume-snapshots?names=<full_snap_name>
-            Body: {"destroyed": true}
-
-        FlashArray does NOT enforce a snapshot-level expiration window that
-        would block destruction, so no rename/expiration adjustment is required
-        prior to destroy.  Eradication (DELETE /api/<ver>/volume-snapshots) is
-        also NOT issued from the dashboard – the FlashArray performs the final
-        eradication automatically after the configured eradication delay
-        (default 24h).
-        ActiveCluster arrays share pod volumes – only one array needs the
-        command.
-
-    ONTAP deletion (ONTAP REST API) – one command per volume:
-        Step 1 – Find snapshot UUID:
-            GET  /api/storage/volumes/{vol_uuid}/snapshots?name=<snap_name>
-        Step 2 – Adjust expiration date (set expiry_time to now):
-            PATCH /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}
-            Body: {"expiry_time": "<now-ISO>"}
-            ONTAP refuses snapshot deletion while expiry_time is still in
-            the future (error code 1638555 / 53412007).  This step is
-            mandatory only on ONTAP.
-        Step 3 – Delete snapshot:
-            DELETE /api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}
+    ONTAP: two steps per volume – first reset ``expiry_time`` to "now"
+    (ONTAP refuses deletion while the expiry is in the future, errors
+    1638555 / 53412007), then DELETE.
     """
-    commands = []
+    plan: list[dict] = []
 
-    # ONTAP requires the expiration date to be adjusted to the past before a
-    # snapshot can be deleted.  Build a "now" ISO timestamp once for reuse.
-    now_dt = datetime.utcnow()
-    now_iso = now_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-
-    # FlashArray delete commands (one per snapshot LUN).
-    # Deduplicate ActiveCluster partner arrays: arrays with identical snapshot sets
-    # share pod volumes, so only one array needs to receive the delete command.
     seen_fa_snap_sets: set[tuple] = set()
     for fa in locs.get('flasharray_systems', []):
-        array_name = fa.get('name', 'fa-unknown')
-        snap_names = fa.get('snapshot_names', [])
+        array_name = fa.get('name', '')
+        snap_names = list(fa.get('snapshot_names', []))
         snap_key = tuple(sorted(snap_names))
         if snap_key in seen_fa_snap_sets:
-            continue  # already emitted for an ActiveCluster partner with same snapshots
+            continue
         seen_fa_snap_sets.add(snap_key)
 
         for snap_name in snap_names:
-            commands.append({
+            command = (
+                f"curl -X PATCH 'https://{array_name}/api/<ver>/volume-snapshots"
+                f"?names={snap_name}' "
+                f"-H 'x-auth-token: <session>' "
+                f"-H 'Content-Type: application/json' "
+                f"-d '{{\"destroyed\":true}}'"
+            )
+            plan.append({
+                'label': f'FlashArray Destroy: {snap_name}',
                 'platform': 'FlashArray',
-                'array': array_name,
-                'snap_name': snap_name,
-                'command': (
-                    f"# Schritt 0: Authentifizierung – x-auth-token ermitteln\n"
-                    f"curl -X POST 'https://{array_name}/api/2.26/login'"
-                    f" -H 'api-token: <api-token>'\n"
-                    f"# Der x-auth-token wird im Response-Header zurueckgegeben\n\n"
-                    f"# Schritt 1: Snapshot als geloescht markieren (Eradication-Pending)\n"
-                    f"curl -X PATCH 'https://{array_name}/api/2.26/volume-snapshots"
-                    f"?names={snap_name}'"
-                    f" -H 'x-auth-token: <x-auth-token>'"
-                    f" -H 'Content-Type: application/json'"
-                    f" -d '{{\"destroyed\":true}}'\n\n"
-                    f"# Hinweis: Die endgueltige Eradication (DELETE) wird vom Storage\n"
-                    f"# automatisch nach Ablauf der Eradication-Delay (Default 24h)\n"
-                    f"# durchgefuehrt und ist hier nicht erforderlich."
-                ),
+                'target': array_name,
+                'command': command,
+                'execute': _make_fa_destroy_executor(array_name, snap_name),
             })
 
-    # ONTAP delete commands – one entry per volume
-    ttl_ts_str = rec.ttl.strftime('%Y-%m-%d-%H%M%S') if rec.ttl else '<ttl-ts>'
+    now_dt = datetime.utcnow()
+    now_iso = now_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
 
     for oc in locs.get('ontap_clusters', []):
-        cluster = oc.get('cluster', 'ontap-unknown')
+        cluster = oc.get('cluster', '')
         svm = oc.get('svm', '')
-        volumes = oc.get('volumes', [])
-
-        for vol_entry in (volumes or []):
-            # volumes entries are dicts {'volume': <vol_name>, 'snap': <snap_name>}
+        for vol_entry in (oc.get('volumes') or []):
             if isinstance(vol_entry, dict):
                 vol_name = vol_entry.get('volume', '')
-                snap_name_str = vol_entry.get('snap', '')
+                snap_name = vol_entry.get('snap', '')
             else:
                 vol_name = vol_entry
-                snap_name_str = ''
+                snap_name = ''
+            if not vol_name or not snap_name:
+                continue
 
-            search_name = snap_name_str if snap_name_str else f"*HDBSNAP-{ttl_ts_str}*"
-
-            commands.append({
+            target = f'{cluster} / {svm} – {vol_name}'
+            cmd_expiry = (
+                f"curl -X PATCH 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
+                f"/snapshots/{{snap_uuid}}' "
+                f"-u <user>:<password> "
+                f"-H 'Content-Type: application/json' "
+                f"-d '{{\"expiry_time\":\"{now_iso}\"}}'"
+            )
+            cmd_delete = (
+                f"curl -X DELETE 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
+                f"/snapshots/{{snap_uuid}}' "
+                f"-u <user>:<password>"
+            )
+            plan.append({
+                'label': f'ONTAP expiry_time = jetzt: {vol_name}/{snap_name}',
                 'platform': 'ONTAP',
-                'cluster': cluster,
-                'svm': svm,
-                'volume': vol_name,
-                'expiry_time': now_iso,
-                'command': (
-                    f"# Schritt 1: Snapshot-UUID ermitteln (Volume: {vol_name}, SVM: {svm})\n"
-                    f"curl 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
-                    f"/snapshots?name={search_name}'"
-                    f" -u admin:<password>\n\n"
-                    f"# Schritt 2: Expiration-Date anpassen (expiry_time auf 'jetzt' setzen)\n"
-                    f"# ONTAP verweigert das Loeschen, solange expiry_time noch in der\n"
-                    f"# Zukunft liegt (Fehler 1638555 / 53412007).\n"
-                    f"curl -X PATCH 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
-                    f"/snapshots/{{snap_uuid}}'"
-                    f" -u admin:<password>"
-                    f" -H 'Content-Type: application/json'"
-                    f" -d '{{\"expiry_time\":\"{now_iso}\"}}'\n\n"
-                    f"# Schritt 3: Snapshot löschen\n"
-                    f"curl -X DELETE 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
-                    f"/snapshots/{{snap_uuid}}'"
-                    f" -u admin:<password>"
-                    f" -H 'Content-Type: application/json'"
+                'target': target,
+                'command': cmd_expiry,
+                'execute': _make_ontap_set_expiry_executor(
+                    cluster, svm, vol_name, snap_name, now_iso,
+                ),
+            })
+            plan.append({
+                'label': f'ONTAP Delete: {vol_name}/{snap_name}',
+                'platform': 'ONTAP',
+                'target': target,
+                'command': cmd_delete,
+                'execute': _make_ontap_delete_executor(
+                    cluster, svm, vol_name, snap_name,
                 ),
             })
 
-    return commands
+    return plan
+
+
+# ---------------------------------------------------------------------------
+# Executor factories – return ``() -> (ok, info)`` callables
+# ---------------------------------------------------------------------------
+
+def _resolve_system(name: str, vendor: str | None = None):
+    """Look up an enabled :class:`StorageSystem` row by its display name.
+
+    Returns ``None`` if the system is missing or disabled.  When ``vendor``
+    is given the result is also filtered by vendor (so a Pure ``pure01``
+    cannot be confused with an ONTAP ``pure01`` in unusual setups).
+    """
+    from app.models import StorageSystem
+    q = StorageSystem.query.filter(StorageSystem.name == name,
+                                   StorageSystem.enabled.is_(True))
+    if vendor:
+        q = q.filter(StorageSystem.vendor == vendor)
+    return q.first()
+
+
+def _get_pure_client(array_name: str):
+    from app.api import get_client
+    sys = _resolve_system(array_name, vendor='pure')
+    if not sys:
+        return None, f'FlashArray "{array_name}" not found / disabled'
+    client = get_client(
+        vendor=sys.vendor,
+        ip_address=sys.ip_address,
+        port=sys.port,
+        username=sys.api_username,
+        password=sys.api_password,
+        token=sys.api_token,
+    )
+    return client, None
+
+
+def _get_ontap_client(cluster_name: str):
+    from app.api import get_client
+    sys = _resolve_system(cluster_name, vendor='netapp-ontap')
+    if not sys:
+        return None, f'ONTAP cluster "{cluster_name}" not found / disabled'
+    client = get_client(
+        vendor=sys.vendor,
+        ip_address=sys.ip_address,
+        port=sys.port,
+        username=sys.api_username,
+        password=sys.api_password,
+        token=sys.api_token,
+    )
+    return client, None
+
+
+def _make_fa_rename_executor(array_name: str, old_name: str, new_full_name: str):
+    def _exec():
+        client, err = _get_pure_client(array_name)
+        if err:
+            return False, {'error': err}
+        return client.rename_volume_snapshot(old_name, new_full_name)
+    return _exec
+
+
+def _make_fa_destroy_executor(array_name: str, snap_name: str):
+    def _exec():
+        client, err = _get_pure_client(array_name)
+        if err:
+            return False, {'error': err}
+        return client.destroy_volume_snapshot(snap_name)
+    return _exec
+
+
+def _make_ontap_rename_executor(cluster: str, svm: str, volume: str,
+                                snap_name: str, new_snap_name: str,
+                                new_expiry_iso: str):
+    def _exec():
+        client, err = _get_ontap_client(cluster)
+        if err:
+            return False, {'error': err}
+        return client.rename_volume_snapshot(svm, volume, snap_name,
+                                             new_snap_name, new_expiry_iso)
+    return _exec
+
+
+def _make_ontap_set_expiry_executor(cluster: str, svm: str, volume: str,
+                                    snap_name: str, expiry_iso: str):
+    def _exec():
+        client, err = _get_ontap_client(cluster)
+        if err:
+            return False, {'error': err}
+        return client.update_snapshot_expiry(svm, volume, snap_name, expiry_iso)
+    return _exec
+
+
+def _make_ontap_delete_executor(cluster: str, svm: str, volume: str,
+                                snap_name: str):
+    def _exec():
+        client, err = _get_ontap_client(cluster)
+        if err:
+            return False, {'error': err}
+        return client.delete_volume_snapshot(svm, volume, snap_name)
+    return _exec
+
+
+# ---------------------------------------------------------------------------
+# Streaming runner – yields ndjson event lines
+# ---------------------------------------------------------------------------
+
+def _ndjson_line(event: str, **kwargs) -> str:
+    payload = {'event': event, **kwargs}
+    return json.dumps(payload, default=str) + '\n'
+
+
+def _stream_run(app, *, title: str, snap_id: int, steps: list[dict],
+                on_success):
+    """Run ``steps`` sequentially and yield ndjson progress events.
+
+    Stops at the first failing step (subsequent steps are still emitted as
+    ``step_done`` with status ``skipped``).  When all steps succeed,
+    ``on_success`` is invoked inside the Flask app context to perform the
+    accompanying database update.
+
+    Args:
+        app:        Flask app object (needed for app_context inside generator).
+        title:      Human-readable run title shown in the modal header.
+        snap_id:    Snapshot record ID, echoed back to the client.
+        steps:      Plan returned by :func:`_build_delete_plan` /
+                    :func:`_build_update_ttl_plan`.
+        on_success: Zero-argument callable executed in the app context after
+                    every step succeeded.  May return a snapshot dict that
+                    will be embedded in ``run_done`` for client refresh.
+    """
+    yield _ndjson_line('run_start', title=title, snap_id=snap_id,
+                       total_steps=len(steps))
+    failed = False
+    for idx, step in enumerate(steps, start=1):
+        yield _ndjson_line(
+            'step_start',
+            step_id=idx,
+            label=step['label'],
+            platform=step.get('platform', ''),
+            target=step.get('target', ''),
+            command=step.get('command', ''),
+        )
+        if failed:
+            yield _ndjson_line('step_done', step_id=idx,
+                               status='skipped',
+                               message='Übersprungen wegen vorherigem Fehler')
+            continue
+
+        try:
+            with app.app_context():
+                ok, info = step['execute']()
+        except Exception as exc:
+            ok, info = False, {'error': str(exc)}
+            logger.exception("Snap step %d (%s) crashed", idx, step['label'])
+
+        info_str = _format_response_info(info)
+        if info_str:
+            yield _ndjson_line('step_log', step_id=idx, message=info_str)
+
+        if ok:
+            yield _ndjson_line('step_done', step_id=idx, status='ok')
+        else:
+            failed = True
+            err_msg = info.get('error') if isinstance(info, dict) else str(info)
+            yield _ndjson_line('step_done', step_id=idx, status='error',
+                               message=err_msg or 'Aufruf fehlgeschlagen')
+
+    snapshot_payload = None
+    if not failed:
+        try:
+            with app.app_context():
+                snapshot_payload = on_success() or None
+        except Exception as exc:
+            logger.exception("Snap finalization callback failed: %s", exc)
+            failed = True
+            yield _ndjson_line('step_log', step_id=0,
+                               message=f'Datenbank-Update fehlgeschlagen: {exc}')
+
+    yield _ndjson_line(
+        'run_done',
+        status='ok' if not failed else 'error',
+        message=('Alle Schritte erfolgreich.' if not failed
+                 else 'Mindestens ein Schritt fehlgeschlagen.'),
+        snapshot=snapshot_payload,
+    )
+
+
+def _format_response_info(info) -> str:
+    """Render the executor's info dict as a single human-readable line.
+
+    The output is shown in the collapsible terminal view of the modal so the
+    operator can see the actual REST status code and response body excerpt.
+    """
+    if not info:
+        return ''
+    if not isinstance(info, dict):
+        return str(info)
+    if 'error' in info and 'status_code' not in info:
+        return f"Fehler: {info['error']}"
+    parts = []
+    if 'status_code' in info:
+        parts.append(f"HTTP {info['status_code']}")
+    if info.get('text'):
+        text = info['text'].strip()
+        if text:
+            parts.append(text)
+    if info.get('volume_uuid'):
+        parts.append(f"vol_uuid={info['volume_uuid']}")
+    if info.get('snap_uuid'):
+        parts.append(f"snap_uuid={info['snap_uuid']}")
+    return ' | '.join(parts) if parts else json.dumps(info, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Post-success database mutations
+# ---------------------------------------------------------------------------
+
+def _persist_ttl_update(app, snap_id: int, new_ttl: datetime, user: str) -> dict | None:
+    from app import db
+    from app.models import SnapshotAuditLog, SnapshotRecord
+
+    rec = SnapshotRecord.query.get(snap_id)
+    if not rec:
+        return None
+    old_ttl = rec.ttl
+    rec.ttl = new_ttl
+    audit = SnapshotAuditLog(
+        snapshot_id=rec.id,
+        old_ttl=old_ttl,
+        new_ttl=new_ttl,
+        changed_by=user,
+        changed_at=datetime.utcnow(),
+    )
+    db.session.add(audit)
+    db.session.commit()
+    return rec.to_dict()
+
+
+def _finalize_delete(app, snap_id: int) -> dict | None:
+    """After a successful delete run, drop the SnapshotRecord row.
+
+    Storage no longer reports the snapshot, so the dashboard's collector
+    would also remove it on its next pass – we just speed that up.  We
+    return ``None`` so the front-end refreshes its view.
+    """
+    from app import db
+    from app.models import SnapshotRecord
+
+    rec = SnapshotRecord.query.get(snap_id)
+    if not rec:
+        return None
+    db.session.delete(rec)
+    db.session.commit()
+    return None

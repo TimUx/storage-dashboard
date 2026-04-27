@@ -276,6 +276,7 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
     box-shadow: 0 8px 32px rgba(0,0,0,.2);
     position: relative;
 }
+.sn-modal-large { width: min(820px, 95vw); }
 .sn-modal h3 { color: var(--sn-blue); margin: 0 0 1rem; font-size: 1.1rem; }
 .sn-modal-close {
     position: absolute;
@@ -288,26 +289,6 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
     color: var(--sn-muted);
 }
 .sn-modal-close:hover { color: var(--sn-danger); }
-.curl-block {
-    background: var(--sn-bg);
-    border: 1px solid var(--sn-border);
-    border-radius: 6px;
-    padding: .75rem 1rem;
-    font-family: monospace;
-    font-size: .78rem;
-    white-space: pre-wrap;
-    word-break: break-all;
-    color: var(--sn-text);
-    margin-bottom: .75rem;
-}
-.curl-platform-label {
-    font-size: .75rem;
-    text-transform: uppercase;
-    letter-spacing: .05em;
-    color: var(--sn-muted);
-    margin-bottom: .25rem;
-    font-weight: 600;
-}
 
 /* TTL date-time picker */
 .ttl-picker-wrap { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .5rem; }
@@ -320,6 +301,141 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
     background: var(--sn-bg);
     color: var(--sn-text);
 }
+
+/* Execution status modal */
+.exec-status-banner {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: .65rem .9rem;
+    border-radius: 6px;
+    background: var(--sn-bg);
+    margin-bottom: 1rem;
+    font-size: .9rem;
+    border-left: 4px solid var(--sn-blue);
+}
+.exec-status-banner.running { border-left-color: var(--sn-blue); }
+.exec-status-banner.ok      { border-left-color: var(--sn-success); }
+.exec-status-banner.error   { border-left-color: var(--sn-danger); }
+.exec-status-icon { font-size: 1.2rem; }
+
+.exec-steps {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    border: 1px solid var(--sn-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+.exec-step {
+    display: flex;
+    align-items: flex-start;
+    gap: .65rem;
+    padding: .6rem .9rem;
+    border-bottom: 1px solid var(--sn-border);
+    font-size: .88rem;
+}
+.exec-step:last-child { border-bottom: none; }
+.exec-step-icon {
+    flex: 0 0 auto;
+    width: 1.2rem;
+    text-align: center;
+    font-weight: 700;
+    font-size: .95rem;
+    line-height: 1.3;
+}
+.exec-step.pending  .exec-step-icon { color: var(--sn-muted); }
+.exec-step.running  .exec-step-icon { color: var(--sn-blue); }
+.exec-step.ok       .exec-step-icon { color: var(--sn-success); }
+.exec-step.error    .exec-step-icon { color: var(--sn-danger); }
+.exec-step.skipped  .exec-step-icon { color: var(--sn-muted); }
+.exec-step-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: .15rem;
+    min-width: 0;
+}
+.exec-step-label {
+    color: var(--sn-text);
+    word-break: break-word;
+}
+.exec-step-target {
+    font-size: .76rem;
+    color: var(--sn-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.exec-step-status-text {
+    font-size: .76rem;
+    color: var(--sn-muted);
+}
+.exec-step.error .exec-step-status-text { color: var(--sn-danger); }
+
+/* Spinner used while a step is running */
+.exec-spinner {
+    display: inline-block;
+    width: 1rem; height: 1rem;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: exec-spin .8s linear infinite;
+    vertical-align: -.15rem;
+}
+@keyframes exec-spin { to { transform: rotate(360deg); } }
+
+/* Collapsible terminal */
+.exec-terminal {
+    border: 1px solid var(--sn-border);
+    border-radius: 6px;
+    background: #0d1117;
+    color: #d6e0ec;
+    font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+.exec-terminal[open] { padding-bottom: 0; }
+.exec-terminal summary {
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    background: var(--sn-bg);
+    color: var(--sn-text);
+    padding: .55rem .9rem;
+    font-size: .82rem;
+    font-family: inherit;
+    border-bottom: 1px solid var(--sn-border);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.exec-terminal summary::-webkit-details-marker { display: none; }
+.exec-terminal:not([open]) summary { border-bottom: none; }
+.exec-terminal summary::before {
+    content: '▶';
+    font-size: .7rem;
+    transition: transform .2s;
+    color: var(--sn-muted);
+}
+.exec-terminal[open] summary::before { transform: rotate(90deg); }
+.exec-terminal-output {
+    margin: 0;
+    padding: .8rem 1rem;
+    font-size: .76rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 320px;
+    overflow-y: auto;
+    background: #0d1117;
+    color: #d6e0ec;
+}
+.exec-term-prompt { color: #58a6ff; }
+.exec-term-cmd    { color: #c9d1d9; }
+.exec-term-info   { color: #8b949e; }
+.exec-term-ok     { color: #56d364; }
+.exec-term-err    { color: #ff7b72; }
+.exec-term-step   { color: #d2a8ff; font-weight: 700; }
 {% endblock %}
 
 {% block content %}
@@ -396,18 +512,22 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
     </div>
 </div>
 
-<!-- CURL simulation modal -->
-<div class="sn-modal-overlay" id="curl-modal">
-    <div class="sn-modal">
-        <button class="sn-modal-close" onclick="closeCurlModal()">✕</button>
-        <h3 id="curl-modal-title">🔍 Simulation – API-Operationen</h3>
-        <p id="curl-modal-desc" style="font-size:.82rem;color:var(--sn-muted);margin-bottom:1rem;">
-            Die folgenden Befehle würden ausgeführt werden. Keine Änderungen wurden vorgenommen.
-        </p>
-        <div id="curl-commands-container"></div>
-        <div style="margin-top:.5rem;display:flex;gap:.75rem;">
-            <button id="curl-modal-confirm" class="btn-delete" onclick="confirmCurlModal()" style="display:none;" aria-label="Snapshot-Löschung bestätigen">✓ Löschen bestätigen</button>
-            <button class="btn-secondary" onclick="closeCurlModal()">Schließen</button>
+<!-- Execution status modal -->
+<div class="sn-modal-overlay" id="exec-modal">
+    <div class="sn-modal sn-modal-large">
+        <button class="sn-modal-close" id="exec-modal-close-x" onclick="closeExecModal()" disabled aria-label="Schließen">✕</button>
+        <h3 id="exec-modal-title">Operation läuft…</h3>
+        <div class="exec-status-banner running" id="exec-modal-banner" role="status" aria-live="polite">
+            <span class="exec-status-icon" id="exec-modal-banner-icon"><span class="exec-spinner" aria-hidden="true"></span></span>
+            <span id="exec-modal-banner-text">Wird ausgeführt…</span>
+        </div>
+        <ul class="exec-steps" id="exec-steps"></ul>
+        <details class="exec-terminal" id="exec-terminal">
+            <summary>Terminal-Ausgabe anzeigen</summary>
+            <pre class="exec-terminal-output" id="exec-terminal-output" aria-live="polite"></pre>
+        </details>
+        <div style="display:flex;gap:.75rem;justify-content:flex-end;">
+            <button class="btn-primary" id="exec-modal-ok" onclick="closeExecModal()" disabled>OK</button>
         </div>
     </div>
 </div>
@@ -420,7 +540,7 @@ let _sortCol   = 'sid';
 let _sortDir   = 'asc';
 let _ttlEditId = null;        // snapshot id being edited
 let _deleteTimers = {};       // intervalId per snapshot id
-let _curlConfirmCallback = null; // pending confirm action for curl modal
+let _execRunning = false;     // execution modal is currently streaming
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -812,110 +932,25 @@ async function saveTtl() {
     if (!dateVal) { alert('Bitte Datum eingeben.'); return; }
 
     const newTtl = `${dateVal} ${timeVal}`;
-
-    try {
-        const resp = await fetch('/snaps/api/update-ttl', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({id: _ttlEditId, new_ttl: newTtl}),
-        });
-        const data = await resp.json();
-        if (!resp.ok) { alert('Fehler: ' + (data.error || resp.status)); return; }
-
-        // Update local state
-        const snap = _snapshots.find(s => s.id === _ttlEditId);
-        if (snap) snap.ttl = data.new_ttl;
-
-        closeTtlModal();
-        renderTable();
-        // Show curl simulation (rename preview)
-        showCurlModal(data.curl_commands || [], '🔍 Simulation – Rename-Operationen',
-            'Die folgenden API-Aufrufe würden zur Umbenennung des Snapshots ausgeführt werden. Keine Änderungen wurden vorgenommen.');
-    } catch(e) {
-        alert('Netzwerkfehler: ' + e.message);
-    }
-}
-
-// ─── CURL simulation modal ────────────────────────────────────────────────
-function showCurlModal(commands, title, desc, confirmCallback) {
-    document.getElementById('curl-modal-title').textContent =
-        title || '🔍 Simulation – API-Operationen';
-    document.getElementById('curl-modal-desc').textContent =
-        desc  || 'Die folgenden Befehle würden ausgeführt werden. Keine Änderungen wurden vorgenommen.';
-    const container = document.getElementById('curl-commands-container');
-    if (!commands.length) {
-        container.innerHTML = '<p style="color:var(--sn-muted)">Keine API-Operationen notwendig.</p>';
-    } else {
-        container.innerHTML = commands.map(c => {
-            const platform = c.platform === 'FlashArray'
-                ? `🔷 FlashArray – ${escHtml(c.array || '')}`
-                : `🔶 ONTAP – ${escHtml(c.cluster || '')} / ${escHtml(c.svm || '')}${c.volume ? ' – ' + escHtml(c.volume) : ''}`;
-            return `<div class="curl-platform-label">${platform}</div>
-<div class="curl-block">${escHtml(c.command)}</div>`;
-        }).join('');
-    }
-    _curlConfirmCallback = confirmCallback || null;
-    const confirmBtn = document.getElementById('curl-modal-confirm');
-    confirmBtn.style.display = _curlConfirmCallback ? '' : 'none';
-    document.getElementById('curl-modal').classList.add('open');
-}
-
-function closeCurlModal() {
-    document.getElementById('curl-modal').classList.remove('open');
-    _curlConfirmCallback = null;
-    document.getElementById('curl-modal-confirm').style.display = 'none';
-}
-
-async function confirmCurlModal() {
-    if (!_curlConfirmCallback) return;
-    const cb = _curlConfirmCallback;
-    closeCurlModal();
-    try {
-        await cb();
-    } catch(e) {
-        alert('Fehler: ' + e.message);
-    }
+    const id = _ttlEditId;
+    closeTtlModal();
+    await runExecution({
+        url: '/snaps/api/update-ttl',
+        body: {id, new_ttl: newTtl},
+        title: 'TTL ändern',
+        defaultBanner: 'TTL wird auf den Storages umbenannt…'
+    });
 }
 
 // ─── Delete / undo ────────────────────────────────────────────────────────
 async function markDelete(id) {
-    // Show a preview popup with the delete API calls; confirm button triggers the actual mark.
-    try {
-        const resp = await fetch('/snaps/api/delete-preview', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({id}),
-        });
-        const data = await resp.json();
-        if (!resp.ok) { alert('Fehler: ' + (data.error || resp.status)); return; }
-        showCurlModal(
-            data.curl_commands || [],
-            '🗑️ Simulation – Lösch-Operationen',
-            'Die folgenden API-Aufrufe würden zur Löschung des Snapshots ausgeführt werden. Bitte bestätigen Sie die Löschung.',
-            async () => {
-                await executeDelete(id);
-            }
-        );
-    } catch(e) { alert('Fehler: ' + e.message); }
-}
-
-async function executeDelete(id) {
-    try {
-        const resp = await fetch('/snaps/api/delete', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({id}),
-        });
-        const data = await resp.json();
-        if (!resp.ok) { alert('Fehler beim Löschen des Snapshots (Status: ' + resp.status + (data.error ? ' – ' + data.error : '') + ')'); return; }
-        const snap = _snapshots.find(s => s.id === id);
-        if (snap) {
-            snap.delete_marked = true;
-            snap.delete_deadline = data.delete_deadline;
-        }
-        renderTable();
-        startTimer(id, data.delete_deadline);
-    } catch(e) { alert('Fehler: ' + e.message); }
+    if (!confirm('Snapshot wirklich löschen? Die Operation wird sofort auf den Storages ausgeführt.')) return;
+    await runExecution({
+        url: '/snaps/api/delete',
+        body: {id},
+        title: 'Snapshot löschen',
+        defaultBanner: 'Lösch-Operation läuft auf den Storages…'
+    });
 }
 
 async function undoDelete(id) {
@@ -931,6 +966,194 @@ async function undoDelete(id) {
         if (_deleteTimers[id]) { clearInterval(_deleteTimers[id]); delete _deleteTimers[id]; }
         renderTable();
     } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+// ─── Live execution modal (delete / TTL update) ───────────────────────────
+function execModalReset(title, defaultBanner) {
+    document.getElementById('exec-modal-title').textContent = title || 'Operation läuft…';
+    const banner = document.getElementById('exec-modal-banner');
+    banner.classList.remove('ok', 'error');
+    banner.classList.add('running');
+    document.getElementById('exec-modal-banner-icon').innerHTML =
+        '<span class="exec-spinner" aria-hidden="true"></span>';
+    document.getElementById('exec-modal-banner-text').textContent =
+        defaultBanner || 'Wird ausgeführt…';
+    document.getElementById('exec-steps').innerHTML = '';
+    document.getElementById('exec-terminal-output').textContent = '';
+    document.getElementById('exec-terminal').open = false;
+    const okBtn = document.getElementById('exec-modal-ok');
+    okBtn.disabled = true;
+    okBtn.textContent = 'OK';
+    document.getElementById('exec-modal-close-x').disabled = true;
+}
+
+function execModalSetFinal(status, message) {
+    const banner = document.getElementById('exec-modal-banner');
+    banner.classList.remove('running', 'ok', 'error');
+    banner.classList.add(status === 'ok' ? 'ok' : 'error');
+    document.getElementById('exec-modal-banner-icon').textContent =
+        status === 'ok' ? '✔' : '✖';
+    document.getElementById('exec-modal-banner-text').textContent =
+        message || (status === 'ok'
+            ? 'Operation erfolgreich abgeschlossen.'
+            : 'Operation fehlgeschlagen.');
+    const okBtn = document.getElementById('exec-modal-ok');
+    okBtn.disabled = false;
+    okBtn.textContent = status === 'ok' ? 'OK' : 'Schließen';
+    document.getElementById('exec-modal-close-x').disabled = false;
+    _execRunning = false;
+}
+
+function execStepRow(step) {
+    const li = document.createElement('li');
+    li.className = 'exec-step running';
+    li.id = `exec-step-${step.step_id}`;
+    li.innerHTML = `
+        <span class="exec-step-icon"><span class="exec-spinner" aria-hidden="true"></span></span>
+        <div class="exec-step-body">
+            <span class="exec-step-label">${escHtml(step.label || ('Schritt ' + step.step_id))}</span>
+            <span class="exec-step-target">${escHtml(step.target || step.platform || '')}</span>
+            <span class="exec-step-status-text">Wird ausgeführt…</span>
+        </div>`;
+    return li;
+}
+
+function execStepUpdate(stepId, status, message) {
+    const li = document.getElementById(`exec-step-${stepId}`);
+    if (!li) return;
+    li.classList.remove('pending', 'running', 'ok', 'error', 'skipped');
+    li.classList.add(status);
+    const iconEl = li.querySelector('.exec-step-icon');
+    if (iconEl) {
+        iconEl.textContent = ({
+            ok: '✔', error: '✖', skipped: '–', running: '…', pending: '·'
+        })[status] || status;
+    }
+    const statusEl = li.querySelector('.exec-step-status-text');
+    if (statusEl) {
+        if (message) {
+            statusEl.textContent = message;
+        } else {
+            statusEl.textContent = ({
+                ok: 'Erfolgreich abgeschlossen.',
+                error: 'Fehler aufgetreten.',
+                skipped: 'Übersprungen.',
+                running: 'Wird ausgeführt…',
+                pending: '',
+            })[status] || '';
+        }
+    }
+}
+
+function execTermAppend(html) {
+    const out = document.getElementById('exec-terminal-output');
+    out.insertAdjacentHTML('beforeend', html);
+    out.scrollTop = out.scrollHeight;
+}
+
+async function runExecution({url, body, title, defaultBanner}) {
+    if (_execRunning) {
+        alert('Es läuft bereits eine Operation. Bitte warten Sie, bis sie abgeschlossen ist.');
+        return;
+    }
+    _execRunning = true;
+    execModalReset(title, defaultBanner);
+    document.getElementById('exec-modal').classList.add('open');
+
+    let resp;
+    try {
+        resp = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(body),
+        });
+    } catch (e) {
+        execTermAppend(`<span class="exec-term-err">Netzwerkfehler: ${escHtml(e.message)}</span>\n`);
+        execModalSetFinal('error', 'Netzwerkfehler – Server nicht erreichbar.');
+        return;
+    }
+
+    if (!resp.ok || !resp.body) {
+        let errMsg = `HTTP ${resp.status}`;
+        try {
+            const data = await resp.json();
+            if (data && data.error) errMsg = data.error;
+        } catch(e) { /* ignore */ }
+        execTermAppend(`<span class="exec-term-err">Fehler vor Ausführung: ${escHtml(errMsg)}</span>\n`);
+        execModalSetFinal('error', errMsg);
+        return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let lastSnapshot;
+    while (true) {
+        const {value, done} = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, {stream: true});
+        let nlIdx;
+        while ((nlIdx = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, nlIdx).trim();
+            buf = buf.slice(nlIdx + 1);
+            if (!line) continue;
+            let evt;
+            try { evt = JSON.parse(line); } catch(e) { continue; }
+            const ev = evt.event;
+            if (ev === 'run_start') {
+                execTermAppend(`<span class="exec-term-step">▶ ${escHtml(evt.title)} (${evt.total_steps} Schritt${evt.total_steps === 1 ? '' : 'e'})</span>\n`);
+                document.getElementById('exec-modal-title').textContent = evt.title;
+            } else if (ev === 'step_start') {
+                const li = execStepRow(evt);
+                document.getElementById('exec-steps').appendChild(li);
+                execTermAppend(`\n<span class="exec-term-step">[Schritt ${evt.step_id}] ${escHtml(evt.label)}</span>\n`);
+                if (evt.target) {
+                    execTermAppend(`<span class="exec-term-info">Ziel: ${escHtml(evt.target)}</span>\n`);
+                }
+                if (evt.command) {
+                    execTermAppend(`<span class="exec-term-prompt">$</span> <span class="exec-term-cmd">${escHtml(evt.command)}</span>\n`);
+                }
+            } else if (ev === 'step_log') {
+                if (evt.message) {
+                    execTermAppend(`<span class="exec-term-info">${escHtml(evt.message)}</span>\n`);
+                }
+            } else if (ev === 'step_done') {
+                execStepUpdate(evt.step_id, evt.status, evt.message);
+                if (evt.status === 'ok') {
+                    execTermAppend(`<span class="exec-term-ok">✔ Schritt ${evt.step_id} erfolgreich</span>\n`);
+                } else if (evt.status === 'error') {
+                    execTermAppend(`<span class="exec-term-err">✖ Schritt ${evt.step_id}: ${escHtml(evt.message || 'fehlgeschlagen')}</span>\n`);
+                    document.getElementById('exec-terminal').open = true;
+                } else if (evt.status === 'skipped') {
+                    execTermAppend(`<span class="exec-term-info">– Schritt ${evt.step_id} übersprungen</span>\n`);
+                }
+            } else if (ev === 'run_done') {
+                execModalSetFinal(evt.status, evt.message);
+                if (evt.snapshot !== undefined) lastSnapshot = evt.snapshot;
+            }
+        }
+    }
+
+    // Refresh local state from the run summary
+    const reqId = body && body.id;
+    if (lastSnapshot && reqId !== undefined) {
+        const idx = _snapshots.findIndex(s => s.id === reqId);
+        if (idx >= 0) _snapshots[idx] = lastSnapshot;
+        applyFilters();
+    } else if (lastSnapshot === null && reqId !== undefined) {
+        // null payload signals removal (delete)
+        _snapshots = _snapshots.filter(s => s.id !== reqId);
+        applyFilters();
+        if (_deleteTimers[reqId]) { clearInterval(_deleteTimers[reqId]); delete _deleteTimers[reqId]; }
+    } else {
+        // fallback: full reload
+        loadSnapshots();
+    }
+}
+
+function closeExecModal() {
+    if (_execRunning) return;       // never close while a run is in progress
+    document.getElementById('exec-modal').classList.remove('open');
 }
 
 // ─── Delete countdown timer ────────────────────────────────────────────────
