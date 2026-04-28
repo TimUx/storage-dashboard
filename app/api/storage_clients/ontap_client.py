@@ -1,5 +1,6 @@
 """NetApp ONTAP 9 REST API client."""
 import logging
+import re
 import time
 import traceback
 from datetime import datetime, timezone
@@ -1093,7 +1094,7 @@ class NetAppONTAPClient(StorageClient):
 
     def _wait_for_snapshot_name(self, vol_uuid: str, snap_name: str,
                                 auth, headers, ssl_verify,
-                                timeout_seconds: int = 45) -> tuple[bool, dict]:
+                                timeout_seconds: int = 120) -> tuple[bool, dict]:
         """Wait until a snapshot is resolvable by name on a volume."""
         deadline = time.time() + timeout_seconds
         last_lookup: dict = {}
@@ -1109,6 +1110,27 @@ class NetAppONTAPClient(StorageClient):
             'error': f'Snapshot {snap_name} not visible after rename wait window',
             'lookup': last_lookup,
         }
+
+    @staticmethod
+    def _extract_job_uuid_from_response(resp) -> str | None:
+        """Extract ONTAP async job UUID from JSON body or HTTP headers."""
+        job_uuid = None
+        try:
+            job_uuid = (resp.json() or {}).get('job', {}).get('uuid')
+        except Exception:
+            job_uuid = None
+        if job_uuid:
+            return job_uuid
+
+        # Some ONTAP versions return async job links in headers only.
+        for hdr in ('Location', 'location', 'Content-Location', 'content-location'):
+            link = resp.headers.get(hdr)
+            if not link:
+                continue
+            m = re.search(r'/api/cluster/jobs/([0-9a-fA-F-]+)', str(link))
+            if m:
+                return m.group(1)
+        return None
 
     def update_snapshot_expiry(self, svm: str, volume_name: str,
                                snap_name: str, expiry_iso: str | None) -> tuple[bool, dict]:
@@ -1239,16 +1261,21 @@ class NetAppONTAPClient(StorageClient):
                     'volume_uuid': vol_uuid, 'snap_uuid': snap_uuid}
             job_ok = True
             if ok and resp.status_code == 202:
-                try:
-                    job_uuid = (resp.json() or {}).get('job', {}).get('uuid')
-                except Exception:
-                    job_uuid = None
+                job_uuid = self._extract_job_uuid_from_response(resp)
                 if job_uuid:
                     job_ok, job_info = self._wait_for_job_completion(
                         job_uuid, auth, headers, ssl_verify
                     )
                     info['job_uuid'] = job_uuid
                     info['job'] = job_info
+                else:
+                    info['job'] = {
+                        'state': 'unknown',
+                        'message': (
+                            'HTTP 202 received, but no job UUID returned in body/headers; '
+                            'falling back to name-visibility wait.'
+                        ),
+                    }
                 # Do not fail immediately on job polling issues; the decisive
                 # condition is whether the renamed snapshot becomes visible.
                 ok = True
@@ -1266,12 +1293,21 @@ class NetAppONTAPClient(StorageClient):
                 vol_uuid, new_name, auth, headers, ssl_verify
             )
             if not visible:
+                # Additional diagnostic: check whether the old snapshot name is
+                # still present to better explain why visibility failed.
+                old_visible, old_info = self._wait_for_snapshot_name(
+                    vol_uuid, snap_name, auth, headers, ssl_verify, timeout_seconds=2
+                )
                 return False, {
-                    'error': f'Rename reported success but snapshot {new_name} not found',
+                    'error': (
+                        f'Rename reported success but snapshot {new_name} not found'
+                        + (f'; old snapshot {snap_name} still exists' if old_visible else '')
+                    ),
                     'status_code': resp.status_code,
                     'volume_uuid': vol_uuid,
                     'old_snap_uuid': snap_uuid,
                     'lookup': vis_info.get('lookup'),
+                    'old_lookup': old_info.get('lookup') if isinstance(old_info, dict) else None,
                     'job': info.get('job'),
                 }
             if not job_ok:
