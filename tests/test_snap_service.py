@@ -1772,8 +1772,8 @@ def test_build_update_ttl_plan_flasharray_full_rename():
     assert '"pod-x86-0304::vgA4T_1.2026-04-15-120000"' in step['command']
 
 
-def test_build_update_ttl_plan_ontap_one_step_per_volume():
-    """ONTAP rename steps are emitted per volume with new name + expiry_time."""
+def test_build_update_ttl_plan_ontap_two_steps_per_volume():
+    """ONTAP TTL plan emits rename + expiry update per volume."""
     from app.routes.snaps import _build_update_ttl_plan
     from unittest.mock import MagicMock
 
@@ -1797,10 +1797,12 @@ def test_build_update_ttl_plan_ontap_one_step_per_volume():
     }
     plan = _build_update_ttl_plan(rec, locs, datetime(2026, 4, 1, 19, 3, 49))
     ontap_steps = [s for s in plan if s['platform'] == 'ONTAP']
-    assert len(ontap_steps) == 2
-    for step in ontap_steps:
-        assert 'ABP_HDBSNAP-2026-04-01-190349' in step['command']
-        assert '2026-04-01T19:03:49Z' in step['command']
+    # Two volumes × (rename + expiry update) = 4 ONTAP steps
+    assert len(ontap_steps) == 4
+    rename_steps = [s for s in ontap_steps if '"name":"ABP_HDBSNAP-2026-04-01-190349"' in s['command']]
+    expiry_steps = [s for s in ontap_steps if '"expiry_time":"2026-04-01T19:03:49Z"' in s['command']]
+    assert len(rename_steps) == 2
+    assert len(expiry_steps) == 2
 
 
 def test_build_delete_plan_flasharray_destroy_only():

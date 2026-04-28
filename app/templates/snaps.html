@@ -782,7 +782,7 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
             <input type="date" id="ttl-date-input" oninput="refreshTtlPickerValidity()" />
             <input type="time" id="ttl-time-input" step="1" oninput="refreshTtlPickerValidity()" />
             <span class="ttl-tz-hint"
-                  title="Zeiten werden in UTC eingegeben und gespeichert, passend zu den Snapshot-Namen auf den Storage-Systemen.">UTC</span>
+                  title="Zeiten werden in lokaler Browser-Zeit (z. B. CEST/CET) angezeigt und eingegeben.">Lokal</span>
         </div>
         <p id="ttl-modal-hint" class="ttl-modal-hint" aria-live="polite"></p>
         <div style="margin-top:1rem;display:flex;gap:.75rem;">
@@ -1312,20 +1312,17 @@ function parseServerDt(iso) {
 }
 
 /**
- * Read the current picker value as a Date interpreted in **UTC**.
+ * Read the current picker value as a local-time Date.
  *
- * The dashboard treats the picker's raw values as UTC components – i.e.
- * the operator sees and chooses the same wall-clock value that ends up
- * baked into the snapshot name on the storage system.  This is
- * consistent with ``formatDt()`` (also UTC) and avoids the
- * ±UTC-offset drift that previously existed between the picker, the
- * table cell and the snapshot name in the detail row.
+ * ``<input type="date/time">`` is local-time based in browsers.  Keeping
+ * the picker in local time aligns the UI with the operator expectation
+ * (CEST/CET) and with all rendered table values.
  */
 function readPickerDate() {
     const dateVal = document.getElementById('ttl-date-input').value;
     const timeVal = document.getElementById('ttl-time-input').value || '00:00:00';
     if (!dateVal) return null;
-    const d = new Date(`${dateVal}T${timeVal}Z`);
+    const d = new Date(`${dateVal}T${timeVal}`);
     return isNaN(d.getTime()) ? null : d;
 }
 
@@ -1341,7 +1338,7 @@ function refreshTtlPickerValidity() {
         reason = 'Bitte ein vollständiges Datum und Uhrzeit auswählen.';
     } else if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
         valid = false;
-        reason = `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} h nach der aktuellen TTL liegen (frühestens ${formatUtcDateObj(_ttlMinTime)} UTC).`;
+        reason = `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} h nach der aktuellen TTL liegen (frühestens ${formatLocalDateObj(_ttlMinTime)}).`;
     }
     if (saveBtn) {
         saveBtn.disabled = !valid;
@@ -1351,7 +1348,7 @@ function refreshTtlPickerValidity() {
         if (valid) {
             hint.classList.remove('ttl-hint-error');
             hint.textContent = _ttlMinTime
-                ? `Frühestmögliche neue TTL: ${formatUtcDateObj(_ttlMinTime)} UTC`
+                ? `Frühestmögliche neue TTL: ${formatLocalDateObj(_ttlMinTime)}`
                 : '';
         } else {
             hint.classList.add('ttl-hint-error');
@@ -1386,20 +1383,16 @@ function openTtlModal(id) {
     const timeInput = document.getElementById('ttl-time-input');
 
     // Apply the HTML5 ``min`` attribute so the native picker greys out
-    // earlier days.  We deliberately set this to the **day** of the
-    // earliest allowed time *in UTC* so it lines up with the snapshot
-    // naming convention; the per-second guard below covers the
-    // same-day "before HH:MM:SS" case.
+    // earlier days in local browser time; the per-second guard below
+    // still enforces the exact timestamp.
     const minDateStr =
-        `${_ttlMinTime.getUTCFullYear()}-${pad(_ttlMinTime.getUTCMonth() + 1)}-${pad(_ttlMinTime.getUTCDate())}`;
+        `${_ttlMinTime.getFullYear()}-${pad(_ttlMinTime.getMonth() + 1)}-${pad(_ttlMinTime.getDate())}`;
     dateInput.min = minDateStr;
 
-    // Pre-fill the picker with the earliest valid value (UTC components)
-    // so a confirming click immediately produces a legal change and the
-    // operator sees the same wall-clock time the storage will use.
+    // Pre-fill the picker with the earliest valid local value.
     dateInput.value = minDateStr;
     timeInput.value =
-        `${pad(_ttlMinTime.getUTCHours())}:${pad(_ttlMinTime.getUTCMinutes())}:${pad(_ttlMinTime.getUTCSeconds())}`;
+        `${pad(_ttlMinTime.getHours())}:${pad(_ttlMinTime.getMinutes())}:${pad(_ttlMinTime.getSeconds())}`;
 
     refreshTtlPickerValidity();
     document.getElementById('ttl-modal').classList.add('open');
@@ -1421,7 +1414,7 @@ async function saveTtl() {
     if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
         alert(
             `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} Stunden nach der ` +
-            `aktuellen TTL liegen.\n\nFrühestmöglich: ${formatUtcDateObj(_ttlMinTime)} UTC`
+            `aktuellen TTL liegen.\n\nFrühestmöglich: ${formatLocalDateObj(_ttlMinTime)}`
         );
         return;
     }
@@ -1748,18 +1741,10 @@ async function triggerCollect() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 /**
- * Format a server-supplied timestamp.
+ * Format a server-supplied timestamp in local browser time (CEST/CET).
  *
- * The dashboard intentionally renders **everything in UTC** to stay in
- * lock-step with the timestamps embedded in the snapshot names on the
- * storage systems (e.g. ``…2026-05-06-155221``).  Mixing local time
- * here would put the table cell ahead/behind the snap name shown in
- * the expand row by the operator's UTC offset (±2 h in CEST), which
- * was a recurring source of confusion.
- *
- * Server values are naive UTC – we append a ``Z`` so the JS Date
- * parser reads them correctly, then format with the ``getUTC*``
- * getters so the rendered string is the same UTC instant we received.
+ * Server values are stored as UTC-naive timestamps.  We append ``Z`` so
+ * JS parses them as UTC instants, then render with local getters.
  */
 function formatDt(iso) {
     if (!iso) return '–';
@@ -1767,15 +1752,15 @@ function formatDt(iso) {
         const isoDt = iso.includes('T') ? iso : iso.replace(' ', 'T');
         const d = new Date(isoDt.endsWith('Z') ? isoDt : isoDt + 'Z');
         if (isNaN(d.getTime())) return iso;
-        return formatUtcDateObj(d);
+        return formatLocalDateObj(d);
     } catch { return iso; }
 }
 
-/** Format a JS Date object using its UTC components (DD.MM.YYYY HH:MM:SS). */
-function formatUtcDateObj(d) {
+/** Format a JS Date object using local components (DD.MM.YYYY HH:MM:SS). */
+function formatLocalDateObj(d) {
     const pad = n => String(n).padStart(2, '0');
-    return `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} `
-         + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} `
+         + `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function escHtml(s) {
