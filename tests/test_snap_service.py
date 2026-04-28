@@ -960,12 +960,16 @@ def test_process_expired_deletions_skips_records_not_yet_due(app):
 def test_api_update_ttl_streams_and_persists(app, client):
     """POST /snaps/api/update-ttl streams progress and updates ttl on success."""
     snap_id = _seed_snapshot(app)
+    # Seeded TTL is now+5d; pick a target ≥ 24h after that to satisfy the
+    # "min 24h increase" rule enforced by the route.
+    new_ttl_dt = datetime.utcnow() + timedelta(days=8)
+    new_ttl_str = new_ttl_dt.strftime('%Y-%m-%d %H:%M:%S')
     patches = _patch_storage_clients()
     for p in patches:
         p.start()
     try:
         resp = client.post('/snaps/api/update-ttl',
-                           json={'id': snap_id, 'new_ttl': '2026-04-01 12:00:00'},
+                           json={'id': snap_id, 'new_ttl': new_ttl_str},
                            content_type='application/json')
         assert resp.status_code == 200
         events = _consume_ndjson(resp)
@@ -980,7 +984,7 @@ def test_api_update_ttl_streams_and_persists(app, client):
     # Persisted TTL on the record
     list_data = client.get('/snaps/api/list').get_json()
     snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
-    assert '2026-04-01' in snap['ttl']
+    assert new_ttl_dt.strftime('%Y-%m-%d') in snap['ttl']
 
 
 def test_api_update_ttl_does_not_persist_on_failure(app, client):
@@ -990,12 +994,14 @@ def test_api_update_ttl_does_not_persist_on_failure(app, client):
     failing_pure.rename_volume_snapshot.return_value = (
         False, {'status_code': 400, 'text': 'Bad request'}
     )
+    new_ttl_dt = datetime.utcnow() + timedelta(days=8)
+    new_ttl_str = new_ttl_dt.strftime('%Y-%m-%d %H:%M:%S')
     patches = _patch_storage_clients(monkey_pure=failing_pure)
     for p in patches:
         p.start()
     try:
         resp = client.post('/snaps/api/update-ttl',
-                           json={'id': snap_id, 'new_ttl': '2026-04-01 12:00:00'},
+                           json={'id': snap_id, 'new_ttl': new_ttl_str},
                            content_type='application/json')
         events = _consume_ndjson(resp)
     finally:
@@ -1006,8 +1012,8 @@ def test_api_update_ttl_does_not_persist_on_failure(app, client):
 
     list_data = client.get('/snaps/api/list').get_json()
     snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
-    # The seeded ttl is creation_time + 3 days, definitely not 2026-04-01.
-    assert snap['ttl'] is None or '2026-04-01' not in snap['ttl']
+    # The seeded ttl is creation_time + 5 days, not the requested target.
+    assert snap['ttl'] is None or new_ttl_dt.strftime('%Y-%m-%d') not in snap['ttl']
 
 
 def test_api_update_ttl_bad_format(app, client):
@@ -1023,6 +1029,40 @@ def test_api_update_ttl_missing_id(app, client):
                        json={'new_ttl': '2026-04-01 12:00:00'},
                        content_type='application/json')
     assert resp.status_code == 400
+
+
+def test_api_update_ttl_rejects_past_relative_to_current_ttl(app, client):
+    """A new TTL that does not lie at least 24 h after the current TTL is rejected."""
+    snap_id = _seed_snapshot(app)  # seeded TTL = now + 5 days
+    # Try a TTL that's earlier than the seeded one – must be refused outright.
+    earlier = (datetime.utcnow() + timedelta(days=2)).strftime('%Y-%m-%d %H:%M:%S')
+    resp = client.post('/snaps/api/update-ttl',
+                       json={'id': snap_id, 'new_ttl': earlier},
+                       content_type='application/json')
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert 'mindestens' in body.get('error', '').lower() or '24' in body.get('error', '')
+    assert body.get('min_new_ttl')
+
+
+def test_api_update_ttl_rejects_increase_below_24h(app, client):
+    """A new TTL that bumps the lifetime by less than 24 h is rejected."""
+    snap_id = _seed_snapshot(app)
+    # Seeded TTL is now+5d; +5d+12h is only a 12h increase → must fail.
+    too_close = (datetime.utcnow() + timedelta(days=5, hours=12)).strftime('%Y-%m-%d %H:%M:%S')
+    resp = client.post('/snaps/api/update-ttl',
+                       json={'id': snap_id, 'new_ttl': too_close},
+                       content_type='application/json')
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert body.get('min_new_ttl')
+
+
+def test_api_list_exposes_ttl_min_increase(app, client):
+    """The list endpoint advertises the configured min-increase window."""
+    _seed_snapshot(app)
+    data = client.get('/snaps/api/list').get_json()
+    assert data['stats'].get('ttl_min_increase_hours') == 24
 
 
 def test_update_presence_endpoint_removed(app, client):
@@ -1052,12 +1092,14 @@ def test_snap_page_renders(client):
 def test_audit_log_created_on_ttl_change(app, client):
     """A successful live TTL change writes exactly one audit log entry."""
     snap_id = _seed_snapshot(app)
+    new_ttl_dt = datetime.utcnow() + timedelta(days=8)
+    new_ttl_str = new_ttl_dt.strftime('%Y-%m-%d %H:%M:%S')
     patches = _patch_storage_clients()
     for p in patches:
         p.start()
     try:
         resp = client.post('/snaps/api/update-ttl',
-                           json={'id': snap_id, 'new_ttl': '2026-05-01 00:00:00',
+                           json={'id': snap_id, 'new_ttl': new_ttl_str,
                                  'user': 'operator1'},
                            content_type='application/json')
         assert resp.status_code == 200
@@ -1073,7 +1115,9 @@ def test_audit_log_created_on_ttl_change(app, client):
         logs = SnapshotAuditLog.query.filter_by(snapshot_id=snap_id).all()
         assert len(logs) == 1
         assert logs[0].changed_by == 'operator1'
-        assert logs[0].new_ttl.year == 2026
+        assert logs[0].new_ttl.year == new_ttl_dt.year
+        assert logs[0].new_ttl.month == new_ttl_dt.month
+        assert logs[0].new_ttl.day == new_ttl_dt.day
 
 
 def test_audit_log_not_created_on_ttl_failure(app, client):
@@ -1083,12 +1127,13 @@ def test_audit_log_not_created_on_ttl_failure(app, client):
     failing_pure.rename_volume_snapshot.return_value = (
         False, {'status_code': 500, 'text': 'boom'}
     )
+    new_ttl_str = (datetime.utcnow() + timedelta(days=8)).strftime('%Y-%m-%d %H:%M:%S')
     patches = _patch_storage_clients(monkey_pure=failing_pure)
     for p in patches:
         p.start()
     try:
         client.post('/snaps/api/update-ttl',
-                    json={'id': snap_id, 'new_ttl': '2026-05-01 00:00:00',
+                    json={'id': snap_id, 'new_ttl': new_ttl_str,
                           'user': 'operator1'},
                     content_type='application/json')
     finally:

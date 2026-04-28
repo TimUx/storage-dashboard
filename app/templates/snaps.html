@@ -263,42 +263,73 @@ td.ttl-cell .ttl-display.ttl-locked {
 td.ttl-cell .ttl-display.ttl-locked:hover { background: transparent; }
 td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
 
-/* Delete column */
-.btn-delete {
-    background: var(--sn-danger);
-    color: #fff;
-    border: none;
-    border-radius: 5px;
-    padding: .3rem .6rem;
-    cursor: pointer;
-    font-size: .85rem;
-    transition: opacity .2s;
-}
-.btn-delete:hover { opacity: .8; }
-.btn-delete:disabled,
-.btn-delete[aria-disabled="true"] {
-    background: var(--sn-muted);
-    cursor: not-allowed;
-    opacity: .5;
-}
-.btn-delete:disabled:hover { opacity: .5; }
-.btn-undo {
-    background: var(--sn-warn);
-    color: #fff;
-    border: none;
-    border-radius: 5px;
-    padding: .3rem .6rem;
-    cursor: pointer;
-    font-size: .85rem;
+/* Delete column – icon-only actions */
+.sn-action-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
     white-space: nowrap;
 }
-.btn-undo:hover { opacity: .8; }
+.icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: .3rem;
+    border-radius: 5px;
+    line-height: 1;
+    color: var(--sn-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    font-size: 1.05rem;
+    transition: background .15s, color .15s, opacity .15s;
+}
+.icon-btn:hover { background: rgba(0,0,0,.07); }
+[data-theme="dark"] .icon-btn:hover { background: rgba(255,255,255,.08); }
+.icon-btn .icon-svg {
+    width: 1.05rem;
+    height: 1.05rem;
+    display: block;
+    stroke-width: 2;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.icon-btn-delete { color: var(--sn-danger); }
+.icon-btn-delete:hover { background: rgba(220,53,69,.12); }
+.icon-btn-undo { color: var(--sn-warn); }
+.icon-btn-undo:hover { background: rgba(255,165,0,.15); }
+.icon-btn:disabled,
+.icon-btn[aria-disabled="true"] {
+    color: var(--sn-muted);
+    cursor: not-allowed;
+    opacity: .45;
+}
+.icon-btn:disabled:hover,
+.icon-btn[aria-disabled="true"]:hover { background: transparent; }
+
+/* Pending-delete countdown – clock icon + hours only */
 .delete-timer {
-    font-size: .82rem;
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
     color: var(--sn-danger);
     font-weight: 600;
-    display: block;
-    margin-bottom: .2rem;
+    font-size: .85rem;
+    cursor: help;
+    line-height: 1;
+}
+.delete-timer .icon-svg {
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 /* Buttons */
@@ -382,6 +413,13 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
     background: var(--sn-bg);
     color: var(--sn-text);
 }
+.ttl-modal-hint {
+    margin: .6rem 0 0;
+    font-size: .8rem;
+    color: var(--sn-muted);
+    min-height: 1.1em;
+}
+.ttl-modal-hint.ttl-hint-error { color: var(--sn-danger); font-weight: 500; }
 
 /* Execution status modal */
 .exec-status-banner {
@@ -608,11 +646,12 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
         <h3>TTL bearbeiten</h3>
         <p id="ttl-modal-info" style="font-size:.85rem;color:var(--sn-muted);margin-bottom:.75rem;"></p>
         <div class="ttl-picker-wrap">
-            <input type="date" id="ttl-date-input" />
-            <input type="time" id="ttl-time-input" step="1" />
+            <input type="date" id="ttl-date-input" oninput="refreshTtlPickerValidity()" />
+            <input type="time" id="ttl-time-input" step="1" oninput="refreshTtlPickerValidity()" />
         </div>
+        <p id="ttl-modal-hint" class="ttl-modal-hint" aria-live="polite"></p>
         <div style="margin-top:1rem;display:flex;gap:.75rem;">
-            <button class="btn-primary" onclick="saveTtl()">Speichern</button>
+            <button class="btn-primary" id="ttl-save-btn" onclick="saveTtl()">Speichern</button>
             <button class="btn-secondary" onclick="closeTtlModal()">Abbrechen</button>
         </div>
     </div>
@@ -639,6 +678,39 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
 </div>
 
 <script>
+// ─── Icon SVGs (kept inline to avoid extra requests) ──────────────────────
+const ICON_TRASH = `
+    <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 6h18"></path>
+        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+        <path d="M10 11v6"></path>
+        <path d="M14 11v6"></path>
+    </svg>`;
+const ICON_UNDO = `
+    <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 14L4 9l5-5"></path>
+        <path d="M4 9h11a5 5 0 0 1 5 5v0a5 5 0 0 1-5 5H8"></path>
+    </svg>`;
+
+/**
+ * Render an analogue-clock SVG.  The hour-hand is rotated to indicate the
+ * remaining time visually – minutes are intentionally **not** shown so the
+ * widget stays glance-friendly.  ``ms`` is the remaining time in
+ * milliseconds; the hand cycles once every 12 hours.
+ */
+function clockIconHtml(ms) {
+    let hours = Math.max(0, ms) / 3600000;
+    if (!isFinite(hours)) hours = 0;
+    const angle = ((hours % 12) / 12) * 360;
+    return `
+        <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <line x1="12" y1="12" x2="12" y2="6"
+                  transform="rotate(${angle.toFixed(1)} 12 12)"></line>
+        </svg>`;
+}
+
 // ─── State ────────────────────────────────────────────────────────────────
 let _snapshots = [];          // raw data from API
 let _filtered  = [];          // after client-side filter
@@ -843,17 +915,27 @@ function renderTable() {
                 </span>`;
         }
 
-        // Delete column
+        // Delete column – icon-only, descriptions only via tooltip
         let delCol;
         if (isPending) {
-            const remaining = formatRemaining(new Date(s.delete_deadline) - now);
+            const deadlineMs = new Date(s.delete_deadline).getTime();
+            const remainingMs = deadlineMs - now;
+            const clockHtml  = clockIconHtml(remainingMs);
+            const timerLabel = formatRemainingHours(remainingMs);
+            const timerTitle = `Verbleibend bis zur Löschung: ${timerLabel} (geplant für ${formatDt(s.delete_deadline)})`;
             delCol = `
-                <span class="delete-timer" id="timer-${s.id}" title="Verbleibende Zeit bis zur Ausführung der Löschung">${remaining}</span>
-                <button class="btn-undo" onclick="undoDelete(${s.id})" title="Geplante Löschung stornieren">↩ Rückgängig</button>`;
+                <span class="sn-action-cell">
+                    <span class="delete-timer" id="timer-${s.id}" title="${escAttr(timerTitle)}" data-deadline="${escAttr(s.delete_deadline)}">
+                        ${clockHtml}<span class="delete-timer-text">${escHtml(timerLabel)}</span>
+                    </span>
+                    <button class="icon-btn icon-btn-undo" onclick="undoDelete(${s.id})" title="Geplante Löschung stornieren" aria-label="Geplante Löschung stornieren">
+                        ${ICON_UNDO}
+                    </button>
+                </span>`;
         } else if (isLocked) {
-            delCol = `<button class="btn-delete" disabled aria-disabled="true" title="${escHtml(lockReason)}">✕</button>`;
+            delCol = `<button class="icon-btn icon-btn-delete" disabled aria-disabled="true" title="${escAttr(lockReason)}" aria-label="${escAttr(lockReason)}">${ICON_TRASH}</button>`;
         } else {
-            delCol = `<button class="btn-delete" onclick="markDelete(${s.id})" title="Löschung in 24h einplanen">✕</button>`;
+            delCol = `<button class="icon-btn icon-btn-delete" onclick="markDelete(${s.id})" title="Löschung in 24h einplanen" aria-label="Löschung in 24h einplanen">${ICON_TRASH}</button>`;
         }
 
         // Storage locations detail
@@ -1022,6 +1104,72 @@ async function saveComment(id) {
 }
 
 // ─── TTL editing ──────────────────────────────────────────────────────────
+/**
+ * Minimum gap (hours) the new TTL must lie in the future relative to the
+ * current TTL.  A change must always **extend** the lifetime, and by at
+ * least this amount – the storage-side rename is otherwise pointless and
+ * risks racing the natural expiry.
+ */
+const TTL_MIN_INCREASE_HOURS = 24;
+
+let _ttlMinTime = null;   // earliest allowed Date for the modal currently open
+
+/** Parse a server-provided ISO/space timestamp as a UTC Date. */
+function parseServerDt(iso) {
+    if (!iso) return null;
+    const isoDt = iso.includes('T') ? iso : iso.replace(' ', 'T');
+    const d = new Date(isoDt.endsWith('Z') ? isoDt : isoDt + 'Z');
+    return isNaN(d.getTime()) ? null : d;
+}
+
+/** Read the current picker value as a local-time Date (or null if invalid). */
+function readPickerDate() {
+    const dateVal = document.getElementById('ttl-date-input').value;
+    const timeVal = document.getElementById('ttl-time-input').value || '00:00:00';
+    if (!dateVal) return null;
+    const d = new Date(`${dateVal}T${timeVal}`);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+/** Update validity & save-button state based on the current picker values. */
+function refreshTtlPickerValidity() {
+    const saveBtn = document.getElementById('ttl-save-btn');
+    const hint    = document.getElementById('ttl-modal-hint');
+    const picked  = readPickerDate();
+    let valid = true;
+    let reason = '';
+    if (!picked) {
+        valid = false;
+        reason = 'Bitte ein vollständiges Datum und Uhrzeit auswählen.';
+    } else if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
+        valid = false;
+        reason = `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} h nach der aktuellen TTL liegen (frühestens ${formatLocalDt(_ttlMinTime)}).`;
+    }
+    if (saveBtn) {
+        saveBtn.disabled = !valid;
+        saveBtn.title    = valid ? '' : reason;
+    }
+    if (hint) {
+        if (valid) {
+            hint.classList.remove('ttl-hint-error');
+            hint.textContent = _ttlMinTime
+                ? `Frühestmögliche neue TTL: ${formatLocalDt(_ttlMinTime)}`
+                : '';
+        } else {
+            hint.classList.add('ttl-hint-error');
+            hint.textContent = reason;
+        }
+    }
+}
+
+/** Format a local-time Date the same way formatDt() formats UTC inputs. */
+function formatLocalDt(d) {
+    if (!d) return '–';
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} `
+         + `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 function openTtlModal(id) {
     const snap = _snapshots.find(s => s.id === id);
     if (!snap) return;
@@ -1035,38 +1183,61 @@ function openTtlModal(id) {
     document.getElementById('ttl-modal-info').textContent =
         `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
 
-    if (snap.ttl) {
-        // Pre-fill the picker with the **same** date/time values that the
-        // info line above shows under "Aktuell TTL".  formatDt() renders the
-        // TTL using local-time getters, so we must use the same getters here
-        // to avoid a UTC↔local offset (e.g. +2h in CEST) between the
-        // displayed timestamp and the picker defaults.
-        const isoDt = snap.ttl.includes('T') ? snap.ttl : snap.ttl.replace(' ', 'T');
-        const d = new Date(isoDt.endsWith('Z') ? isoDt : isoDt + 'Z');
-        const pad = n => String(n).padStart(2, '0');
-        document.getElementById('ttl-date-input').value =
-            `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        document.getElementById('ttl-time-input').value =
-            `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    } else {
-        document.getElementById('ttl-date-input').value = '';
-        document.getElementById('ttl-time-input').value = '00:00:00';
-    }
+    // Compute the earliest allowed new TTL: current TTL + 24 h.
+    // If the snapshot has no TTL yet (rare, but defensively handled) we
+    // fall back to "now + 24 h" to keep the rule "must be in the future
+    // by at least 24h" intact.
+    const currentTtl = parseServerDt(snap.ttl) || new Date();
+    _ttlMinTime = new Date(currentTtl.getTime()
+                           + TTL_MIN_INCREASE_HOURS * 3600 * 1000);
+
+    const pad = n => String(n).padStart(2, '0');
+    const dateInput = document.getElementById('ttl-date-input');
+    const timeInput = document.getElementById('ttl-time-input');
+
+    // Apply the HTML5 ``min`` attribute so the native picker greys out
+    // earlier days.  We deliberately set this to the **day** of the
+    // earliest allowed time; the per-second guard below covers the
+    // same-day "before HH:MM:SS" case.
+    const minDateStr =
+        `${_ttlMinTime.getFullYear()}-${pad(_ttlMinTime.getMonth() + 1)}-${pad(_ttlMinTime.getDate())}`;
+    dateInput.min = minDateStr;
+
+    // Pre-fill the picker with the earliest valid value so a confirming
+    // click immediately produces a legal change.
+    dateInput.value = minDateStr;
+    timeInput.value =
+        `${pad(_ttlMinTime.getHours())}:${pad(_ttlMinTime.getMinutes())}:${pad(_ttlMinTime.getSeconds())}`;
+
+    refreshTtlPickerValidity();
     document.getElementById('ttl-modal').classList.add('open');
 }
 
 function closeTtlModal() {
     document.getElementById('ttl-modal').classList.remove('open');
     _ttlEditId = null;
+    _ttlMinTime = null;
 }
 
 async function saveTtl() {
     if (!_ttlEditId) return;
-    const dateVal = document.getElementById('ttl-date-input').value;
-    const timeVal = document.getElementById('ttl-time-input').value || '00:00:00';
-    if (!dateVal) { alert('Bitte Datum eingeben.'); return; }
+    const picked = readPickerDate();
+    if (!picked) {
+        alert('Bitte Datum und Uhrzeit eingeben.');
+        return;
+    }
+    if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
+        alert(
+            `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} Stunden nach der ` +
+            `aktuellen TTL liegen.\n\nFrühestmöglich: ${formatLocalDt(_ttlMinTime)}`
+        );
+        return;
+    }
+    const pad = n => String(n).padStart(2, '0');
+    const newTtl =
+        `${picked.getFullYear()}-${pad(picked.getMonth() + 1)}-${pad(picked.getDate())} ` +
+        `${pad(picked.getHours())}:${pad(picked.getMinutes())}:${pad(picked.getSeconds())}`;
 
-    const newTtl = `${dateVal} ${timeVal}`;
     const id = _ttlEditId;
     closeTtlModal();
     await runExecution({
@@ -1322,15 +1493,15 @@ function closeExecModal() {
 }
 
 // ─── Delete countdown timer ────────────────────────────────────────────────
-function formatRemaining(ms) {
+/**
+ * Render the remaining time as a coarse, hour-only label.
+ * Minutes / seconds are deliberately omitted – the value is rounded **up**
+ * so that "1h" only disappears once the deadline has actually passed.
+ */
+function formatRemainingHours(ms) {
     if (ms <= 0) return 'fällig';
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) return `${hours}h ${String(minutes).padStart(2,'0')}m`;
-    if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2,'0')}s`;
-    return `${seconds}s`;
+    const hours = Math.ceil(ms / 3600000);
+    return `${hours}h`;
 }
 
 function startTimer(id, deadline) {
@@ -1340,7 +1511,26 @@ function startTimer(id, deadline) {
         const timerEl = document.getElementById(`timer-${id}`);
         if (!timerEl) { clearInterval(_deleteTimers[id]); delete _deleteTimers[id]; return; }
         const remaining = deadlineMs - Date.now();
-        timerEl.textContent = formatRemaining(remaining);
+        const label = formatRemainingHours(remaining);
+        const textEl = timerEl.querySelector('.delete-timer-text');
+        if (textEl) textEl.textContent = label;
+        else timerEl.textContent = label;
+        // Update the analogue-clock SVG so the hour-hand keeps pace
+        const svgWrap = timerEl.querySelector('.icon-svg');
+        if (svgWrap) {
+            const hand = svgWrap.querySelector('line');
+            if (hand) {
+                const hours = Math.max(0, remaining) / 3600000;
+                const angle = ((hours % 12) / 12) * 360;
+                hand.setAttribute('transform', `rotate(${angle.toFixed(1)} 12 12)`);
+            }
+        }
+        // Refresh the tooltip so the absolute deadline + remaining hours stay accurate.
+        const deadlineIso = timerEl.dataset.deadline;
+        if (deadlineIso) {
+            timerEl.title =
+                `Verbleibend bis zur Löschung: ${label} (geplant für ${formatDt(deadlineIso)})`;
+        }
         if (remaining <= 0) {
             clearInterval(_deleteTimers[id]);
             delete _deleteTimers[id];
@@ -1350,7 +1540,7 @@ function startTimer(id, deadline) {
         }
     };
     tick();                                                  // immediate render
-    _deleteTimers[id] = setInterval(tick, 30000);            // refresh every 30s
+    _deleteTimers[id] = setInterval(tick, 60000);            // refresh every minute
 }
 
 // ─── Manual trigger ───────────────────────────────────────────────────────

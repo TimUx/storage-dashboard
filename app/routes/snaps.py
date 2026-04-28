@@ -69,6 +69,13 @@ _DELETE_DELAY_HOURS = 24
 # 25 h gives one extra hour of margin on top of the 24 h delete delay.
 _TTL_ACTION_LOCK_HOURS = 25
 
+# Minimum amount by which a TTL update must push the expiry into the future
+# relative to the snapshot's *current* TTL.  A change must always extend the
+# lifetime; tiny extensions (< 24 h) are also rejected because they don't
+# meaningfully help and create races with the natural expiry on the storage.
+# Keep in sync with ``TTL_MIN_INCREASE_HOURS`` in ``snaps.html``.
+_TTL_MIN_INCREASE_HOURS = 24
+
 
 def _is_actions_locked(rec, now: datetime | None = None) -> bool:
     """Return True if TTL edits and deletions are disabled for ``rec``.
@@ -179,6 +186,7 @@ def api_list():
             'last_update': (last_run.run_at.isoformat() + 'Z') if last_run else None,
             'last_update_status': last_run.status if last_run else None,
             'actions_lock_hours': _TTL_ACTION_LOCK_HOURS,
+            'ttl_min_increase_hours': _TTL_MIN_INCREASE_HOURS,
         },
     })
 
@@ -226,6 +234,23 @@ def api_update_ttl():
     new_ttl = _parse_dt(new_ttl_str)
     if not new_ttl:
         return jsonify({'error': f'Cannot parse new_ttl: {new_ttl_str!r}'}), 400
+
+    # The new TTL must extend the snapshot's lifetime by at least the
+    # configured minimum (currently 24 h).  Both shortening the lifetime
+    # ("backwards in time") and tiny extensions (< 24 h) are rejected
+    # because the storage-side rename is otherwise pointless and risks
+    # racing the snapshot's natural expiry.  See ``_TTL_MIN_INCREASE_HOURS``.
+    if rec.ttl is not None:
+        min_new_ttl = rec.ttl + timedelta(hours=_TTL_MIN_INCREASE_HOURS)
+        if new_ttl < min_new_ttl:
+            return jsonify({
+                'error': (
+                    f'Neue TTL muss mindestens {_TTL_MIN_INCREASE_HOURS} Stunden '
+                    f'nach der aktuellen TTL liegen. Frühestmöglich: '
+                    f'{min_new_ttl.strftime("%d.%m.%Y %H:%M:%S")} UTC.'
+                ),
+                'min_new_ttl': min_new_ttl.isoformat() + 'Z',
+            }), 400
 
     locs = rec.get_storage_locations()
     plan = _build_update_ttl_plan(rec, locs, new_ttl)
