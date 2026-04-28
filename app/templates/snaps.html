@@ -25,54 +25,131 @@
     --sn-muted:  #78909c;
 }
 
-.sn-container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
-
-.sn-header {
+/* The snaps page uses the full viewport height: only the table body
+   scrolls, header / toolbar / filters stay docked at the top. */
+body.sn-page { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+body.sn-page > .container {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: .55rem .9rem;
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
+}
+
+.sn-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: .55rem;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0;
+}
+
+/* ── Compact toolbar (title + stats + actions in a single bar) ────── */
+.sn-toolbar {
+    display: flex;
     align-items: center;
+    gap: .75rem 1.25rem;
+    flex-wrap: wrap;
     background: var(--sn-white);
-    padding: 1rem 1.5rem;
+    padding: .55rem .9rem;
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    box-shadow: 0 2px 6px rgba(0,0,0,.07);
     border-left: 4px solid var(--sn-blue);
-    margin-bottom: 1rem;
-    flex-wrap: wrap;
-    gap: .75rem;
+    flex: 0 0 auto;
 }
-.sn-header h2 { font-size: 1.4rem; color: var(--sn-blue); margin: 0; }
-.sn-header-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
-
-/* Stats panel */
-.sn-stats {
-    background: var(--sn-white);
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.07);
-    padding: 1rem 1.25rem;
-    margin-bottom: 1rem;
-    display: flex;
-    gap: 2rem;
-    flex-wrap: wrap;
+.sn-title {
+    font-size: 1.05rem;
+    color: var(--sn-blue);
+    margin: 0;
+    display: inline-flex;
     align-items: center;
-    border-top: 3px solid var(--sn-blue);
+    gap: .4rem;
+    flex: 0 0 auto;
 }
-.sn-stat-item { display: flex; flex-direction: column; gap: 0.2rem; }
-.sn-stat-label { font-size: .75rem; color: var(--sn-muted); text-transform: uppercase; letter-spacing: .05em; }
-.sn-stat-value { font-size: 1.1rem; font-weight: 700; color: var(--sn-text); }
-.sn-stat-value.warn { color: var(--sn-warn); }
 
-/* Filters */
+/* Inline statistics rendered as compact chips */
+.sn-stats-inline {
+    display: flex;
+    align-items: center;
+    gap: .35rem .75rem;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.sn-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    background: var(--sn-bg);
+    color: var(--sn-text);
+    font-size: .82rem;
+    line-height: 1.2;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+.sn-chip-label { color: var(--sn-muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.sn-chip-value { font-weight: 700; }
+.sn-chip.warn { background: rgba(255, 165, 0, .12); color: var(--sn-warn); border-color: rgba(255,165,0,.25); }
+.sn-chip.warn .sn-chip-label { color: var(--sn-warn); opacity: .8; }
+.sn-chip.muted { background: transparent; border-color: var(--sn-border); color: var(--sn-muted); }
+
+.sn-toolbar-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+.btn-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    background: transparent;
+    color: var(--sn-blue);
+    border: 1.5px solid var(--sn-blue);
+    border-radius: 6px;
+    padding: .3rem .7rem;
+    font-size: .85rem;
+    cursor: pointer;
+    line-height: 1;
+    transition: background .15s, color .15s;
+}
+.btn-tool:hover { background: var(--sn-blue); color: #fff; }
+.btn-tool[aria-pressed="true"] { background: var(--sn-blue); color: #fff; }
+.btn-tool .filter-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--sn-warn);
+    color: #fff;
+    border-radius: 999px;
+    font-size: .65rem;
+    font-weight: 700;
+    min-width: 1.05rem;
+    height: 1.05rem;
+    padding: 0 .3rem;
+    line-height: 1;
+}
+
+/* Filters panel – now collapsible */
 .sn-filters {
     background: var(--sn-white);
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.07);
-    padding: .9rem 1.25rem;
-    margin-bottom: 1rem;
+    box-shadow: 0 2px 6px rgba(0,0,0,.07);
+    padding: .65rem .9rem;
     display: grid;
     grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(140px, 1fr)) auto;
-    gap: .75rem 1rem;
+    gap: .5rem .85rem;
     align-items: end;
+    flex: 0 0 auto;
 }
+.sn-filters[hidden] { display: none; }
 @media (max-width: 1100px) {
     .sn-filters { grid-template-columns: 1fr 1fr 1fr; }
     .sn-filters .sn-filter-search { grid-column: 1 / -1; }
@@ -150,12 +227,14 @@
     white-space: nowrap;
 }
 
-/* Table */
+/* Table – fills remaining vertical space, only the body scrolls */
 .sn-table-wrap {
     background: var(--sn-white);
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,.07);
     overflow: auto;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 table.sn-table {
     width: 100%;
@@ -168,14 +247,15 @@ table.sn-table th {
     font-size: .75rem;
     text-transform: uppercase;
     letter-spacing: .05em;
-    padding: .7rem .9rem;
+    padding: .55rem .9rem;
     border-bottom: 2px solid var(--sn-border);
     white-space: nowrap;
     cursor: pointer;
     user-select: none;
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 2;
+    box-shadow: 0 2px 0 var(--sn-border);
 }
 table.sn-table th:hover { color: var(--sn-blue); }
 table.sn-table th .sort-arrow { opacity: .4; margin-left: .25rem; }
@@ -560,24 +640,40 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
 {% block content %}
 <div class="sn-container">
 
-    <!-- Header -->
-    <div class="sn-header">
-        <h2>📸 Snapshot-Übersicht</h2>
-        <div class="sn-header-actions">
-            <button class="btn-secondary" onclick="triggerCollect()">🔄 Aktualisieren</button>
+    <!-- Compact toolbar: title + inline stats + actions in a single bar -->
+    <div class="sn-toolbar" role="region" aria-label="Snapshot-Übersicht Steuerung">
+        <h2 class="sn-title">📸 Snapshot-Übersicht</h2>
+        <div class="sn-stats-inline" id="sn-stats" aria-live="polite">
+            <span class="sn-chip muted"><span class="sn-chip-label">Lade…</span></span>
+        </div>
+        <div class="sn-toolbar-actions">
+            <button type="button"
+                    class="btn-tool"
+                    id="sn-filter-toggle"
+                    aria-controls="sn-filters"
+                    aria-expanded="false"
+                    aria-pressed="false"
+                    onclick="toggleFilters()"
+                    title="Filter ein-/ausblenden">
+                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"
+                     style="width:.95rem;height:.95rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">
+                    <polygon points="3 4 21 4 14 13 14 19 10 21 10 13 3 4"></polygon>
+                </svg>
+                <span>Filter</span>
+                <span class="filter-badge" id="sn-filter-badge" hidden>0</span>
+            </button>
+            <button type="button"
+                    class="btn-tool"
+                    onclick="triggerCollect()"
+                    title="Snapshots erneut von den Storage-Systemen einsammeln">
+                <span aria-hidden="true">🔄</span>
+                <span>Aktualisieren</span>
+            </button>
         </div>
     </div>
 
-    <!-- Statistics panel -->
-    <div class="sn-stats" id="sn-stats">
-        <div class="sn-stat-item">
-            <span class="sn-stat-label">Informationen</span>
-            <span class="sn-stat-value" style="font-size:.8rem;color:var(--sn-muted)">Lade…</span>
-        </div>
-    </div>
-
-    <!-- Filters -->
-    <div class="sn-filters" role="search">
+    <!-- Filters – collapsible, hidden by default -->
+    <div class="sn-filters" role="search" id="sn-filters" hidden>
         <div class="sn-filter-field sn-filter-search">
             <label class="sn-filter-label" for="filter-sid">
                 <span>Suchtext</span>
@@ -722,13 +818,33 @@ let _execRunning = false;     // execution modal is currently streaming
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    // Mark the body so the page layout switches to "viewport-bound, only
+    // the table scrolls" mode.  Lives only on the snaps page.
+    document.body.classList.add('sn-page');
+    // Filter panel starts collapsed; the badge state is initialised here so
+    // a deep-linked / pre-filled filter (e.g. via querystring in the future)
+    // would show a count on first render.
+    refreshFilterBadge();
+    // Restore the user's last filter visibility preference (per-browser).
+    try {
+        if (localStorage.getItem('sn-filters-open') === '1') toggleFilters(true);
+    } catch (e) { /* localStorage unavailable – keep collapsed */ }
+
     loadSnapshots();
-    // Set up column sort
     document.querySelectorAll('table.sn-table th[data-col]').forEach(th => {
         th.addEventListener('click', () => sortBy(th.dataset.col));
     });
-    // Sort indicator initial state
     updateSortIndicators();
+
+    const filterBtn = document.getElementById('sn-filter-toggle');
+    if (filterBtn) {
+        filterBtn.addEventListener('click', () => {
+            try {
+                const isOpen = !document.getElementById('sn-filters').hasAttribute('hidden');
+                localStorage.setItem('sn-filters-open', isOpen ? '1' : '0');
+            } catch (e) { /* ignore */ }
+        });
+    }
 });
 
 // ─── Data loading ─────────────────────────────────────────────────────────
@@ -748,29 +864,27 @@ async function loadSnapshots() {
 
 function renderStats(stats) {
     const panel = document.getElementById('sn-stats');
-    const lastUpdate = stats.last_update
-        ? formatDt(stats.last_update)
-        : '–';
+    const lastUpdate = stats.last_update ? formatDt(stats.last_update) : '–';
+    const total   = stats.total ?? 0;
+    const older5  = stats.older_5_days ?? 0;
+    const older10 = stats.older_10_days ?? 0;
     panel.innerHTML = `
-        <div class="sn-stat-item">
-            <span class="sn-stat-label">Informationen</span>
-        </div>
-        <div class="sn-stat-item">
-            <span class="sn-stat-label">Snaps gesamt</span>
-            <span class="sn-stat-value">${stats.total ?? 0}</span>
-        </div>
-        <div class="sn-stat-item">
-            <span class="sn-stat-label">Snaps &gt; 5 Tage</span>
-            <span class="sn-stat-value ${(stats.older_5_days ?? 0) > 0 ? 'warn' : ''}">${stats.older_5_days ?? 0}</span>
-        </div>
-        <div class="sn-stat-item">
-            <span class="sn-stat-label">Snaps &gt; 10 Tage</span>
-            <span class="sn-stat-value ${(stats.older_10_days ?? 0) > 0 ? 'warn' : ''}">${stats.older_10_days ?? 0}</span>
-        </div>
-        <div class="sn-stat-item">
-            <span class="sn-stat-label">Letzte Aktualisierung</span>
-            <span class="sn-stat-value" style="font-size:.85rem">${lastUpdate}</span>
-        </div>
+        <span class="sn-chip" title="Anzahl der Snapshot-Gruppen insgesamt">
+            <span class="sn-chip-label">Gesamt</span>
+            <span class="sn-chip-value">${total}</span>
+        </span>
+        <span class="sn-chip ${older5 > 0 ? 'warn' : ''}" title="Snapshots, die älter als 5 Tage sind">
+            <span class="sn-chip-label">&gt; 5 T</span>
+            <span class="sn-chip-value">${older5}</span>
+        </span>
+        <span class="sn-chip ${older10 > 0 ? 'warn' : ''}" title="Snapshots, die älter als 10 Tage sind">
+            <span class="sn-chip-label">&gt; 10 T</span>
+            <span class="sn-chip-value">${older10}</span>
+        </span>
+        <span class="sn-chip muted" title="Zeitpunkt der letzten Sammelroutine">
+            <span class="sn-chip-label">Stand</span>
+            <span class="sn-chip-value" style="font-weight:500">${lastUpdate}</span>
+        </span>
     `;
 }
 
@@ -836,6 +950,7 @@ function applyFilters() {
         if (taBefore && s.ttl && s.ttl.slice(0,10) > taBefore) return false;
         return true;
     });
+    refreshFilterBadge();
     renderTable();
 }
 
@@ -843,6 +958,41 @@ function clearFilters() {
     ['filter-sid','filter-created-after','filter-created-before','filter-ttl-after','filter-ttl-before']
         .forEach(id => { document.getElementById(id).value = ''; });
     applyFilters();
+}
+
+/** Show the active-filter count next to the toolbar button. */
+function refreshFilterBadge() {
+    const ids = ['filter-sid','filter-created-after','filter-created-before',
+                 'filter-ttl-after','filter-ttl-before'];
+    let n = 0;
+    for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el && el.value && el.value.trim()) n++;
+    }
+    const badge = document.getElementById('sn-filter-badge');
+    if (badge) {
+        if (n > 0) { badge.hidden = false; badge.textContent = String(n); }
+        else       { badge.hidden = true;  badge.textContent = '0';      }
+    }
+}
+
+/** Show / hide the filter panel (collapsed by default to save header space). */
+function toggleFilters(force) {
+    const panel = document.getElementById('sn-filters');
+    const btn   = document.getElementById('sn-filter-toggle');
+    if (!panel || !btn) return;
+    const willOpen = (force === true) || (force !== false && panel.hasAttribute('hidden'));
+    if (willOpen) {
+        panel.removeAttribute('hidden');
+        btn.setAttribute('aria-expanded', 'true');
+        btn.setAttribute('aria-pressed', 'true');
+        const sidInput = document.getElementById('filter-sid');
+        if (sidInput) setTimeout(() => sidInput.focus(), 0);
+    } else {
+        panel.setAttribute('hidden', '');
+        btn.setAttribute('aria-expanded', 'false');
+        btn.setAttribute('aria-pressed', 'false');
+    }
 }
 
 // ─── Sorting ──────────────────────────────────────────────────────────────
