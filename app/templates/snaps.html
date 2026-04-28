@@ -413,6 +413,13 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
     background: var(--sn-bg);
     color: var(--sn-text);
 }
+.ttl-modal-hint {
+    margin: .6rem 0 0;
+    font-size: .8rem;
+    color: var(--sn-muted);
+    min-height: 1.1em;
+}
+.ttl-modal-hint.ttl-hint-error { color: var(--sn-danger); font-weight: 500; }
 
 /* Execution status modal */
 .exec-status-banner {
@@ -639,11 +646,12 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
         <h3>TTL bearbeiten</h3>
         <p id="ttl-modal-info" style="font-size:.85rem;color:var(--sn-muted);margin-bottom:.75rem;"></p>
         <div class="ttl-picker-wrap">
-            <input type="date" id="ttl-date-input" />
-            <input type="time" id="ttl-time-input" step="1" />
+            <input type="date" id="ttl-date-input" oninput="refreshTtlPickerValidity()" />
+            <input type="time" id="ttl-time-input" step="1" oninput="refreshTtlPickerValidity()" />
         </div>
+        <p id="ttl-modal-hint" class="ttl-modal-hint" aria-live="polite"></p>
         <div style="margin-top:1rem;display:flex;gap:.75rem;">
-            <button class="btn-primary" onclick="saveTtl()">Speichern</button>
+            <button class="btn-primary" id="ttl-save-btn" onclick="saveTtl()">Speichern</button>
             <button class="btn-secondary" onclick="closeTtlModal()">Abbrechen</button>
         </div>
     </div>
@@ -1096,6 +1104,72 @@ async function saveComment(id) {
 }
 
 // ─── TTL editing ──────────────────────────────────────────────────────────
+/**
+ * Minimum gap (hours) the new TTL must lie in the future relative to the
+ * current TTL.  A change must always **extend** the lifetime, and by at
+ * least this amount – the storage-side rename is otherwise pointless and
+ * risks racing the natural expiry.
+ */
+const TTL_MIN_INCREASE_HOURS = 24;
+
+let _ttlMinTime = null;   // earliest allowed Date for the modal currently open
+
+/** Parse a server-provided ISO/space timestamp as a UTC Date. */
+function parseServerDt(iso) {
+    if (!iso) return null;
+    const isoDt = iso.includes('T') ? iso : iso.replace(' ', 'T');
+    const d = new Date(isoDt.endsWith('Z') ? isoDt : isoDt + 'Z');
+    return isNaN(d.getTime()) ? null : d;
+}
+
+/** Read the current picker value as a local-time Date (or null if invalid). */
+function readPickerDate() {
+    const dateVal = document.getElementById('ttl-date-input').value;
+    const timeVal = document.getElementById('ttl-time-input').value || '00:00:00';
+    if (!dateVal) return null;
+    const d = new Date(`${dateVal}T${timeVal}`);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+/** Update validity & save-button state based on the current picker values. */
+function refreshTtlPickerValidity() {
+    const saveBtn = document.getElementById('ttl-save-btn');
+    const hint    = document.getElementById('ttl-modal-hint');
+    const picked  = readPickerDate();
+    let valid = true;
+    let reason = '';
+    if (!picked) {
+        valid = false;
+        reason = 'Bitte ein vollständiges Datum und Uhrzeit auswählen.';
+    } else if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
+        valid = false;
+        reason = `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} h nach der aktuellen TTL liegen (frühestens ${formatLocalDt(_ttlMinTime)}).`;
+    }
+    if (saveBtn) {
+        saveBtn.disabled = !valid;
+        saveBtn.title    = valid ? '' : reason;
+    }
+    if (hint) {
+        if (valid) {
+            hint.classList.remove('ttl-hint-error');
+            hint.textContent = _ttlMinTime
+                ? `Frühestmögliche neue TTL: ${formatLocalDt(_ttlMinTime)}`
+                : '';
+        } else {
+            hint.classList.add('ttl-hint-error');
+            hint.textContent = reason;
+        }
+    }
+}
+
+/** Format a local-time Date the same way formatDt() formats UTC inputs. */
+function formatLocalDt(d) {
+    if (!d) return '–';
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} `
+         + `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 function openTtlModal(id) {
     const snap = _snapshots.find(s => s.id === id);
     if (!snap) return;
@@ -1109,38 +1183,61 @@ function openTtlModal(id) {
     document.getElementById('ttl-modal-info').textContent =
         `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
 
-    if (snap.ttl) {
-        // Pre-fill the picker with the **same** date/time values that the
-        // info line above shows under "Aktuell TTL".  formatDt() renders the
-        // TTL using local-time getters, so we must use the same getters here
-        // to avoid a UTC↔local offset (e.g. +2h in CEST) between the
-        // displayed timestamp and the picker defaults.
-        const isoDt = snap.ttl.includes('T') ? snap.ttl : snap.ttl.replace(' ', 'T');
-        const d = new Date(isoDt.endsWith('Z') ? isoDt : isoDt + 'Z');
-        const pad = n => String(n).padStart(2, '0');
-        document.getElementById('ttl-date-input').value =
-            `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        document.getElementById('ttl-time-input').value =
-            `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    } else {
-        document.getElementById('ttl-date-input').value = '';
-        document.getElementById('ttl-time-input').value = '00:00:00';
-    }
+    // Compute the earliest allowed new TTL: current TTL + 24 h.
+    // If the snapshot has no TTL yet (rare, but defensively handled) we
+    // fall back to "now + 24 h" to keep the rule "must be in the future
+    // by at least 24h" intact.
+    const currentTtl = parseServerDt(snap.ttl) || new Date();
+    _ttlMinTime = new Date(currentTtl.getTime()
+                           + TTL_MIN_INCREASE_HOURS * 3600 * 1000);
+
+    const pad = n => String(n).padStart(2, '0');
+    const dateInput = document.getElementById('ttl-date-input');
+    const timeInput = document.getElementById('ttl-time-input');
+
+    // Apply the HTML5 ``min`` attribute so the native picker greys out
+    // earlier days.  We deliberately set this to the **day** of the
+    // earliest allowed time; the per-second guard below covers the
+    // same-day "before HH:MM:SS" case.
+    const minDateStr =
+        `${_ttlMinTime.getFullYear()}-${pad(_ttlMinTime.getMonth() + 1)}-${pad(_ttlMinTime.getDate())}`;
+    dateInput.min = minDateStr;
+
+    // Pre-fill the picker with the earliest valid value so a confirming
+    // click immediately produces a legal change.
+    dateInput.value = minDateStr;
+    timeInput.value =
+        `${pad(_ttlMinTime.getHours())}:${pad(_ttlMinTime.getMinutes())}:${pad(_ttlMinTime.getSeconds())}`;
+
+    refreshTtlPickerValidity();
     document.getElementById('ttl-modal').classList.add('open');
 }
 
 function closeTtlModal() {
     document.getElementById('ttl-modal').classList.remove('open');
     _ttlEditId = null;
+    _ttlMinTime = null;
 }
 
 async function saveTtl() {
     if (!_ttlEditId) return;
-    const dateVal = document.getElementById('ttl-date-input').value;
-    const timeVal = document.getElementById('ttl-time-input').value || '00:00:00';
-    if (!dateVal) { alert('Bitte Datum eingeben.'); return; }
+    const picked = readPickerDate();
+    if (!picked) {
+        alert('Bitte Datum und Uhrzeit eingeben.');
+        return;
+    }
+    if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
+        alert(
+            `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} Stunden nach der ` +
+            `aktuellen TTL liegen.\n\nFrühestmöglich: ${formatLocalDt(_ttlMinTime)}`
+        );
+        return;
+    }
+    const pad = n => String(n).padStart(2, '0');
+    const newTtl =
+        `${picked.getFullYear()}-${pad(picked.getMonth() + 1)}-${pad(picked.getDate())} ` +
+        `${pad(picked.getHours())}:${pad(picked.getMinutes())}:${pad(picked.getSeconds())}`;
 
-    const newTtl = `${dateVal} ${timeVal}`;
     const id = _ttlEditId;
     closeTtlModal();
     await runExecution({
