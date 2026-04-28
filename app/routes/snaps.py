@@ -69,11 +69,10 @@ _DELETE_DELAY_HOURS = 24
 # 25 h gives one extra hour of margin on top of the 24 h delete delay.
 _TTL_ACTION_LOCK_HOURS = 25
 
-# Minimum amount by which a TTL update must push the expiry into the future
-# relative to the snapshot's *current* TTL.  A change must always extend the
-# lifetime; tiny extensions (< 24 h) are also rejected because they don't
-# meaningfully help and create races with the natural expiry on the storage.
-# Keep in sync with ``TTL_MIN_INCREASE_HOURS`` in ``snaps.html``.
+# Minimum amount by which a new TTL must lie in the future relative to "now".
+# Reducing an existing TTL is allowed as long as the target remains at least
+# this far in the future. Keep in sync with ``TTL_MIN_INCREASE_HOURS`` in
+# ``snaps.html``.
 _TTL_MIN_INCREASE_HOURS = 24
 
 
@@ -235,22 +234,18 @@ def api_update_ttl():
     if not new_ttl:
         return jsonify({'error': f'Cannot parse new_ttl: {new_ttl_str!r}'}), 400
 
-    # The new TTL must extend the snapshot's lifetime by at least the
-    # configured minimum (currently 24 h).  Both shortening the lifetime
-    # ("backwards in time") and tiny extensions (< 24 h) are rejected
-    # because the storage-side rename is otherwise pointless and risks
-    # racing the snapshot's natural expiry.  See ``_TTL_MIN_INCREASE_HOURS``.
-    if rec.ttl is not None:
-        min_new_ttl = rec.ttl + timedelta(hours=_TTL_MIN_INCREASE_HOURS)
-        if new_ttl < min_new_ttl:
-            return jsonify({
-                'error': (
-                    f'Neue TTL muss mindestens {_TTL_MIN_INCREASE_HOURS} Stunden '
-                    f'nach der aktuellen TTL liegen. Frühestmöglich: '
-                    f'{min_new_ttl.strftime("%d.%m.%Y %H:%M:%S")} UTC.'
-                ),
-                'min_new_ttl': min_new_ttl.isoformat() + 'Z',
-            }), 400
+    # A new TTL may reduce or extend the current lifetime, but must always
+    # remain sufficiently in the future relative to the current time.
+    min_new_ttl = datetime.utcnow() + timedelta(hours=_TTL_MIN_INCREASE_HOURS)
+    if new_ttl < min_new_ttl:
+        return jsonify({
+            'error': (
+                f'Neue TTL muss mindestens {_TTL_MIN_INCREASE_HOURS} Stunden '
+                f'ab jetzt in der Zukunft liegen. Frühestmöglich: '
+                f'{min_new_ttl.strftime("%d.%m.%Y %H:%M:%S")} UTC.'
+            ),
+            'min_new_ttl': min_new_ttl.isoformat() + 'Z',
+        }), 400
 
     locs = rec.get_storage_locations()
     plan = _build_update_ttl_plan(rec, locs, new_ttl)
@@ -889,6 +884,16 @@ def _format_response_info(info) -> str:
         parts.append(f"vol_uuid={info['volume_uuid']}")
     if info.get('snap_uuid'):
         parts.append(f"snap_uuid={info['snap_uuid']}")
+    if info.get('job_uuid'):
+        parts.append(f"job_uuid={info['job_uuid']}")
+    job = info.get('job')
+    if isinstance(job, dict):
+        job_state = job.get('state')
+        if job_state:
+            parts.append(f"job_state={job_state}")
+        job_msg = job.get('message') or job.get('description')
+        if isinstance(job_msg, str) and job_msg.strip():
+            parts.append(f"job_msg={job_msg.strip()[:300]}")
     return ' | '.join(parts) if parts else json.dumps(info, default=str)
 
 

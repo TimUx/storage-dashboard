@@ -1075,25 +1075,32 @@ def test_api_update_ttl_missing_id(app, client):
     assert resp.status_code == 400
 
 
-def test_api_update_ttl_rejects_past_relative_to_current_ttl(app, client):
-    """A new TTL that does not lie at least 24 h after the current TTL is rejected."""
+def test_api_update_ttl_allows_reduction_if_still_24h_in_future(app, client):
+    """Reducing TTL is allowed when the new TTL is still >= now + 24h."""
     snap_id = _seed_snapshot(app)  # seeded TTL = now + 5 days
-    # Try a TTL that's earlier than the seeded one – must be refused outright.
-    earlier = (datetime.utcnow() + timedelta(days=2)).strftime('%Y-%m-%d %H:%M:%S')
-    resp = client.post('/snaps/api/update-ttl',
-                       json={'id': snap_id, 'new_ttl': earlier},
-                       content_type='application/json')
-    assert resp.status_code == 400
-    body = resp.get_json()
-    assert 'mindestens' in body.get('error', '').lower() or '24' in body.get('error', '')
-    assert body.get('min_new_ttl')
+    reduced_but_valid = datetime.utcnow() + timedelta(days=2)
+    new_ttl_str = reduced_but_valid.strftime('%Y-%m-%d %H:%M:%S')
+
+    patches = _patch_storage_clients()
+    for p in patches:
+        p.start()
+    try:
+        resp = client.post('/snaps/api/update-ttl',
+                           json={'id': snap_id, 'new_ttl': new_ttl_str},
+                           content_type='application/json')
+        assert resp.status_code == 200
+        events = _consume_ndjson(resp)
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert events[-1]['status'] == 'ok'
 
 
-def test_api_update_ttl_rejects_increase_below_24h(app, client):
-    """A new TTL that bumps the lifetime by less than 24 h is rejected."""
+def test_api_update_ttl_rejects_value_below_now_plus_24h(app, client):
+    """A new TTL earlier than now + 24 h must be rejected."""
     snap_id = _seed_snapshot(app)
-    # Seeded TTL is now+5d; +5d+12h is only a 12h increase → must fail.
-    too_close = (datetime.utcnow() + timedelta(days=5, hours=12)).strftime('%Y-%m-%d %H:%M:%S')
+    too_close = (datetime.utcnow() + timedelta(hours=12)).strftime('%Y-%m-%d %H:%M:%S')
     resp = client.post('/snaps/api/update-ttl',
                        json={'id': snap_id, 'new_ttl': too_close},
                        content_type='application/json')
