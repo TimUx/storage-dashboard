@@ -1161,6 +1161,7 @@ class NetAppONTAPClient(StorageClient):
                 f"{self.base_url}/api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}",
                 auth=auth, headers=headers, verify=ssl_verify, timeout=30,
                 json=body,
+                params={'return_timeout': 30},
             )
             ok = resp.status_code in (200, 202)
             info = {'status_code': resp.status_code, 'text': resp.text[:500],
@@ -1308,6 +1309,7 @@ class NetAppONTAPClient(StorageClient):
                     ),
                     'status_code': resp.status_code,
                     'volume_uuid': vol_uuid,
+                    'snap_uuid': snap_uuid,
                     'old_snap_uuid': snap_uuid,
                     'lookup': vis_info.get('lookup'),
                     'old_lookup': old_info.get('lookup') if isinstance(old_info, dict) else None,
