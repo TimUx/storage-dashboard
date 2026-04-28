@@ -884,6 +884,10 @@ def _format_response_info(info) -> str:
         parts.append(f"vol_uuid={info['volume_uuid']}")
     if info.get('snap_uuid'):
         parts.append(f"snap_uuid={info['snap_uuid']}")
+    if info.get('old_snap_uuid'):
+        parts.append(f"old_snap_uuid={info['old_snap_uuid']}")
+    if info.get('renamed_snap_uuid'):
+        parts.append(f"renamed_snap_uuid={info['renamed_snap_uuid']}")
     if info.get('job_uuid'):
         parts.append(f"job_uuid={info['job_uuid']}")
     job = info.get('job')
