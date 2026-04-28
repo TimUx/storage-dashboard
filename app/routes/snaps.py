@@ -530,20 +530,36 @@ def _build_update_ttl_plan(rec, locs: dict, new_ttl: datetime) -> list[dict]:
                 # No timestamp pattern found – append the new timestamp.
                 new_snap_name = f'{rec.sid}_HDBSNAP-{new_ts_str}'
 
-            command = (
+            cmd_rename = (
                 f"curl -X PATCH 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
                 f"/snapshots/{{snap_uuid}}' "
                 f"-u <user>:<password> "
                 f"-H 'Content-Type: application/json' "
-                f"-d '{{\"name\":\"{new_snap_name}\",\"expiry_time\":\"{new_iso}\"}}'"
+                f"-d '{{\"name\":\"{new_snap_name}\"}}'"
+            )
+            cmd_expiry = (
+                f"curl -X PATCH 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
+                f"/snapshots/{{snap_uuid}}' "
+                f"-u <user>:<password> "
+                f"-H 'Content-Type: application/json' "
+                f"-d '{{\"expiry_time\":\"{new_iso}\"}}'"
             )
             plan.append({
                 'label': f'ONTAP Rename: {vol_name}/{snap_name} → {new_snap_name}',
                 'platform': 'ONTAP',
                 'target': f'{cluster} / {svm} – {vol_name}',
-                'command': command,
+                'command': cmd_rename,
                 'execute': _make_ontap_rename_executor(
-                    cluster, svm, vol_name, snap_name, new_snap_name, new_iso,
+                    cluster, svm, vol_name, snap_name, new_snap_name,
+                ),
+            })
+            plan.append({
+                'label': f'ONTAP expiry_time setzen: {vol_name}/{new_snap_name}',
+                'platform': 'ONTAP',
+                'target': f'{cluster} / {svm} – {vol_name}',
+                'command': cmd_expiry,
+                'execute': _make_ontap_set_expiry_executor(
+                    cluster, svm, vol_name, new_snap_name, new_iso,
                 ),
             })
 
@@ -735,7 +751,7 @@ def _make_fa_destroy_executor(array_name: str, snap_name: str):
 
 def _make_ontap_rename_executor(cluster: str, svm: str, volume: str,
                                 snap_name: str, new_snap_name: str,
-                                new_expiry_iso: str):
+                                new_expiry_iso: str | None = None):
     def _exec():
         client, err = _get_ontap_client(cluster)
         if err:

@@ -1,5 +1,6 @@
 """NetApp ONTAP 9 REST API client."""
 import logging
+import time
 import traceback
 from datetime import datetime, timezone
 
@@ -1054,6 +1055,31 @@ class NetAppONTAPClient(StorageClient):
         headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
         return auth, headers, ssl_verify
 
+    def _wait_for_job_completion(self, job_uuid: str, auth, headers, ssl_verify,
+                                 timeout_seconds: int = 45) -> tuple[bool, dict]:
+        """Poll an ONTAP async job until it finishes."""
+        deadline = time.time() + timeout_seconds
+        last_payload: dict = {}
+        while time.time() < deadline:
+            resp = local_session().get(
+                f"{self.base_url}/api/cluster/jobs/{job_uuid}",
+                auth=auth, headers=headers, verify=ssl_verify, timeout=15,
+            )
+            if resp.status_code != 200:
+                return False, {'status_code': resp.status_code, 'text': resp.text[:300]}
+            try:
+                payload = resp.json()
+            except Exception:
+                payload = {}
+            last_payload = payload if isinstance(payload, dict) else {}
+            state = str(last_payload.get('state', '')).lower()
+            if state in ('success', 'completed'):
+                return True, last_payload
+            if state in ('failure', 'failed', 'error'):
+                return False, last_payload
+            time.sleep(1.0)
+        return False, {'error': 'ONTAP async job timeout', 'job': last_payload}
+
     def update_snapshot_expiry(self, svm: str, volume_name: str,
                                snap_name: str, expiry_iso: str | None) -> tuple[bool, dict]:
         """Set ``expiry_time`` on an ONTAP volume snapshot.
@@ -1181,6 +1207,18 @@ class NetAppONTAPClient(StorageClient):
             ok = resp.status_code in (200, 202)
             info = {'status_code': resp.status_code, 'text': resp.text[:500],
                     'volume_uuid': vol_uuid, 'snap_uuid': snap_uuid}
+            if ok and resp.status_code == 202:
+                try:
+                    job_uuid = (resp.json() or {}).get('job', {}).get('uuid')
+                except Exception:
+                    job_uuid = None
+                if job_uuid:
+                    job_ok, job_info = self._wait_for_job_completion(
+                        job_uuid, auth, headers, ssl_verify
+                    )
+                    info['job_uuid'] = job_uuid
+                    info['job'] = job_info
+                    ok = job_ok
             if ok:
                 logger.info("ONTAP %s: renamed snapshot %s/%s → %s",
                             self.ip_address, volume_name, snap_name, new_name)
@@ -1188,6 +1226,21 @@ class NetAppONTAPClient(StorageClient):
                 logger.warning("ONTAP %s: rename snapshot %s/%s failed (HTTP %d): %s",
                                self.ip_address, volume_name, snap_name,
                                resp.status_code, resp.text[:200])
+                return False, info
+
+            # Post-condition check: ensure the new name is resolvable after rename.
+            new_uuid, new_lookup = self._resolve_snapshot_uuid(
+                vol_uuid, new_name, auth, headers, ssl_verify
+            )
+            if not new_uuid:
+                return False, {
+                    'error': f'Rename reported success but snapshot {new_name} not found',
+                    'status_code': resp.status_code,
+                    'volume_uuid': vol_uuid,
+                    'old_snap_uuid': snap_uuid,
+                    'lookup': new_lookup,
+                    'job': info.get('job'),
+                }
             return ok, info
         except Exception as exc:
             logger.warning("ONTAP rename_volume_snapshot error %s/%s: %s",
