@@ -1002,7 +1002,8 @@ class NetAppONTAPClient(StorageClient):
     # ------------------------------------------------------------------
 
     def _resolve_snapshot_uuid(self, vol_uuid: str, snap_name: str,
-                               auth, headers, ssl_verify) -> tuple[str | None, dict]:
+                               auth, headers, ssl_verify,
+                               timeout_seconds: int = 30) -> tuple[str | None, dict]:
         """Look up the ONTAP snapshot UUID for ``snap_name`` on ``vol_uuid``.
 
         Returns ``(snap_uuid, raw_response_json)``.  ``snap_uuid`` is None if
@@ -1011,7 +1012,7 @@ class NetAppONTAPClient(StorageClient):
         """
         resp = local_session().get(
             f"{self.base_url}/api/storage/volumes/{vol_uuid}/snapshots",
-            auth=auth, headers=headers, verify=ssl_verify, timeout=30,
+            auth=auth, headers=headers, verify=ssl_verify, timeout=timeout_seconds,
             params={'name': snap_name, 'fields': 'name,uuid,expiry_time'},
         )
         body = {}
@@ -1094,13 +1095,13 @@ class NetAppONTAPClient(StorageClient):
 
     def _wait_for_snapshot_name(self, vol_uuid: str, snap_name: str,
                                 auth, headers, ssl_verify,
-                                timeout_seconds: int = 120) -> tuple[bool, dict]:
+                                timeout_seconds: int = 60) -> tuple[bool, dict]:
         """Wait until a snapshot is resolvable by name on a volume."""
         deadline = time.time() + timeout_seconds
         last_lookup: dict = {}
         while time.time() < deadline:
             snap_uuid, lookup = self._resolve_snapshot_uuid(
-                vol_uuid, snap_name, auth, headers, ssl_verify
+                vol_uuid, snap_name, auth, headers, ssl_verify, timeout_seconds=5
             )
             last_lookup = lookup if isinstance(lookup, dict) else {}
             if snap_uuid:
@@ -1264,7 +1265,7 @@ class NetAppONTAPClient(StorageClient):
                 job_uuid = self._extract_job_uuid_from_response(resp)
                 if job_uuid:
                     job_ok, job_info = self._wait_for_job_completion(
-                        job_uuid, auth, headers, ssl_verify
+                        job_uuid, auth, headers, ssl_verify, timeout_seconds=30
                     )
                     info['job_uuid'] = job_uuid
                     info['job'] = job_info
@@ -1289,8 +1290,10 @@ class NetAppONTAPClient(StorageClient):
                 return False, info
 
             # Post-condition check: ensure the new name becomes resolvable.
+            visibility_wait = 60 if info.get('job_uuid') else 20
             visible, vis_info = self._wait_for_snapshot_name(
-                vol_uuid, new_name, auth, headers, ssl_verify
+                vol_uuid, new_name, auth, headers, ssl_verify,
+                timeout_seconds=visibility_wait
             )
             if not visible:
                 # Additional diagnostic: check whether the old snapshot name is
