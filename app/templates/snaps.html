@@ -66,21 +66,88 @@
     background: var(--sn-white);
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,.07);
-    padding: .75rem 1.25rem;
+    padding: .9rem 1.25rem;
     margin-bottom: 1rem;
-    display: flex;
-    gap: .75rem;
-    flex-wrap: wrap;
-    align-items: center;
+    display: grid;
+    grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(140px, 1fr)) auto;
+    gap: .75rem 1rem;
+    align-items: end;
 }
-.sn-filters label { font-size: .82rem; color: var(--sn-muted); white-space: nowrap; }
-.sn-filters input, .sn-filters select {
-    padding: .3rem .6rem;
+@media (max-width: 1100px) {
+    .sn-filters { grid-template-columns: 1fr 1fr 1fr; }
+    .sn-filters .sn-filter-search { grid-column: 1 / -1; }
+    .sn-filters .sn-filter-actions { grid-column: 1 / -1; justify-self: end; }
+}
+@media (max-width: 640px) {
+    .sn-filters { grid-template-columns: 1fr 1fr; }
+    .sn-filters .sn-filter-search { grid-column: 1 / -1; }
+    .sn-filters .sn-filter-actions { grid-column: 1 / -1; }
+}
+
+.sn-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+    min-width: 0;
+}
+.sn-filter-label {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    font-size: .72rem;
+    color: var(--sn-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-weight: 600;
+}
+.sn-filter-info {
+    cursor: help;
+    color: var(--sn-blue);
+    font-size: .75rem;
+    line-height: 1;
+    width: 14px; height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    opacity: .65;
+    transition: opacity .15s;
+}
+.sn-filter-info:hover { opacity: 1; }
+.sn-filter-info::before { content: 'i'; font-style: italic; font-weight: 700; }
+
+.sn-filters input[type="text"],
+.sn-filters input[type="date"],
+.sn-filters select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: .45rem .65rem;
     border: 1px solid var(--sn-border);
-    border-radius: 5px;
-    font-size: .85rem;
+    border-radius: 6px;
+    font-size: .88rem;
     background: var(--sn-bg);
     color: var(--sn-text);
+    min-height: 2.2rem;
+    transition: border-color .15s, box-shadow .15s;
+}
+.sn-filters input[type="text"]:focus,
+.sn-filters input[type="date"]:focus,
+.sn-filters select:focus {
+    outline: none;
+    border-color: var(--sn-blue);
+    box-shadow: 0 0 0 3px rgba(0, 86, 179, .12);
+}
+.sn-filters input[type="date"] { color-scheme: light dark; }
+
+.sn-filter-actions {
+    display: flex;
+    align-items: end;
+    justify-self: end;
+}
+.sn-filter-actions .btn-secondary {
+    min-height: 2.2rem;
+    white-space: nowrap;
 }
 
 /* Table */
@@ -188,6 +255,13 @@ td.ttl-cell .ttl-display {
 }
 td.ttl-cell .ttl-display:hover { background: rgba(0,0,0,.06); }
 td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
+td.ttl-cell .ttl-display.ttl-locked {
+    cursor: not-allowed;
+    color: var(--sn-muted);
+    opacity: .65;
+}
+td.ttl-cell .ttl-display.ttl-locked:hover { background: transparent; }
+td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
 
 /* Delete column */
 .btn-delete {
@@ -201,6 +275,13 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
     transition: opacity .2s;
 }
 .btn-delete:hover { opacity: .8; }
+.btn-delete:disabled,
+.btn-delete[aria-disabled="true"] {
+    background: var(--sn-muted);
+    cursor: not-allowed;
+    opacity: .5;
+}
+.btn-delete:disabled:hover { opacity: .5; }
 .btn-undo {
     background: var(--sn-warn);
     color: #fff;
@@ -458,18 +539,43 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
     </div>
 
     <!-- Filters -->
-    <div class="sn-filters">
-        <label>Suchtext (SID, Kommentar, Speicherorte; * und ? als Platzhalter):</label>
-        <input type="text" id="filter-sid" placeholder="z.B. ACP, *PRD*, HDBSNAP-2026*" oninput="applyFilters()">
-        <label>Erstellt nach:</label>
-        <input type="date" id="filter-created-after" onchange="applyFilters()">
-        <label>Erstellt vor:</label>
-        <input type="date" id="filter-created-before" onchange="applyFilters()">
-        <label>TTL nach:</label>
-        <input type="date" id="filter-ttl-after" onchange="applyFilters()">
-        <label>TTL vor:</label>
-        <input type="date" id="filter-ttl-before" onchange="applyFilters()">
-        <button class="btn-secondary" onclick="clearFilters()">✕ Filter löschen</button>
+    <div class="sn-filters" role="search">
+        <div class="sn-filter-field sn-filter-search">
+            <label class="sn-filter-label" for="filter-sid">
+                <span>Suchtext</span>
+                <span class="sn-filter-info"
+                      tabindex="0"
+                      role="button"
+                      aria-label="Hinweis zum Suchtext anzeigen"
+                      title="Sucht in SID, Kommentar und Speicherorten. Platzhalter: * (mehrere Zeichen) und ? (ein Zeichen)."></span>
+            </label>
+            <input type="text"
+                   id="filter-sid"
+                   placeholder="z. B. ACP, *PRD*, HDBSNAP-2026*"
+                   aria-describedby="filter-sid-hint"
+                   oninput="applyFilters()">
+        </div>
+
+        <div class="sn-filter-field">
+            <label class="sn-filter-label" for="filter-created-after">Erstellt ab</label>
+            <input type="date" id="filter-created-after" onchange="applyFilters()">
+        </div>
+        <div class="sn-filter-field">
+            <label class="sn-filter-label" for="filter-created-before">Erstellt bis</label>
+            <input type="date" id="filter-created-before" onchange="applyFilters()">
+        </div>
+        <div class="sn-filter-field">
+            <label class="sn-filter-label" for="filter-ttl-after">TTL ab</label>
+            <input type="date" id="filter-ttl-after" onchange="applyFilters()">
+        </div>
+        <div class="sn-filter-field">
+            <label class="sn-filter-label" for="filter-ttl-before">TTL bis</label>
+            <input type="date" id="filter-ttl-before" onchange="applyFilters()">
+        </div>
+
+        <div class="sn-filter-actions">
+            <button class="btn-secondary" onclick="clearFilters()" title="Alle Filter zurücksetzen">✕ Filter löschen</button>
+        </div>
     </div>
 
     <!-- Table -->
@@ -506,7 +612,7 @@ td.ttl-cell .ttl-edit-icon { font-size: .75rem; opacity: .5; }
             <input type="time" id="ttl-time-input" step="1" />
         </div>
         <div style="margin-top:1rem;display:flex;gap:.75rem;">
-            <button class="btn-primary" onclick="saveTtl()">Speichern &amp; Vorschau</button>
+            <button class="btn-primary" onclick="saveTtl()">Speichern</button>
             <button class="btn-secondary" onclick="closeTtlModal()">Abbrechen</button>
         </div>
     </div>
@@ -713,23 +819,41 @@ function renderTable() {
     let html = '';
     for (const s of rows) {
         const isPending = s.delete_marked && s.delete_deadline;
+        const isLocked  = !!s.actions_locked;   // TTL ≤ 25h until expiry
         const rowClass  = isPending ? ' class="delete-pending"' : '';
         const expandId  = `detail-${s.id}`;
         const btnId     = `expand-btn-${s.id}`;
 
         // TTL display
         const ttlDisp = s.ttl ? formatDt(s.ttl) : '–';
+        const lockReason = s.actions_lock_reason
+            || 'TTL läuft in ≤ 25 Stunden ab; Bearbeitung und Löschung sind gesperrt.';
+
+        // TTL cell – click only when not locked
+        let ttlCellHtml;
+        if (isLocked) {
+            ttlCellHtml = `
+                <span class="ttl-display ttl-locked" title="${escHtml(lockReason)}" aria-disabled="true">
+                    ${escHtml(ttlDisp)}<span class="ttl-edit-icon" aria-hidden="true">🔒</span>
+                </span>`;
+        } else {
+            ttlCellHtml = `
+                <span class="ttl-display" onclick="openTtlModal(${s.id})" title="TTL bearbeiten">
+                    ${escHtml(ttlDisp)}<span class="ttl-edit-icon">✏️</span>
+                </span>`;
+        }
 
         // Delete column
         let delCol;
         if (isPending) {
-            const deadline = new Date(s.delete_deadline);
-            const hoursLeft = Math.max(0, Math.ceil((deadline - now) / 3600000));
+            const remaining = formatRemaining(new Date(s.delete_deadline) - now);
             delCol = `
-                <span class="delete-timer" id="timer-${s.id}">${hoursLeft}h</span>
-                <button class="btn-undo" onclick="undoDelete(${s.id})">↩ Rückgängig</button>`;
+                <span class="delete-timer" id="timer-${s.id}" title="Verbleibende Zeit bis zur Ausführung der Löschung">${remaining}</span>
+                <button class="btn-undo" onclick="undoDelete(${s.id})" title="Geplante Löschung stornieren">↩ Rückgängig</button>`;
+        } else if (isLocked) {
+            delCol = `<button class="btn-delete" disabled aria-disabled="true" title="${escHtml(lockReason)}">✕</button>`;
         } else {
-            delCol = `<button class="btn-delete" onclick="markDelete(${s.id})" title="Löschen planen">✕</button>`;
+            delCol = `<button class="btn-delete" onclick="markDelete(${s.id})" title="Löschung in 24h einplanen">✕</button>`;
         }
 
         // Storage locations detail
@@ -807,9 +931,7 @@ function renderTable() {
             <td><strong>${escHtml(s.sid)}</strong></td>
             <td style="white-space:nowrap">${s.creation_time ? formatDt(s.creation_time) : '–'}</td>
             <td class="ttl-cell">
-                <span class="ttl-display" onclick="openTtlModal(${s.id})" title="TTL bearbeiten">
-                    ${escHtml(ttlDisp)}<span class="ttl-edit-icon">✏️</span>
-                </span>
+                ${ttlCellHtml}
             </td>
             <td class="${s.flasharray_present ? 'badge-ok' : 'badge-miss'}" style="text-align:center">
                 ${s.flasharray_present ? '✔' : '✘'}
@@ -901,18 +1023,31 @@ async function saveComment(id) {
 
 // ─── TTL editing ──────────────────────────────────────────────────────────
 function openTtlModal(id) {
-    _ttlEditId = id;
     const snap = _snapshots.find(s => s.id === id);
     if (!snap) return;
+    if (snap.actions_locked) {
+        alert(snap.actions_lock_reason
+            || 'TTL läuft in ≤ 25 Stunden ab; Bearbeitung ist gesperrt.');
+        return;
+    }
+    _ttlEditId = id;
 
     document.getElementById('ttl-modal-info').textContent =
         `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
 
     if (snap.ttl) {
-        // Parse ISO to date/time fields
-        const d = new Date(snap.ttl + (snap.ttl.includes('T') ? '' : 'T00:00:00'));
-        document.getElementById('ttl-date-input').value = d.toISOString().slice(0,10);
-        document.getElementById('ttl-time-input').value = d.toISOString().slice(11,19);
+        // Pre-fill the picker with the **same** date/time values that the
+        // info line above shows under "Aktuell TTL".  formatDt() renders the
+        // TTL using local-time getters, so we must use the same getters here
+        // to avoid a UTC↔local offset (e.g. +2h in CEST) between the
+        // displayed timestamp and the picker defaults.
+        const isoDt = snap.ttl.includes('T') ? snap.ttl : snap.ttl.replace(' ', 'T');
+        const d = new Date(isoDt.endsWith('Z') ? isoDt : isoDt + 'Z');
+        const pad = n => String(n).padStart(2, '0');
+        document.getElementById('ttl-date-input').value =
+            `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        document.getElementById('ttl-time-input').value =
+            `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     } else {
         document.getElementById('ttl-date-input').value = '';
         document.getElementById('ttl-time-input').value = '00:00:00';
@@ -944,13 +1079,43 @@ async function saveTtl() {
 
 // ─── Delete / undo ────────────────────────────────────────────────────────
 async function markDelete(id) {
-    if (!confirm('Snapshot wirklich löschen? Die Operation wird sofort auf den Storages ausgeführt.')) return;
-    await runExecution({
-        url: '/snaps/api/delete',
-        body: {id},
-        title: 'Snapshot löschen',
-        defaultBanner: 'Lösch-Operation läuft auf den Storages…'
-    });
+    const snap = _snapshots.find(s => s.id === id);
+    if (snap && snap.actions_locked) {
+        alert(snap.actions_lock_reason
+            || 'Löschung gesperrt: Snapshot läuft in ≤ 25 Stunden TTL-seitig ohnehin ab.');
+        return;
+    }
+    if (!confirm(
+        'Snapshot zur Löschung in 24 Stunden vormerken?\n\n' +
+        'Die Lösch-Operation wird erst nach Ablauf des Countdowns auf den ' +
+        'Storage-Systemen ausgeführt. Innerhalb der 24 Stunden kann sie ' +
+        'jederzeit über den Rückgängig-Button storniert werden.'
+    )) return;
+
+    try {
+        const resp = await fetch('/snaps/api/delete', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({id}),
+        });
+        const data = await resp.json();
+        if (!resp.ok) { alert('Fehler: ' + (data.error || resp.status)); return; }
+
+        if (data.delete_planned === false) {
+            // Nothing left to delete on the storages – record was dropped immediately.
+            _snapshots = _snapshots.filter(s => s.id !== id);
+            applyFilters();
+            return;
+        }
+
+        const snap = _snapshots.find(s => s.id === id);
+        if (snap) {
+            snap.delete_marked = true;
+            snap.delete_deadline = data.delete_deadline;
+        }
+        renderTable();
+        if (data.delete_deadline) startTimer(id, data.delete_deadline);
+    } catch(e) { alert('Fehler: ' + e.message); }
 }
 
 async function undoDelete(id) {
@@ -1157,19 +1322,35 @@ function closeExecModal() {
 }
 
 // ─── Delete countdown timer ────────────────────────────────────────────────
+function formatRemaining(ms) {
+    if (ms <= 0) return 'fällig';
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}h ${String(minutes).padStart(2,'0')}m`;
+    if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2,'0')}s`;
+    return `${seconds}s`;
+}
+
 function startTimer(id, deadline) {
     if (_deleteTimers[id]) clearInterval(_deleteTimers[id]);
-    _deleteTimers[id] = setInterval(() => {
+    const deadlineMs = new Date(deadline).getTime();
+    const tick = () => {
         const timerEl = document.getElementById(`timer-${id}`);
         if (!timerEl) { clearInterval(_deleteTimers[id]); delete _deleteTimers[id]; return; }
-        const hoursLeft = Math.max(0, Math.ceil((new Date(deadline) - Date.now()) / 3600000));
-        timerEl.textContent = `${hoursLeft}h`;
-        if (hoursLeft <= 0) {
+        const remaining = deadlineMs - Date.now();
+        timerEl.textContent = formatRemaining(remaining);
+        if (remaining <= 0) {
             clearInterval(_deleteTimers[id]);
             delete _deleteTimers[id];
-            loadSnapshots(); // Reload to remove deleted row
+            // Reload after a short delay so the background worker has a chance
+            // to run and the row to disappear.
+            setTimeout(loadSnapshots, 5000);
         }
-    }, 60000); // update every minute
+    };
+    tick();                                                  // immediate render
+    _deleteTimers[id] = setInterval(tick, 30000);            // refresh every 30s
 }
 
 // ─── Manual trigger ───────────────────────────────────────────────────────

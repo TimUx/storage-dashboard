@@ -573,11 +573,19 @@ def test_group_by_sid_oracle_two_fa_arrays_and_ontap():
 # ---------------------------------------------------------------------------
 
 def _seed_snapshot(ctx, sid='ACP', days_ago=2):
-    """Helper to insert a SnapshotRecord."""
+    """Helper to insert a SnapshotRecord.
+
+    The TTL is placed far enough in the future that the 25-hour action-lock
+    introduced by the snaps route does not kick in for the seeded record.
+    Tests that explicitly want a "locked" snapshot use
+    :func:`_seed_snapshot_with_ttl` instead.
+    """
     from app import db
     from app.models import SnapshotRecord
     ct = datetime.utcnow() - timedelta(days=days_ago)
-    ttl = ct + timedelta(days=3)
+    # Keep the TTL ≥ 26h in the future so the action-lock (≤ 25h) does not
+    # apply to records that the test does not specifically lock.
+    ttl = datetime.utcnow() + timedelta(days=5)
     locs = json.dumps({'flasharray_systems': [{'name': 'fa01', 'snapshot_names': ['ACP_1.HDBSNAP']}],
                        'ontap_clusters': []})
     rec = SnapshotRecord(
@@ -681,81 +689,166 @@ def test_api_comment(app, client):
     assert snap['comment'] == 'Test comment'
 
 
-def test_api_delete_executes_live_and_streams_events(app, client):
-    """POST /snaps/api/delete now executes the deletion live and streams ndjson.
-
-    The endpoint streams ``run_start`` / ``step_start`` / ``step_done`` /
-    ``run_done`` events.  After a successful run the SnapshotRecord row
-    is removed from the database (the storage no longer reports it).
-    """
-    snap_id = _seed_snapshot(app)
-    patches = _patch_storage_clients()
-    for p in patches:
-        p.start()
-    try:
-        resp = client.post('/snaps/api/delete',
-                           json={'id': snap_id},
-                           content_type='application/json')
-        assert resp.status_code == 200
-        events = _consume_ndjson(resp)
-    finally:
-        for p in patches:
-            p.stop()
-
-    event_kinds = [e['event'] for e in events]
-    assert event_kinds[0] == 'run_start'
-    assert event_kinds[-1] == 'run_done'
-    assert events[-1]['status'] == 'ok'
-    assert any(e['event'] == 'step_done' and e['status'] == 'ok' for e in events)
-
-    # SnapshotRecord row is removed after a successful delete run.
-    list_data = client.get('/snaps/api/list').get_json()
-    assert all(s['id'] != snap_id for s in list_data['snapshots'])
-
-
-def test_api_delete_aborts_on_storage_failure(app, client):
-    """Storage error during delete -> run_done.status == 'error' and DB row preserved."""
-    snap_id = _seed_snapshot(app)
-
-    failing_pure = MagicMock()
-    failing_pure.destroy_volume_snapshot.return_value = (
-        False, {'status_code': 500, 'text': 'Internal Server Error'}
+def _seed_snapshot_with_ttl(ctx, ttl: datetime, sid='LCK', days_ago=2):
+    """Seed a SnapshotRecord with an explicit TTL value."""
+    from app import db
+    from app.models import SnapshotRecord
+    ct = datetime.utcnow() - timedelta(days=days_ago)
+    locs = json.dumps({
+        'flasharray_systems': [{'name': 'fa01', 'snapshot_names': [f'{sid}_1.HDBSNAP']}],
+        'ontap_clusters': [],
+    })
+    rec = SnapshotRecord(
+        sid=sid,
+        creation_time=ct,
+        ttl=ttl,
+        flasharray_present=True,
+        ontap_present=False,
+        storage_locations=locs,
     )
-    patches = _patch_storage_clients(monkey_pure=failing_pure)
-    for p in patches:
-        p.start()
-    try:
-        resp = client.post('/snaps/api/delete',
-                           json={'id': snap_id},
-                           content_type='application/json')
-        assert resp.status_code == 200
-        events = _consume_ndjson(resp)
-    finally:
-        for p in patches:
-            p.stop()
+    with ctx.app_context():
+        db.session.add(rec)
+        db.session.commit()
+        return rec.id
 
-    assert events[-1]['event'] == 'run_done'
-    assert events[-1]['status'] == 'error'
-    error_steps = [e for e in events
-                   if e['event'] == 'step_done' and e['status'] == 'error']
-    assert error_steps, 'Expected at least one failing step'
 
-    # Snapshot must still be present – delete was not finalized.
+def test_actions_lock_flag_in_list_for_short_ttl(app, client):
+    """Snapshots with TTL ≤ 25h until expiry expose actions_locked=True."""
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() + timedelta(hours=10), sid='SOON',
+    )
+    data = client.get('/snaps/api/list').get_json()
+    snap = next(s for s in data['snapshots'] if s['id'] == snap_id)
+    assert snap['actions_locked'] is True
+    assert snap['actions_lock_reason']
+    assert data['stats']['actions_lock_hours'] == 25
+
+
+def test_actions_lock_flag_false_for_long_ttl(app, client):
+    """Snapshots with TTL well in the future are NOT locked."""
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() + timedelta(hours=72), sid='FREE',
+    )
+    data = client.get('/snaps/api/list').get_json()
+    snap = next(s for s in data['snapshots'] if s['id'] == snap_id)
+    assert snap['actions_locked'] is False
+    assert snap['actions_lock_reason'] is None
+
+
+def test_actions_lock_flag_true_for_already_expired_ttl(app, client):
+    """An already-expired TTL also locks the row."""
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() - timedelta(hours=1), sid='EXP',
+    )
+    data = client.get('/snaps/api/list').get_json()
+    snap = next(s for s in data['snapshots'] if s['id'] == snap_id)
+    assert snap['actions_locked'] is True
+
+
+def test_api_update_ttl_blocked_when_actions_locked(app, client):
+    """update-ttl rejects a locked snapshot with HTTP 409."""
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() + timedelta(hours=10), sid='LOCK',
+    )
+    resp = client.post('/snaps/api/update-ttl',
+                       json={'id': snap_id, 'new_ttl': '2099-12-31 00:00:00'},
+                       content_type='application/json')
+    assert resp.status_code == 409
+    body = resp.get_json()
+    assert body.get('actions_locked') is True
+    assert 'gesperrt' in body['error'].lower()
+
+
+def test_api_delete_blocked_when_actions_locked(app, client):
+    """delete rejects a locked snapshot with HTTP 409 and does NOT mark it."""
+    from app.models import SnapshotRecord
+
+    snap_id = _seed_snapshot_with_ttl(
+        app, datetime.utcnow() + timedelta(hours=10), sid='DLCK',
+    )
+    resp = client.post('/snaps/api/delete',
+                       json={'id': snap_id},
+                       content_type='application/json')
+    assert resp.status_code == 409
+    body = resp.get_json()
+    assert body.get('actions_locked') is True
+
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        assert rec is not None
+        assert rec.delete_marked is False
+        assert rec.delete_deadline is None
+
+
+def test_api_delete_schedules_with_24h_deadline(app, client):
+    """POST /snaps/api/delete schedules the deletion 24h ahead, no live execution."""
+    snap_id = _seed_snapshot(app)
+
+    before = datetime.utcnow()
+    resp = client.post('/snaps/api/delete',
+                       json={'id': snap_id},
+                       content_type='application/json')
+    after = datetime.utcnow()
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['success'] is True
+    assert data['delete_planned'] is True
+    assert 'delete_deadline' in data and data['delete_deadline']
+
+    deadline = datetime.fromisoformat(data['delete_deadline'])
+    # Allow a small tolerance so the test does not flake on slow runners.
+    assert deadline >= before + timedelta(hours=24) - timedelta(seconds=2)
+    assert deadline <= after + timedelta(hours=24) + timedelta(seconds=2)
+
+    # Snapshot must still be present and marked for deletion.
     list_data = client.get('/snaps/api/list').get_json()
-    assert any(s['id'] == snap_id for s in list_data['snapshots'])
+    snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
+    assert snap['delete_marked'] is True
+    assert snap['delete_deadline']
 
 
-def test_undo_delete_clears_legacy_marker(app, client):
-    """The /api/undo-delete endpoint still clears any legacy soft-delete marker."""
+def test_api_delete_drops_record_when_no_storage_steps(app, client):
+    """A record with no storage locations is removed immediately on delete."""
     from app import db
     from app.models import SnapshotRecord
 
-    snap_id = _seed_snapshot(app)
     with app.app_context():
-        rec = SnapshotRecord.query.get(snap_id)
-        rec.delete_marked = True
-        rec.delete_deadline = datetime.utcnow() + timedelta(hours=24)
+        rec = SnapshotRecord(
+            sid='ORPH',
+            creation_time=datetime.utcnow() - timedelta(days=1),
+            # TTL well outside the 25h action-lock window so the lock check
+            # does not interfere with this scenario.
+            ttl=datetime.utcnow() + timedelta(days=5),
+            flasharray_present=False,
+            ontap_present=False,
+            comment='Stale row',
+            storage_locations=json.dumps({'flasharray_systems': [], 'ontap_clusters': []}),
+        )
+        db.session.add(rec)
         db.session.commit()
+        snap_id = rec.id
+
+    resp = client.post('/snaps/api/delete',
+                       json={'id': snap_id},
+                       content_type='application/json')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['success'] is True
+    assert data['delete_planned'] is False
+
+    with app.app_context():
+        assert SnapshotRecord.query.get(snap_id) is None
+
+
+def test_api_undo_delete_cancels_pending_deletion(app, client):
+    """/api/undo-delete clears delete_marked and delete_deadline."""
+    snap_id = _seed_snapshot(app)
+    # Schedule first
+    sched = client.post('/snaps/api/delete',
+                        json={'id': snap_id},
+                        content_type='application/json').get_json()
+    assert sched['delete_planned'] is True
 
     resp = client.post('/snaps/api/undo-delete',
                        json={'id': snap_id},
@@ -767,6 +860,101 @@ def test_undo_delete_clears_legacy_marker(app, client):
     snap = next(s for s in list_data['snapshots'] if s['id'] == snap_id)
     assert snap['delete_marked'] is False
     assert snap['delete_deadline'] is None
+
+
+def test_process_expired_deletions_runs_storage_plan_when_due(app):
+    """The collector worker executes the storage delete plan once the deadline expires."""
+    from app import db
+    from app.models import SnapshotRecord
+    from app.snap_service import _process_expired_deletions
+
+    snap_id = _seed_snapshot(app)
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        rec.delete_marked = True
+        rec.delete_deadline = datetime.utcnow() - timedelta(minutes=1)  # already due
+        db.session.commit()
+
+    pure = MagicMock()
+    pure.destroy_volume_snapshot.return_value = (True, {'status_code': 200, 'text': ''})
+
+    patches = _patch_storage_clients(monkey_pure=pure)
+    for p in patches:
+        p.start()
+    try:
+        _process_expired_deletions(app)
+    finally:
+        for p in patches:
+            p.stop()
+
+    # destroy_volume_snapshot must have been called for the seeded LUN.
+    pure.destroy_volume_snapshot.assert_called()
+    # Record must be removed from the DB.
+    with app.app_context():
+        assert SnapshotRecord.query.get(snap_id) is None
+
+
+def test_process_expired_deletions_keeps_record_on_failure(app):
+    """If a storage step fails the record is preserved for the next retry."""
+    from app import db
+    from app.models import SnapshotRecord
+    from app.snap_service import _process_expired_deletions
+
+    snap_id = _seed_snapshot(app)
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        rec.delete_marked = True
+        rec.delete_deadline = datetime.utcnow() - timedelta(minutes=1)
+        db.session.commit()
+
+    pure = MagicMock()
+    pure.destroy_volume_snapshot.return_value = (
+        False, {'status_code': 500, 'text': 'boom'}
+    )
+    patches = _patch_storage_clients(monkey_pure=pure)
+    for p in patches:
+        p.start()
+    try:
+        _process_expired_deletions(app)
+    finally:
+        for p in patches:
+            p.stop()
+
+    # Record must still be in the DB and still marked for deletion so the
+    # next collection cycle retries.
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        assert rec is not None
+        assert rec.delete_marked is True
+
+
+def test_process_expired_deletions_skips_records_not_yet_due(app):
+    """Records whose deadline lies in the future must be left untouched."""
+    from app import db
+    from app.models import SnapshotRecord
+    from app.snap_service import _process_expired_deletions
+
+    snap_id = _seed_snapshot(app)
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        rec.delete_marked = True
+        rec.delete_deadline = datetime.utcnow() + timedelta(hours=1)  # not yet due
+        db.session.commit()
+
+    pure = MagicMock()
+    pure.destroy_volume_snapshot.return_value = (True, {'status_code': 200, 'text': ''})
+    patches = _patch_storage_clients(monkey_pure=pure)
+    for p in patches:
+        p.start()
+    try:
+        _process_expired_deletions(app)
+    finally:
+        for p in patches:
+            p.stop()
+
+    pure.destroy_volume_snapshot.assert_not_called()
+    with app.app_context():
+        assert SnapshotRecord.query.get(snap_id) is not None
 
 
 def test_api_update_ttl_streams_and_persists(app, client):

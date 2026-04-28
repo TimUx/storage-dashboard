@@ -746,8 +746,8 @@ Das Storage Dashboard stellt unter `/snaps/` eine REST-API für die zentrale Ver
 | `/snaps/` | GET | Snapshot-Übersichtsseite (HTML) |
 | `/snaps/api/list` | GET | Alle Snapshot-Datensätze mit Statistik |
 | `/snaps/api/update-ttl` | POST | TTL eines Snapshots ändern – führt Rename-Operationen live aus und streamt den Fortschritt als ndjson |
-| `/snaps/api/delete` | POST | Snapshot löschen – führt die Operation live aus und streamt den Fortschritt als ndjson |
-| `/snaps/api/undo-delete` | POST | Legacy: hebt eine Soft-Delete-Markierung auf bestehenden Datensätzen auf |
+| `/snaps/api/delete` | POST | Snapshot zur Löschung in 24 h einplanen (`delete_marked` + `delete_deadline`); die Storage-Operationen führt der Hintergrund-Worker nach Ablauf aus |
+| `/snaps/api/undo-delete` | POST | Geplante Löschung innerhalb der 24 h stornieren |
 | `/snaps/api/comment` | POST | Operator-Kommentar speichern |
 | `/snaps/api/trigger-collect` | POST | Sofortigen Collector-Lauf auslösen |
 
@@ -810,7 +810,9 @@ curl -s "http://localhost:5000/snaps/api/list?created_before=2026-03-11" | pytho
           }
         ]
       },
-      "last_seen": "2026-03-16T07:55:00"
+      "last_seen": "2026-03-16T07:55:00",
+      "actions_locked": false,
+      "actions_lock_reason": null
     }
   ],
   "stats": {
@@ -818,10 +820,18 @@ curl -s "http://localhost:5000/snaps/api/list?created_before=2026-03-11" | pytho
     "older_5_days": 9,
     "older_10_days": 3,
     "last_update": "2026-03-16T07:55:00",
-    "last_update_status": "success"
+    "last_update_status": "success",
+    "actions_lock_hours": 25
   }
 }
 ```
+
+Pro Snapshot liefert die Antwort zwei zusätzliche Felder:
+
+- `actions_locked` (bool): Server-autoritativ. `true`, wenn die TTL ≤ 25 Stunden in der Zukunft liegt (oder bereits abgelaufen ist). In diesem Zustand sind sowohl die TTL-Bearbeitung als auch das Einplanen einer Löschung gesperrt.
+- `actions_lock_reason` (string|null): Klartext-Begründung für die Sperre (oder `null`).
+
+`stats.actions_lock_hours` enthält den serverseitig konfigurierten Schwellwert (Default 25 h).
 
 ---
 
@@ -829,6 +839,8 @@ curl -s "http://localhost:5000/snaps/api/list?created_before=2026-03-11" | pytho
 
 Führt die TTL-Änderung eines Snapshot-Datensatzes **live** auf den Storage-Systemen aus und streamt den Fortschritt als newline-delimited JSON (`application/x-ndjson`).
 Auf FlashArray wird der Snapshot per `PATCH /api/<ver>/volume-snapshots` umbenannt; auf ONTAP wird zusätzlich `expiry_time` auf den neuen Zeitstempel gesetzt.
+
+> **Action-Lock:** Liegt die aktuelle TTL ≤ 25 Stunden in der Zukunft (oder ist bereits abgelaufen), antwortet das Endpoint mit `HTTP 409 Conflict` und `actions_locked: true`. Eine TTL-Änderung ist in diesem Zeitraum nicht mehr möglich.
 
 **Request Body (JSON):**
 
@@ -863,10 +875,16 @@ Schlägt ein Schritt fehl, werden die folgenden Schritte als `skipped` gemeldet 
 
 ### `POST /snaps/api/delete`
 
-Führt die **echte** Löschung eines Snapshots auf den Storage-Systemen aus und streamt den Fortschritt als newline-delimited JSON.
+Plant die Löschung eines Snapshots **24 Stunden in der Zukunft**. Die Operation wird im Augenblick des Aufrufs **nicht** gegen die Storage-Systeme ausgeführt; stattdessen wird der Datensatz mit `delete_marked=True` und `delete_deadline = jetzt + 24h` versehen. Innerhalb dieser 24 Stunden lässt sich die Löschung jederzeit über `POST /snaps/api/undo-delete` stornieren. Das Frontend zeigt einen laufenden Countdown der verbleibenden Zeit an.
 
-- **Pure FlashArray:** ein Schritt pro Snapshot-LUN: `PATCH /api/<ver>/volume-snapshots?names=… -d '{"destroyed":true}'`. Die endgültige Eradication führt der Storage automatisch nach Ablauf der Eradication-Delay (Default 24 h) durch.
-- **ONTAP:** zwei Schritte pro Volume: `PATCH …/snapshots/{uuid} -d '{"expiry_time":"<jetzt>"}'`, anschließend `DELETE …/snapshots/{uuid}`.
+> **Action-Lock:** Liegt die aktuelle TTL ≤ 25 Stunden in der Zukunft (oder ist bereits abgelaufen), antwortet das Endpoint mit `HTTP 409 Conflict` und `actions_locked: true`. In diesem Zustand würde die geplante Löschung mit dem natürlichen Ablauf des Snapshots kollidieren und ist daher gesperrt – der Storage entfernt den Snapshot ohnehin innerhalb der 24-Stunden-Verzögerung selbst.
+
+Die eigentliche Lösch-Operation wird vom Hintergrund-Snapshot-Collector ausgeführt, sobald die Deadline erreicht ist (`app.snap_service._process_expired_deletions`). Pro Plattform werden dabei dieselben Schritte wie beim TTL-Update durchgeführt:
+
+- **Pure FlashArray:** ein Schritt pro Snapshot-LUN – `PATCH /api/<ver>/volume-snapshots?names=… -d '{"destroyed":true}'`. Die endgültige Eradication führt der Storage automatisch nach Ablauf der Eradication-Delay (Default 24 h) durch.
+- **ONTAP:** zwei Schritte pro Volume – `PATCH …/snapshots/{uuid} -d '{"expiry_time":"<jetzt>"}'`, anschließend `DELETE …/snapshots/{uuid}`.
+
+Schlägt einer der Schritte fehl, bleibt `delete_marked` gesetzt und der Worker versucht es bei der nächsten Collector-Runde erneut. So gehen Lösch-Wünsche bei kurzfristigen Storage-Problemen nicht verloren.
 
 **Request Body (JSON):**
 
@@ -877,18 +895,29 @@ Führt die **echte** Löschung eines Snapshots auf den Storage-Systemen aus und 
 **Beispiel:**
 
 ```bash
-curl -sN -X POST http://localhost:5000/snaps/api/delete \
+curl -s -X POST http://localhost:5000/snaps/api/delete \
   -H "Content-Type: application/json" \
   -d '{"id": 5}'
 ```
 
-**Antwort (200 OK, `application/x-ndjson`):** Streamende Events identisch zur Tabelle bei `update-ttl`. Bei erfolgreichem Abschluss wird der `SnapshotRecord` aus der Datenbank entfernt.
+**Antwort (200 OK):**
+
+```json
+{
+  "success": true,
+  "delete_planned": true,
+  "delete_deadline": "2026-04-28T16:00:00",
+  "snapshot": { "id": 5, "delete_marked": true, "delete_deadline": "2026-04-28T16:00:00", "...": "..." }
+}
+```
+
+Hat der Datensatz keine Storage-Locations mehr (z. B. weil die Quell-Snapshots bereits weg sind und nur noch ein Operator-Kommentar vorhanden ist), liefert das Endpoint stattdessen `delete_planned: false` und entfernt den Datensatz sofort aus der Datenbank.
 
 ---
 
 ### `POST /snaps/api/undo-delete`
 
-Hebt eine ältere Soft-Delete-Markierung (`delete_marked`/`delete_deadline`) auf einem Datensatz auf. Wird nur noch für Bestandsdaten benötigt – das aktuelle `delete`-Verhalten ist sofortig.
+Storniert eine gerade geplante Löschung – setzt `delete_marked=False` und `delete_deadline=NULL`. Solange die Deadline noch in der Zukunft liegt, wird die Löschung damit komplett zurückgenommen.
 
 ```bash
 curl -s -X POST http://localhost:5000/snaps/api/undo-delete \
@@ -896,7 +925,7 @@ curl -s -X POST http://localhost:5000/snaps/api/undo-delete \
   -d '{"id": 5}'
 ```
 
-**Antwort (200 OK):** `{"success": true}`
+**Antwort (200 OK):** `{"success": true, "snapshot": { ... }}`
 
 ---
 
