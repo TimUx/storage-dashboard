@@ -1294,10 +1294,9 @@ async function saveComment(id) {
 
 // ─── TTL editing ──────────────────────────────────────────────────────────
 /**
- * Minimum gap (hours) the new TTL must lie in the future relative to the
- * current TTL.  A change must always **extend** the lifetime, and by at
- * least this amount – the storage-side rename is otherwise pointless and
- * risks racing the natural expiry.
+ * Minimum gap (hours) the new TTL must lie in the future relative to now.
+ * Reducing an existing TTL is allowed as long as the new value is still at
+ * least this far in the future.
  */
 const TTL_MIN_INCREASE_HOURS = 24;
 
@@ -1338,7 +1337,7 @@ function refreshTtlPickerValidity() {
         reason = 'Bitte ein vollständiges Datum und Uhrzeit auswählen.';
     } else if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
         valid = false;
-        reason = `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} h nach der aktuellen TTL liegen (frühestens ${formatLocalDateObj(_ttlMinTime)}).`;
+        reason = `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} h ab jetzt in der Zukunft liegen (frühestens ${formatLocalDateObj(_ttlMinTime)}).`;
     }
     if (saveBtn) {
         saveBtn.disabled = !valid;
@@ -1348,7 +1347,7 @@ function refreshTtlPickerValidity() {
         if (valid) {
             hint.classList.remove('ttl-hint-error');
             hint.textContent = _ttlMinTime
-                ? `Frühestmögliche neue TTL: ${formatLocalDateObj(_ttlMinTime)}`
+                ? `Frühestmögliche neue TTL (ab jetzt): ${formatLocalDateObj(_ttlMinTime)}`
                 : '';
         } else {
             hint.classList.add('ttl-hint-error');
@@ -1370,13 +1369,8 @@ function openTtlModal(id) {
     document.getElementById('ttl-modal-info').textContent =
         `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
 
-    // Compute the earliest allowed new TTL: current TTL + 24 h.
-    // If the snapshot has no TTL yet (rare, but defensively handled) we
-    // fall back to "now + 24 h" to keep the rule "must be in the future
-    // by at least 24h" intact.
-    const currentTtl = parseServerDt(snap.ttl) || new Date();
-    _ttlMinTime = new Date(currentTtl.getTime()
-                           + TTL_MIN_INCREASE_HOURS * 3600 * 1000);
+    // Compute the earliest allowed new TTL: now + 24 h.
+    _ttlMinTime = new Date(Date.now() + TTL_MIN_INCREASE_HOURS * 3600 * 1000);
 
     const pad = n => String(n).padStart(2, '0');
     const dateInput = document.getElementById('ttl-date-input');
@@ -1414,7 +1408,7 @@ async function saveTtl() {
     if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
         alert(
             `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} Stunden nach der ` +
-            `aktuellen TTL liegen.\n\nFrühestmöglich: ${formatLocalDateObj(_ttlMinTime)}`
+            `aktuellen Zeit liegen.\n\nFrühestmöglich: ${formatLocalDateObj(_ttlMinTime)}`
         );
         return;
     }

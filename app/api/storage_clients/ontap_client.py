@@ -1076,9 +1076,39 @@ class NetAppONTAPClient(StorageClient):
             if state in ('success', 'completed'):
                 return True, last_payload
             if state in ('failure', 'failed', 'error'):
-                return False, last_payload
+                message = ''
+                if isinstance(last_payload.get('message'), str):
+                    message = last_payload.get('message', '')
+                elif isinstance(last_payload.get('description'), str):
+                    message = last_payload.get('description', '')
+                return False, {
+                    'error': (
+                        f'ONTAP async job failed (state={state})'
+                        + (f': {message}' if message else '')
+                    ),
+                    'job': last_payload,
+                }
             time.sleep(1.0)
         return False, {'error': 'ONTAP async job timeout', 'job': last_payload}
+
+    def _wait_for_snapshot_name(self, vol_uuid: str, snap_name: str,
+                                auth, headers, ssl_verify,
+                                timeout_seconds: int = 45) -> tuple[bool, dict]:
+        """Wait until a snapshot is resolvable by name on a volume."""
+        deadline = time.time() + timeout_seconds
+        last_lookup: dict = {}
+        while time.time() < deadline:
+            snap_uuid, lookup = self._resolve_snapshot_uuid(
+                vol_uuid, snap_name, auth, headers, ssl_verify
+            )
+            last_lookup = lookup if isinstance(lookup, dict) else {}
+            if snap_uuid:
+                return True, {'snap_uuid': snap_uuid, 'lookup': last_lookup}
+            time.sleep(1.0)
+        return False, {
+            'error': f'Snapshot {snap_name} not visible after rename wait window',
+            'lookup': last_lookup,
+        }
 
     def update_snapshot_expiry(self, svm: str, volume_name: str,
                                snap_name: str, expiry_iso: str | None) -> tuple[bool, dict]:
@@ -1207,6 +1237,7 @@ class NetAppONTAPClient(StorageClient):
             ok = resp.status_code in (200, 202)
             info = {'status_code': resp.status_code, 'text': resp.text[:500],
                     'volume_uuid': vol_uuid, 'snap_uuid': snap_uuid}
+            job_ok = True
             if ok and resp.status_code == 202:
                 try:
                     job_uuid = (resp.json() or {}).get('job', {}).get('uuid')
@@ -1218,7 +1249,9 @@ class NetAppONTAPClient(StorageClient):
                     )
                     info['job_uuid'] = job_uuid
                     info['job'] = job_info
-                    ok = job_ok
+                # Do not fail immediately on job polling issues; the decisive
+                # condition is whether the renamed snapshot becomes visible.
+                ok = True
             if ok:
                 logger.info("ONTAP %s: renamed snapshot %s/%s → %s",
                             self.ip_address, volume_name, snap_name, new_name)
@@ -1228,19 +1261,25 @@ class NetAppONTAPClient(StorageClient):
                                resp.status_code, resp.text[:200])
                 return False, info
 
-            # Post-condition check: ensure the new name is resolvable after rename.
-            new_uuid, new_lookup = self._resolve_snapshot_uuid(
+            # Post-condition check: ensure the new name becomes resolvable.
+            visible, vis_info = self._wait_for_snapshot_name(
                 vol_uuid, new_name, auth, headers, ssl_verify
             )
-            if not new_uuid:
+            if not visible:
                 return False, {
                     'error': f'Rename reported success but snapshot {new_name} not found',
                     'status_code': resp.status_code,
                     'volume_uuid': vol_uuid,
                     'old_snap_uuid': snap_uuid,
-                    'lookup': new_lookup,
+                    'lookup': vis_info.get('lookup'),
                     'job': info.get('job'),
                 }
+            if not job_ok:
+                logger.warning(
+                    "ONTAP %s: rename visibility confirmed, but job polling reported problem for %s/%s",
+                    self.ip_address, volume_name, snap_name,
+                )
+            info['renamed_snap_uuid'] = vis_info.get('snap_uuid')
             return ok, info
         except Exception as exc:
             logger.warning("ONTAP rename_volume_snapshot error %s/%s: %s",
