@@ -650,6 +650,11 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
     from app import db
     from app.models import SnapshotAuditLog, SnapshotCollectorMetadata, SnapshotRecord
 
+    def _delete_snapshot_with_audit_logs(rec):
+        """Delete a snapshot record together with its audit trail rows."""
+        SnapshotAuditLog.query.filter_by(snapshot_id=rec.id).delete(synchronize_session=False)
+        db.session.delete(rec)
+
     with app.app_context():
         run_start = datetime.utcnow()
         stored = 0
@@ -667,9 +672,10 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                     existing.ontap_present = rec_data['ontap_present']
                     existing.storage_locations = rec_data['storage_locations']
                     existing.last_seen = run_start
-                    # Only update TTL if not already user-modified (no audit log entries mean it's still original)
-                    if rec_data.get('ttl') and not SnapshotAuditLog.query.filter_by(snapshot_id=existing.id).first():
-                        existing.ttl = rec_data['ttl']
+                    # Storage is the single source of truth: always refresh TTL
+                    # from the current collector payload (including None when
+                    # the source no longer exposes an embedded TTL timestamp).
+                    existing.ttl = rec_data.get('ttl')
                 else:
                     new_rec = SnapshotRecord(
                         sid=sid,
@@ -706,7 +712,7 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                     # whole collection run.
                     try:
                         with db.session.begin_nested():
-                            db.session.delete(rec)
+                            _delete_snapshot_with_audit_logs(rec)
                             db.session.flush()
                         removed += 1
                     except Exception as delete_exc:
@@ -821,6 +827,7 @@ def _process_expired_deletions(app):
 def _execute_scheduled_deletion(app, rec):
     """Run the storage delete plan for ``rec`` and remove the DB row on success."""
     from app import db
+    from app.models import SnapshotAuditLog
     from app.routes.snaps import _build_delete_plan
 
     locs = rec.get_storage_locations()
@@ -834,6 +841,7 @@ def _execute_scheduled_deletion(app, rec):
             "Snapshot collector: dropping expired record %s sid=%s (no storage steps)",
             rec_id, sid,
         )
+        SnapshotAuditLog.query.filter_by(snapshot_id=rec.id).delete(synchronize_session=False)
         db.session.delete(rec)
         db.session.commit()
         return
@@ -872,6 +880,7 @@ def _execute_scheduled_deletion(app, rec):
         db.session.rollback()
         return
 
+    SnapshotAuditLog.query.filter_by(snapshot_id=rec.id).delete(synchronize_session=False)
     db.session.delete(rec)
     db.session.commit()
     logger.info(

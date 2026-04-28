@@ -1318,6 +1318,100 @@ def test_reconciliation_delete_failure_does_not_rollback_new_records(app):
         assert kept.storage_locations is None
 
 
+def test_reconciliation_deletes_audit_logs_before_snapshot_delete(app):
+    """Stale snapshot deletion must remove audit rows first (no NULL snapshot_id updates)."""
+    from app import db
+    from app.models import SnapshotAuditLog, SnapshotRecord
+    from app.snap_service import _upsert_snapshot_records, _group_by_sid_and_time
+
+    old_ct = datetime(2026, 1, 1, 0, 0, 0)
+    with app.app_context():
+        stale = SnapshotRecord(
+            sid='STALE',
+            creation_time=old_ct,
+            ttl=old_ct + timedelta(days=1),
+            flasharray_present=True,
+            ontap_present=False,
+            last_seen=datetime(2026, 1, 1, 0, 0, 0),
+        )
+        db.session.add(stale)
+        db.session.commit()
+        stale_id = stale.id
+
+        db.session.add(SnapshotAuditLog(
+            snapshot_id=stale_id,
+            old_ttl=old_ct + timedelta(days=1),
+            new_ttl=old_ct + timedelta(days=2),
+            changed_by='operator1',
+        ))
+        db.session.commit()
+
+    # Collector run with a different snapshot => stale row should be removed.
+    ts = datetime(2026, 3, 18, 2, 47, 0)
+    fa_snap = {
+        'sid': 'ACP',
+        'snapshot_name': 'ACP_1.HDBSNAP-2026-03-18-024722',
+        'creation_time': ts,
+        'ttl': ts,
+        'array_name': 'fa01',
+    }
+    aggregated = _group_by_sid_and_time([fa_snap], [])
+    _upsert_snapshot_records(app, aggregated, systems_queried=1)
+
+    with app.app_context():
+        assert SnapshotRecord.query.get(stale_id) is None
+        assert SnapshotAuditLog.query.filter_by(snapshot_id=stale_id).count() == 0
+
+
+def test_upsert_refreshes_ttl_from_storage_even_with_audit_log(app):
+    """Collector must refresh TTL from storage regardless of audit history."""
+    from app import db
+    from app.models import SnapshotAuditLog, SnapshotRecord
+    from app.snap_service import _upsert_snapshot_records
+
+    ct = datetime(2026, 4, 28, 14, 14, 51)
+    old_ttl = datetime(2026, 5, 14, 16, 14, 37)
+    new_ttl = datetime(2026, 5, 7, 16, 14, 37)
+
+    with app.app_context():
+        rec = SnapshotRecord(
+            sid='IZT',
+            creation_time=ct,
+            ttl=old_ttl,
+            flasharray_present=True,
+            ontap_present=True,
+            storage_locations=json.dumps({'flasharray_systems': [], 'ontap_clusters': []}),
+            last_seen=datetime(2026, 4, 28, 14, 20, 0),
+        )
+        db.session.add(rec)
+        db.session.commit()
+        rec_id = rec.id
+
+        # Simulate prior user-triggered TTL update history.
+        db.session.add(SnapshotAuditLog(
+            snapshot_id=rec_id,
+            old_ttl=old_ttl,
+            new_ttl=datetime(2026, 5, 21, 16, 14, 37),
+            changed_by='operator1',
+        ))
+        db.session.commit()
+
+    aggregated = [{
+        'sid': 'IZT',
+        'creation_time': ct,
+        'ttl': new_ttl,
+        'flasharray_present': True,
+        'ontap_present': True,
+        'storage_locations': json.dumps({'flasharray_systems': [], 'ontap_clusters': []}),
+    }]
+    _upsert_snapshot_records(app, aggregated, systems_queried=1)
+
+    with app.app_context():
+        refreshed = SnapshotRecord.query.get(rec_id)
+        assert refreshed is not None
+        assert refreshed.ttl == new_ttl
+
+
 def test_do_collect_skips_snaps_disabled_systems(app):
     """_do_collect must not query systems where snaps_enabled=False."""
     from app import db
