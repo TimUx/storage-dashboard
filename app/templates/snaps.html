@@ -66,21 +66,88 @@
     background: var(--sn-white);
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,.07);
-    padding: .75rem 1.25rem;
+    padding: .9rem 1.25rem;
     margin-bottom: 1rem;
-    display: flex;
-    gap: .75rem;
-    flex-wrap: wrap;
-    align-items: center;
+    display: grid;
+    grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(140px, 1fr)) auto;
+    gap: .75rem 1rem;
+    align-items: end;
 }
-.sn-filters label { font-size: .82rem; color: var(--sn-muted); white-space: nowrap; }
-.sn-filters input, .sn-filters select {
-    padding: .3rem .6rem;
+@media (max-width: 1100px) {
+    .sn-filters { grid-template-columns: 1fr 1fr 1fr; }
+    .sn-filters .sn-filter-search { grid-column: 1 / -1; }
+    .sn-filters .sn-filter-actions { grid-column: 1 / -1; justify-self: end; }
+}
+@media (max-width: 640px) {
+    .sn-filters { grid-template-columns: 1fr 1fr; }
+    .sn-filters .sn-filter-search { grid-column: 1 / -1; }
+    .sn-filters .sn-filter-actions { grid-column: 1 / -1; }
+}
+
+.sn-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+    min-width: 0;
+}
+.sn-filter-label {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    font-size: .72rem;
+    color: var(--sn-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-weight: 600;
+}
+.sn-filter-info {
+    cursor: help;
+    color: var(--sn-blue);
+    font-size: .75rem;
+    line-height: 1;
+    width: 14px; height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    opacity: .65;
+    transition: opacity .15s;
+}
+.sn-filter-info:hover { opacity: 1; }
+.sn-filter-info::before { content: 'i'; font-style: italic; font-weight: 700; }
+
+.sn-filters input[type="text"],
+.sn-filters input[type="date"],
+.sn-filters select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: .45rem .65rem;
     border: 1px solid var(--sn-border);
-    border-radius: 5px;
-    font-size: .85rem;
+    border-radius: 6px;
+    font-size: .88rem;
     background: var(--sn-bg);
     color: var(--sn-text);
+    min-height: 2.2rem;
+    transition: border-color .15s, box-shadow .15s;
+}
+.sn-filters input[type="text"]:focus,
+.sn-filters input[type="date"]:focus,
+.sn-filters select:focus {
+    outline: none;
+    border-color: var(--sn-blue);
+    box-shadow: 0 0 0 3px rgba(0, 86, 179, .12);
+}
+.sn-filters input[type="date"] { color-scheme: light dark; }
+
+.sn-filter-actions {
+    display: flex;
+    align-items: end;
+    justify-self: end;
+}
+.sn-filter-actions .btn-secondary {
+    min-height: 2.2rem;
+    white-space: nowrap;
 }
 
 /* Table */
@@ -472,18 +539,43 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
     </div>
 
     <!-- Filters -->
-    <div class="sn-filters">
-        <label>Suchtext (SID, Kommentar, Speicherorte; * und ? als Platzhalter):</label>
-        <input type="text" id="filter-sid" placeholder="z.B. ACP, *PRD*, HDBSNAP-2026*" oninput="applyFilters()">
-        <label>Erstellt nach:</label>
-        <input type="date" id="filter-created-after" onchange="applyFilters()">
-        <label>Erstellt vor:</label>
-        <input type="date" id="filter-created-before" onchange="applyFilters()">
-        <label>TTL nach:</label>
-        <input type="date" id="filter-ttl-after" onchange="applyFilters()">
-        <label>TTL vor:</label>
-        <input type="date" id="filter-ttl-before" onchange="applyFilters()">
-        <button class="btn-secondary" onclick="clearFilters()">✕ Filter löschen</button>
+    <div class="sn-filters" role="search">
+        <div class="sn-filter-field sn-filter-search">
+            <label class="sn-filter-label" for="filter-sid">
+                <span>Suchtext</span>
+                <span class="sn-filter-info"
+                      tabindex="0"
+                      role="button"
+                      aria-label="Hinweis zum Suchtext anzeigen"
+                      title="Sucht in SID, Kommentar und Speicherorten. Platzhalter: * (mehrere Zeichen) und ? (ein Zeichen)."></span>
+            </label>
+            <input type="text"
+                   id="filter-sid"
+                   placeholder="z. B. ACP, *PRD*, HDBSNAP-2026*"
+                   aria-describedby="filter-sid-hint"
+                   oninput="applyFilters()">
+        </div>
+
+        <div class="sn-filter-field">
+            <label class="sn-filter-label" for="filter-created-after">Erstellt ab</label>
+            <input type="date" id="filter-created-after" onchange="applyFilters()">
+        </div>
+        <div class="sn-filter-field">
+            <label class="sn-filter-label" for="filter-created-before">Erstellt bis</label>
+            <input type="date" id="filter-created-before" onchange="applyFilters()">
+        </div>
+        <div class="sn-filter-field">
+            <label class="sn-filter-label" for="filter-ttl-after">TTL ab</label>
+            <input type="date" id="filter-ttl-after" onchange="applyFilters()">
+        </div>
+        <div class="sn-filter-field">
+            <label class="sn-filter-label" for="filter-ttl-before">TTL bis</label>
+            <input type="date" id="filter-ttl-before" onchange="applyFilters()">
+        </div>
+
+        <div class="sn-filter-actions">
+            <button class="btn-secondary" onclick="clearFilters()" title="Alle Filter zurücksetzen">✕ Filter löschen</button>
+        </div>
     </div>
 
     <!-- Table -->
