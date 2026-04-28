@@ -987,6 +987,50 @@ def test_api_update_ttl_streams_and_persists(app, client):
     assert new_ttl_dt.strftime('%Y-%m-%d') in snap['ttl']
 
 
+def test_resolve_system_matches_case_insensitive(app):
+    """Storage-system resolution tolerates upper/lower-case mismatches."""
+    from app import db
+    from app.models import StorageSystem
+    from app.routes.snaps import _resolve_system
+
+    with app.app_context():
+        sys = StorageSystem(
+            name='fasmc1',
+            vendor='netapp-ontap',
+            ip_address='10.112.228.55',
+            port=443,
+            enabled=True,
+        )
+        db.session.add(sys)
+        db.session.commit()
+
+        resolved = _resolve_system('FASMC1', vendor='netapp-ontap')
+        assert resolved is not None
+        assert resolved.id == sys.id
+
+
+def test_resolve_system_matches_shortname_to_fqdn(app):
+    """Storage-system resolution maps short cluster name to FQDN entry."""
+    from app import db
+    from app.models import StorageSystem
+    from app.routes.snaps import _resolve_system
+
+    with app.app_context():
+        sys = StorageSystem(
+            name='fasmc1.itscare.prod.dom',
+            vendor='netapp-ontap',
+            ip_address='10.112.228.55',
+            port=443,
+            enabled=True,
+        )
+        db.session.add(sys)
+        db.session.commit()
+
+        resolved = _resolve_system('FASMC1', vendor='netapp-ontap')
+        assert resolved is not None
+        assert resolved.id == sys.id
+
+
 def test_api_update_ttl_does_not_persist_on_failure(app, client):
     """If the storage rename fails, the TTL must NOT be updated in the DB."""
     snap_id = _seed_snapshot(app)

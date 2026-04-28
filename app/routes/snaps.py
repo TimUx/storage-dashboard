@@ -48,7 +48,7 @@ import logging
 from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify, render_template, request
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 
 bp = Blueprint('snaps', __name__, url_prefix='/snaps')
 logger = logging.getLogger(__name__)
@@ -651,11 +651,36 @@ def _resolve_system(name: str, vendor: str | None = None):
     cannot be confused with an ONTAP ``pure01`` in unusual setups).
     """
     from app.models import StorageSystem
-    q = StorageSystem.query.filter(StorageSystem.name == name,
-                                   StorageSystem.enabled.is_(True))
+
+    lookup = (name or '').strip()
+    q = StorageSystem.query.filter(StorageSystem.enabled.is_(True))
     if vendor:
         q = q.filter(StorageSystem.vendor == vendor)
-    return q.first()
+
+    # Fast path: exact match as stored in DB.
+    exact = q.filter(StorageSystem.name == lookup).first()
+    if exact:
+        return exact
+
+    # Fallback 1: case-insensitive exact match (e.g. "FASMC1" vs "fasmc1").
+    lower_lookup = lookup.lower()
+    ci_exact = q.filter(func.lower(StorageSystem.name) == lower_lookup).first()
+    if ci_exact:
+        return ci_exact
+
+    # Fallback 2: shortname/FQDN bridging (e.g. "FASMC1" vs "fasmc1.domain.tld").
+    short = lower_lookup.split('.', 1)[0]
+    if short and short != lower_lookup:
+        short_exact = q.filter(func.lower(StorageSystem.name) == short).first()
+        if short_exact:
+            return short_exact
+
+    if short:
+        short_fqdn = q.filter(func.lower(StorageSystem.name).like(f'{short}.%')).first()
+        if short_fqdn:
+            return short_fqdn
+
+    return None
 
 
 def _get_pure_client(array_name: str):
