@@ -888,6 +888,8 @@ def _format_response_info(info) -> str:
         parts.append(f"old_snap_uuid={info['old_snap_uuid']}")
     if info.get('renamed_snap_uuid'):
         parts.append(f"renamed_snap_uuid={info['renamed_snap_uuid']}")
+    if info.get('resolved_endpoint'):
+        parts.append(f"endpoint={info['resolved_endpoint']}")
     if info.get('job_uuid'):
         parts.append(f"job_uuid={info['job_uuid']}")
     job = info.get('job')

@@ -1166,6 +1166,9 @@ class NetAppONTAPClient(StorageClient):
             ok = resp.status_code in (200, 202)
             info = {'status_code': resp.status_code, 'text': resp.text[:500],
                     'volume_uuid': vol_uuid, 'snap_uuid': snap_uuid}
+            info['resolved_endpoint'] = (
+                f"/api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}"
+            )
             if ok:
                 logger.info("ONTAP %s: set expiry_time on %s/%s (uuid=%s) → %s",
                             self.ip_address, volume_name, snap_name, snap_uuid, expiry_iso)
