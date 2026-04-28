@@ -520,7 +520,7 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
             <input type="time" id="ttl-time-input" step="1" />
         </div>
         <div style="margin-top:1rem;display:flex;gap:.75rem;">
-            <button class="btn-primary" onclick="saveTtl()">Speichern &amp; Vorschau</button>
+            <button class="btn-primary" onclick="saveTtl()">Speichern</button>
             <button class="btn-secondary" onclick="closeTtlModal()">Abbrechen</button>
         </div>
     </div>
@@ -944,10 +944,18 @@ function openTtlModal(id) {
         `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
 
     if (snap.ttl) {
-        // Parse ISO to date/time fields
-        const d = new Date(snap.ttl + (snap.ttl.includes('T') ? '' : 'T00:00:00'));
-        document.getElementById('ttl-date-input').value = d.toISOString().slice(0,10);
-        document.getElementById('ttl-time-input').value = d.toISOString().slice(11,19);
+        // Pre-fill the picker with the **same** date/time values that the
+        // info line above shows under "Aktuell TTL".  formatDt() renders the
+        // TTL using local-time getters, so we must use the same getters here
+        // to avoid a UTC↔local offset (e.g. +2h in CEST) between the
+        // displayed timestamp and the picker defaults.
+        const isoDt = snap.ttl.includes('T') ? snap.ttl : snap.ttl.replace(' ', 'T');
+        const d = new Date(isoDt.endsWith('Z') ? isoDt : isoDt + 'Z');
+        const pad = n => String(n).padStart(2, '0');
+        document.getElementById('ttl-date-input').value =
+            `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        document.getElementById('ttl-time-input').value =
+            `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     } else {
         document.getElementById('ttl-date-input').value = '';
         document.getElementById('ttl-time-input').value = '00:00:00';
