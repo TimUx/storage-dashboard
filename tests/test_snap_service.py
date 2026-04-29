@@ -1134,6 +1134,68 @@ def test_api_stats_older_than_5_days(app, client):
     assert data['stats']['older_5_days'] >= 1
 
 
+def test_persist_ttl_update_updates_storage_locations_snapshot_names(app):
+    """After a successful TTL update, details must use updated snapshot names.
+
+    The UI details render snapshot *names* from ``storage_locations``.
+    If only ``rec.ttl`` is updated, the table TTL and the expanded
+    snapshot-name details diverge.
+    """
+    from app.models import SnapshotRecord
+    from app.routes.snaps import _persist_ttl_update
+
+    old_ttl = datetime(2026, 5, 7, 16, 14, 37)
+    new_ttl = datetime(2026, 5, 7, 18, 14, 37)
+    old_ts_str = old_ttl.strftime('%Y-%m-%d-%H%M%S')
+    new_ts_str = new_ttl.strftime('%Y-%m-%d-%H%M%S')
+
+    old_storage_locations = {
+        'flasharray_systems': [
+            {'name': 'pure04', 'snapshot_names': [f'pod-x86-0304::vgIZT_1.{old_ts_str}']},
+        ],
+        'ontap_clusters': [
+            {
+                'cluster': 'FASMC1',
+                'svm': 'nfs01',
+                'volumes': [
+                    {'volume': 'ORA_IZT', 'snap': f'IZT_{old_ts_str}'},
+                ],
+            },
+        ],
+    }
+
+    rec = SnapshotRecord(
+        sid='IZT',
+        creation_time=datetime(2026, 4, 28, 16, 14, 51),
+        ttl=old_ttl,
+        flasharray_present=True,
+        ontap_present=True,
+        storage_locations=json.dumps(old_storage_locations),
+    )
+
+    with app.app_context():
+        from app import db
+        db.session.add(rec)
+        db.session.commit()
+
+        _persist_ttl_update(app, rec.id, new_ttl, user='operator1')
+
+        updated = SnapshotRecord.query.get(rec.id)
+        assert updated is not None
+        assert updated.ttl == new_ttl
+
+        locs = updated.get_storage_locations()
+
+        fa_names = locs.get('flasharray_systems', [])[0].get('snapshot_names', [])
+        assert any(new_ts_str in n for n in fa_names)
+        assert not any(old_ts_str in n for n in fa_names)
+
+        vols = locs.get('ontap_clusters', [])[0].get('volumes', [])
+        snap_names = [v.get('snap') for v in vols if isinstance(v, dict)]
+        assert any(isinstance(n, str) and new_ts_str in n for n in snap_names)
+        assert not any(isinstance(n, str) and old_ts_str in n for n in snap_names)
+
+
 def test_snap_page_renders(client):
     resp = client.get('/snaps/')
     assert resp.status_code == 200

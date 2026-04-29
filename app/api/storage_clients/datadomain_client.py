@@ -1,6 +1,6 @@
 """Dell DataDomain REST API client (v1.0)."""
-import os
 import logging
+import os
 import traceback
 
 from app.api.base_client import StorageClient

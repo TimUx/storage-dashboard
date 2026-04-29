@@ -931,6 +931,69 @@ def _persist_ttl_update(app, snap_id: int, new_ttl: datetime, user: str) -> dict
     if not rec:
         return None
     old_ttl = rec.ttl
+
+    # Keep the expanded details consistent with the updated TTL.
+    #
+    # The details render snapshot *names* from ``storage_locations`` (not
+    # from ``rec.ttl``). When TTL is changed, the storage layer renames the
+    # snapshots to embed the new timestamp, but previously we only updated
+    # ``rec.ttl``. That led to "table TTL is new, details still show old
+    # snapshot names".
+    #
+    # On successful rename/expiry steps we can update cached snapshot-name
+    # strings deterministically by replacing the embedded timestamp.
+    try:
+        import re
+
+        if old_ttl and rec.storage_locations:
+            old_ts_str = old_ttl.strftime('%Y-%m-%d-%H%M%S')
+            new_ts_str = new_ttl.strftime('%Y-%m-%d-%H%M%S')
+
+            locs = rec.get_storage_locations()
+            if locs:
+                for fa_sys in locs.get('flasharray_systems', []) or []:
+                    names = fa_sys.get('snapshot_names', []) or []
+                    updated_names: list[str] = []
+                    for sn in names:
+                        if not isinstance(sn, str):
+                            updated_names.append(sn)
+                            continue
+                        if old_ts_str in sn:
+                            updated_names.append(sn.replace(old_ts_str, new_ts_str))
+                        else:
+                            updated_names.append(
+                                re.sub(
+                                    r'\d{4}-\d{2}-\d{2}-\d{6}',
+                                    new_ts_str,
+                                    sn,
+                                    count=1,
+                                )
+                            )
+                    fa_sys['snapshot_names'] = updated_names
+
+                for oc in locs.get('ontap_clusters', []) or []:
+                    vols = oc.get('volumes', []) or []
+                    for v in vols:
+                        if isinstance(v, dict):
+                            snap_name = v.get('snap')
+                            if isinstance(snap_name, str):
+                                if old_ts_str in snap_name:
+                                    v['snap'] = snap_name.replace(old_ts_str, new_ts_str)
+                                else:
+                                    v['snap'] = re.sub(
+                                        r'\d{4}-\d{2}-\d{2}-\d{6}',
+                                        new_ts_str,
+                                        snap_name,
+                                        count=1,
+                                    )
+                        elif isinstance(v, str):
+                            if old_ts_str in v:
+                                idx = vols.index(v)
+                                vols[idx] = v.replace(old_ts_str, new_ts_str)
+
+                rec.storage_locations = json.dumps(locs)
+    except Exception as e:
+        logger.warning("TTL persist detail update failed for snap_id=%s: %s", snap_id, e)
     rec.ttl = new_ttl
     audit = SnapshotAuditLog(
         snapshot_id=rec.id,
