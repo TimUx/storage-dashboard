@@ -894,12 +894,28 @@ def _format_response_info(info) -> str:
         parts.append(f"job_uuid={info['job_uuid']}")
     job = info.get('job')
     if isinstance(job, dict):
-        job_state = job.get('state')
+        # Some ONTAP executors return a wrapper like:
+        #   {'error': 'ONTAP async job failed ...', 'job': <job_payload>}
+        # while others return the payload directly.
+        job_payload = job.get('job') if isinstance(job.get('job'), dict) else job
+
+        job_state = job_payload.get('state')
         if job_state:
             parts.append(f"job_state={job_state}")
-        job_msg = job.get('message') or job.get('description')
+
+        job_msg = job_payload.get('message') or job_payload.get('description')
         if isinstance(job_msg, str) and job_msg.strip():
             parts.append(f"job_msg={job_msg.strip()[:300]}")
+
+        job_code = job_payload.get('code')
+        if job_code is not None:
+            parts.append(f"job_code={job_code}")
+
+        # Fallback: show wrapper error when we didn't get message/description.
+        if job.get('error') and not job_msg:
+            err = job.get('error')
+            if isinstance(err, str) and err.strip():
+                parts.append(f"job_error={err.strip()[:300]}")
     return ' | '.join(parts) if parts else json.dumps(info, default=str)
 
 
