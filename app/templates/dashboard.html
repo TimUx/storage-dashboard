@@ -54,22 +54,40 @@ body {
 }
 
 .overview-header {
-    padding: 1rem 1.5rem;
+    padding: 0.65rem 1rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 0.75rem;
     border-bottom: 1px solid var(--border-light);
 }
 
 .overview-header h2 {
-    font-size: 1.5rem;
+    font-size: clamp(1rem, 2vw, 1.3rem);
     color: var(--brand-blue);
     margin: 0;
     font-weight: 600;
 }
 
 .overview-content {
-    padding: 1rem 1.5rem;
+    padding: 0.75rem 1rem;
+}
+
+.btn-filter-toggle {
+    border: 1px solid var(--border-light);
+    background: var(--bg-light);
+    color: var(--text-medium);
+    border-radius: 4px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.btn-filter-toggle:hover {
+    border-color: var(--brand-blue);
+    color: var(--brand-blue);
 }
 
 .dashboard-header {
@@ -620,8 +638,8 @@ body.table-view .systems-table {
 .controls-wrapper {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    gap: 1.5rem;
+    align-items: flex-start;
+    gap: 0.75rem;
     flex-wrap: wrap;
 }
 
@@ -643,7 +661,7 @@ body.table-view .systems-table {
 
 .filter-controls {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     flex-wrap: wrap;
     align-items: flex-end;
     flex: 1;
@@ -791,9 +809,9 @@ body.table-view .systems-table {
     padding-top: 0;
     display: flex;
     justify-content: flex-end;
-    align-items: center;
-    flex-wrap: nowrap;
-    gap: 0.75rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 .actions-section h3 {
@@ -824,6 +842,121 @@ body.table-view .systems-table {
 .btn-collect-now:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+.overview-card.filters-collapsed .filter-section {
+    display: none;
+}
+
+.overview-card.filters-collapsed .controls-wrapper {
+    justify-content: flex-end;
+}
+
+.overview-card.filters-collapsed .overview-content {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+
+@media (max-width: 1200px) {
+    .controls-wrapper {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-controls {
+        width: 100%;
+    }
+
+    .actions-section {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .header-actions {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+}
+
+@media (max-width: 900px) {
+    .container {
+        padding: 0.5rem;
+    }
+
+    .overview-header {
+        padding: 0.5rem 0.75rem;
+    }
+
+    .overview-header h2 {
+        font-size: 0.95rem;
+    }
+
+    .overview-content {
+        padding: 0.55rem 0.75rem;
+    }
+
+    .btn-filter-toggle {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    .filter-group label {
+        font-size: 0.68rem;
+    }
+
+    .filter-group select,
+    .filter-group input,
+    .tag-dropdown-btn {
+        min-width: 95px;
+        padding: 0.3rem 0.45rem;
+        font-size: 0.78rem;
+    }
+
+    .btn-reset,
+    .btn-collect-now {
+        padding: 0.3rem 0.55rem;
+        font-size: 0.75rem;
+    }
+
+    .refresh-indicator {
+        padding: 0.25rem 0.45rem;
+        font-size: 0.72rem;
+    }
+
+    #last-updated-label {
+        display: none;
+    }
+
+    .view-toggle button,
+    .column-selector button {
+        padding: 0.4rem 0.55rem;
+    }
+
+    .view-toggle button {
+        font-size: 0.75rem;
+    }
+
+    .view-toggle .btn-label {
+        display: none;
+    }
+
+    .column-selector {
+        display: none;
+    }
+}
+
+@media (max-width: 700px) {
+    .overview-header {
+        flex-wrap: wrap;
+    }
+
+    .controls-wrapper {
+        gap: 0.5rem;
+    }
+
+    .filter-controls {
+        gap: 0.4rem;
+    }
 }
 
 /* WebUI Links */
@@ -951,9 +1084,12 @@ body.table-view .systems-table {
 
 <div class="dashboard-content" id="dashboard-content">
 <!-- Combined Overview Card with Filters and Actions -->
-<div class="overview-card">
+<div class="overview-card" id="overview-card">
     <div class="overview-header">
         <h2>Storage Systems Overview</h2>
+        <button type="button" id="filter-toggle-btn" class="btn-filter-toggle" onclick="toggleFilters()" aria-expanded="true">
+            🔎 Filter ausblenden
+        </button>
     </div>
     
     <div class="overview-content">
@@ -1038,10 +1174,10 @@ body.table-view .systems-table {
                     </div>
                     <div class="view-toggle">
                         <button id="card-view-btn" class="active" onclick="switchView('card')">
-                            <span>&#x25A0;&#x25A0;</span> Cards
+                            <span>&#x25A0;&#x25A0;</span> <span class="btn-label">Cards</span>
                         </button>
                         <button id="table-view-btn" onclick="switchView('table')">
-                            <span>☰</span> Table
+                            <span>☰</span> <span class="btn-label">Table</span>
                         </button>
                     </div>
                     <div class="column-selector" title="Anzahl Spalten">
@@ -1544,6 +1680,7 @@ document.addEventListener('DOMContentLoaded', function() {
     switchView(savedView);
     const savedColumns = parseInt(localStorage.getItem('dashboard-columns') || '2', 10);
     setColumnCount(savedColumns); // validates and clamps to 1–4, default 2
+    setFiltersCollapsed(true); // Always start collapsed on page load
     applyFilters(); // Apply initial filters
 });
 
@@ -1811,6 +1948,23 @@ function updateTagDropdownLabel() {
     } else {
         label.textContent = checked.length + ' Tags';
     }
+}
+
+function setFiltersCollapsed(collapsed) {
+    const overviewCard = document.getElementById('overview-card');
+    const toggleBtn = document.getElementById('filter-toggle-btn');
+    if (!overviewCard || !toggleBtn) return;
+
+    overviewCard.classList.toggle('filters-collapsed', collapsed);
+    toggleBtn.textContent = collapsed ? '🔎 Filter anzeigen' : '🔎 Filter ausblenden';
+    toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+    localStorage.setItem('dashboard-filters-collapsed', String(collapsed));
+}
+
+function toggleFilters() {
+    const overviewCard = document.getElementById('overview-card');
+    if (!overviewCard) return;
+    setFiltersCollapsed(!overviewCard.classList.contains('filters-collapsed'));
 }
 
 document.addEventListener('click', function(e) {
