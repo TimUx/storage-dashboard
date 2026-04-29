@@ -1366,8 +1366,10 @@ function openTtlModal(id) {
     }
     _ttlEditId = id;
 
+    // The TTL picker works in browser-local time. Keep the displayed
+    // "Aktuell TTL" aligned with the picker values.
     document.getElementById('ttl-modal-info').textContent =
-        `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatTtlDt(snap.ttl) : '–'}`;
+        `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
 
     // Compute the earliest allowed new TTL: now + 24 h.
     _ttlMinTime = new Date(Date.now() + TTL_MIN_INCREASE_HOURS * 3600 * 1000);
@@ -1384,9 +1386,20 @@ function openTtlModal(id) {
     dateInput.min = minDateStr;
 
     // Pre-fill the picker with the earliest valid local value.
-    dateInput.value = minDateStr;
-    timeInput.value =
-        `${pad(_ttlMinTime.getHours())}:${pad(_ttlMinTime.getMinutes())}:${pad(_ttlMinTime.getSeconds())}`;
+    // Prefer showing the *current TTL* in the picker so the operator can
+    // see what they are editing. The row is only editable when TTL is
+    // sufficiently in the future, so this should be >= minDateStr.
+    const currentTtlDt = parseServerDt(snap.ttl);
+    if (currentTtlDt) {
+        dateInput.value =
+            `${currentTtlDt.getFullYear()}-${pad(currentTtlDt.getMonth() + 1)}-${pad(currentTtlDt.getDate())}`;
+        timeInput.value =
+            `${pad(currentTtlDt.getHours())}:${pad(currentTtlDt.getMinutes())}:${pad(currentTtlDt.getSeconds())}`;
+    } else {
+        dateInput.value = minDateStr;
+        timeInput.value =
+            `${pad(_ttlMinTime.getHours())}:${pad(_ttlMinTime.getMinutes())}:${pad(_ttlMinTime.getSeconds())}`;
+    }
 
     refreshTtlPickerValidity();
     document.getElementById('ttl-modal').classList.add('open');
