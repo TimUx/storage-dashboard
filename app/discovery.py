@@ -1,4 +1,5 @@
 """System discovery utilities for auto-detecting storage system details"""
+import os
 import socket
 import logging
 import requests
@@ -15,7 +16,7 @@ SHELF_CONTROLLER_PATTERN = '.SC'
 
 # API configuration constants
 PURE_API_VERSION = '2.4'
-API_TIMEOUT = 10  # seconds
+API_TIMEOUT = int(os.getenv('DISCOVERY_API_TIMEOUT_SECONDS', os.getenv('STORAGE_API_TIMEOUT_SECONDS', '30')))  # seconds
 
 # HTTP status codes
 HTTP_OK = 200

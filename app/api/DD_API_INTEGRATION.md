@@ -227,7 +227,7 @@ The client uses the following constants for consistency:
 
 ## Performance Considerations
 
-- All API calls use 10-second timeout
+- All API calls use a configurable timeout via `DD_API_TIMEOUT_SECONDS` (default: 30 seconds)
 - Failed endpoints are logged at DEBUG level (don't spam logs)
 - API requests run sequentially to avoid overwhelming the system
 - Token-based authentication minimizes overhead
