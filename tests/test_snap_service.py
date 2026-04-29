@@ -1174,6 +1174,7 @@ def test_persist_ttl_update_updates_storage_locations_snapshot_names(app):
     )
 
     with app.app_context():
+        from app import db
         db.session.add(rec)
         db.session.commit()
 
