@@ -1086,7 +1086,7 @@ function renderTable() {
         const btnId     = `expand-btn-${s.id}`;
 
         // TTL display
-        const ttlDisp = s.ttl ? formatDt(s.ttl) : '–';
+        const ttlDisp = s.ttl ? formatTtlDt(s.ttl) : '–';
         const lockReason = s.actions_lock_reason
             || 'TTL läuft in ≤ 25 Stunden ab; Bearbeitung und Löschung sind gesperrt.';
 
@@ -1367,7 +1367,7 @@ function openTtlModal(id) {
     _ttlEditId = id;
 
     document.getElementById('ttl-modal-info').textContent =
-        `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
+        `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatTtlDt(snap.ttl) : '–'}`;
 
     // Compute the earliest allowed new TTL: now + 24 h.
     _ttlMinTime = new Date(Date.now() + TTL_MIN_INCREASE_HOURS * 3600 * 1000);
@@ -1748,6 +1748,27 @@ function formatDt(iso) {
         if (isNaN(d.getTime())) return iso;
         return formatLocalDateObj(d);
     } catch { return iso; }
+}
+
+/**
+ * Format TTL exactly in server time (UTC) so the value aligns with
+ * storage-side snapshot names/details that encode UTC timestamps.
+ */
+function formatTtlDt(iso) {
+    if (!iso) return '–';
+    try {
+        const isoDt = iso.includes('T') ? iso : iso.replace(' ', 'T');
+        const d = new Date(isoDt.endsWith('Z') ? isoDt : isoDt + 'Z');
+        if (isNaN(d.getTime())) return iso;
+        return formatUtcDateObj(d);
+    } catch { return iso; }
+}
+
+/** Format a JS Date object using UTC components (DD.MM.YYYY HH:MM:SS). */
+function formatUtcDateObj(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}.${d.getUTCFullYear()} `
+         + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }
 
 /** Format a JS Date object using local components (DD.MM.YYYY HH:MM:SS). */
