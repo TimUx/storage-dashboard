@@ -782,7 +782,7 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
             <input type="date" id="ttl-date-input" oninput="refreshTtlPickerValidity()" />
             <input type="time" id="ttl-time-input" step="1" oninput="refreshTtlPickerValidity()" />
             <span class="ttl-tz-hint"
-                  title="Zeiten werden in lokaler Browser-Zeit (z. B. CEST/CET) angezeigt und eingegeben.">Lokal</span>
+                  title="Zeiten werden in UTC (Serverzeit) angezeigt und eingegeben.">UTC</span>
         </div>
         <p id="ttl-modal-hint" class="ttl-modal-hint" aria-live="polite"></p>
         <div style="margin-top:1rem;display:flex;gap:.75rem;">
@@ -1310,19 +1310,24 @@ function parseServerDt(iso) {
     return isNaN(d.getTime()) ? null : d;
 }
 
-/**
- * Read the current picker value as a local-time Date.
- *
- * ``<input type="date/time">`` is local-time based in browsers.  Keeping
- * the picker in local time aligns the UI with the operator expectation
- * (CEST/CET) and with all rendered table values.
- */
 function readPickerDate() {
     const dateVal = document.getElementById('ttl-date-input').value;
     const timeVal = document.getElementById('ttl-time-input').value || '00:00:00';
     if (!dateVal) return null;
-    const d = new Date(`${dateVal}T${timeVal}`);
-    return isNaN(d.getTime()) ? null : d;
+    // Treat picker inputs as UTC so the values match the UTC-rendered
+    // table/details (and the storage-side snapshot name timestamps).
+    const [yStr, mStr, dStr] = dateVal.split('-');
+    const [hhStr, mmStr, ssStr] = timeVal.split(':');
+    const y = Number(yStr);
+    const m = Number(mStr);
+    const d = Number(dStr);
+    const hh = Number(hhStr);
+    const mm = Number(mmStr);
+    const ss = Number(ssStr);
+    if ([y, m, d, hh, mm, ss].some(n => !Number.isFinite(n))) return null;
+    const utcMs = Date.UTC(y, m - 1, d, hh, mm, ss);
+    const dt = new Date(utcMs);
+    return isNaN(dt.getTime()) ? null : dt;
 }
 
 /** Update validity & save-button state based on the current picker values. */
@@ -1337,7 +1342,7 @@ function refreshTtlPickerValidity() {
         reason = 'Bitte ein vollständiges Datum und Uhrzeit auswählen.';
     } else if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
         valid = false;
-        reason = `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} h ab jetzt in der Zukunft liegen (frühestens ${formatLocalDateObj(_ttlMinTime)}).`;
+        reason = `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} h ab jetzt in der Zukunft liegen (frühestens ${formatUtcDateObj(_ttlMinTime)}).`;
     }
     if (saveBtn) {
         saveBtn.disabled = !valid;
@@ -1347,7 +1352,7 @@ function refreshTtlPickerValidity() {
         if (valid) {
             hint.classList.remove('ttl-hint-error');
             hint.textContent = _ttlMinTime
-                ? `Frühestmögliche neue TTL (ab jetzt): ${formatLocalDateObj(_ttlMinTime)}`
+                ? `Frühestmögliche neue TTL (ab jetzt): ${formatUtcDateObj(_ttlMinTime)}`
                 : '';
         } else {
             hint.classList.add('ttl-hint-error');
@@ -1366,10 +1371,9 @@ function openTtlModal(id) {
     }
     _ttlEditId = id;
 
-    // The TTL picker works in browser-local time. Keep the displayed
-    // "Aktuell TTL" aligned with the picker values.
+    // Keep modal TTL values aligned with the UTC-rendered table/details.
     document.getElementById('ttl-modal-info').textContent =
-        `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatDt(snap.ttl) : '–'}`;
+        `SID: ${snap.sid}  ·  Erstellt: ${snap.creation_time ? formatDt(snap.creation_time) : '–'}  ·  Aktuell TTL: ${snap.ttl ? formatTtlDt(snap.ttl) : '–'}`;
 
     // Compute the earliest allowed new TTL: now + 24 h.
     _ttlMinTime = new Date(Date.now() + TTL_MIN_INCREASE_HOURS * 3600 * 1000);
@@ -1379,26 +1383,26 @@ function openTtlModal(id) {
     const timeInput = document.getElementById('ttl-time-input');
 
     // Apply the HTML5 ``min`` attribute so the native picker greys out
-    // earlier days in local browser time; the per-second guard below
+    // earlier days in UTC time; the per-second guard below
     // still enforces the exact timestamp.
     const minDateStr =
-        `${_ttlMinTime.getFullYear()}-${pad(_ttlMinTime.getMonth() + 1)}-${pad(_ttlMinTime.getDate())}`;
+        `${_ttlMinTime.getUTCFullYear()}-${pad(_ttlMinTime.getUTCMonth() + 1)}-${pad(_ttlMinTime.getUTCDate())}`;
     dateInput.min = minDateStr;
 
-    // Pre-fill the picker with the earliest valid local value.
+    // Pre-fill the picker with the current TTL (UTC) if parseable.
     // Prefer showing the *current TTL* in the picker so the operator can
     // see what they are editing. The row is only editable when TTL is
     // sufficiently in the future, so this should be >= minDateStr.
     const currentTtlDt = parseServerDt(snap.ttl);
     if (currentTtlDt) {
         dateInput.value =
-            `${currentTtlDt.getFullYear()}-${pad(currentTtlDt.getMonth() + 1)}-${pad(currentTtlDt.getDate())}`;
+            `${currentTtlDt.getUTCFullYear()}-${pad(currentTtlDt.getUTCMonth() + 1)}-${pad(currentTtlDt.getUTCDate())}`;
         timeInput.value =
-            `${pad(currentTtlDt.getHours())}:${pad(currentTtlDt.getMinutes())}:${pad(currentTtlDt.getSeconds())}`;
+            `${pad(currentTtlDt.getUTCHours())}:${pad(currentTtlDt.getUTCMinutes())}:${pad(currentTtlDt.getUTCSeconds())}`;
     } else {
         dateInput.value = minDateStr;
         timeInput.value =
-            `${pad(_ttlMinTime.getHours())}:${pad(_ttlMinTime.getMinutes())}:${pad(_ttlMinTime.getSeconds())}`;
+            `${pad(_ttlMinTime.getUTCHours())}:${pad(_ttlMinTime.getUTCMinutes())}:${pad(_ttlMinTime.getUTCSeconds())}`;
     }
 
     refreshTtlPickerValidity();
@@ -1421,7 +1425,7 @@ async function saveTtl() {
     if (_ttlMinTime && picked.getTime() < _ttlMinTime.getTime()) {
         alert(
             `Neue TTL muss mindestens ${TTL_MIN_INCREASE_HOURS} Stunden nach der ` +
-            `aktuellen Zeit liegen.\n\nFrühestmöglich: ${formatLocalDateObj(_ttlMinTime)}`
+            `aktuellen Zeit liegen.\n\nFrühestmöglich: ${formatUtcDateObj(_ttlMinTime)}`
         );
         return;
     }
