@@ -1,4 +1,5 @@
 """Dell DataDomain REST API client (v1.0)."""
+import os
 import logging
 import traceback
 
@@ -10,6 +11,10 @@ from app.discovery import reverse_dns_lookup
 from app.ssl_utils import get_ssl_verify
 
 logger = logging.getLogger(__name__)
+
+# requests timeout in seconds (both connect + read). Used for DataDomain REST calls.
+# Override via env var to accommodate slower networks / appliances.
+DD_API_TIMEOUT_SECONDS = int(os.getenv('DD_API_TIMEOUT_SECONDS', os.getenv('STORAGE_API_TIMEOUT_SECONDS', '30')))
 
 class DellDataDomainClient(StorageClient):
     """Dell DataDomain client - REST API v1.0
@@ -59,7 +64,7 @@ class DellDataDomainClient(StorageClient):
                 json=auth_data,
                 headers={'Content-Type': 'application/json'},
                 verify=ssl_verify,
-                timeout=10
+                timeout=DD_API_TIMEOUT_SECONDS
             )
 
             if response.status_code == 201:
@@ -111,13 +116,13 @@ class DellDataDomainClient(StorageClient):
             url = f"{self.base_url}{endpoint}"
 
             if method.upper() == 'GET':
-                response = local_session().get(url, headers=headers, verify=ssl_verify, timeout=10)
+                response = local_session().get(url, headers=headers, verify=ssl_verify, timeout=DD_API_TIMEOUT_SECONDS)
             elif method.upper() == 'POST':
-                response = local_session().post(url, headers=headers, json=data, verify=ssl_verify, timeout=10)
+                response = local_session().post(url, headers=headers, json=data, verify=ssl_verify, timeout=DD_API_TIMEOUT_SECONDS)
             elif method.upper() == 'PUT':
-                response = local_session().put(url, headers=headers, json=data, verify=ssl_verify, timeout=10)
+                response = local_session().put(url, headers=headers, json=data, verify=ssl_verify, timeout=DD_API_TIMEOUT_SECONDS)
             elif method.upper() == 'DELETE':
-                response = local_session().delete(url, headers=headers, verify=ssl_verify, timeout=10)
+                response = local_session().delete(url, headers=headers, verify=ssl_verify, timeout=DD_API_TIMEOUT_SECONDS)
             else:
                 logger.error(f"Unsupported HTTP method: {method}")
                 return None
@@ -698,7 +703,7 @@ class DellDataDomainClient(StorageClient):
                 f"{self.base_url}/rest/v1.0/system",
                 headers=headers,
                 verify=ssl_verify,
-                timeout=10
+                timeout=DD_API_TIMEOUT_SECONDS
             )
 
             if response.status_code != 200:
@@ -718,7 +723,7 @@ class DellDataDomainClient(StorageClient):
                             f"{self.base_url}/rest/v1.0/system",
                             headers=headers,
                             verify=ssl_verify,
-                            timeout=10
+                            timeout=DD_API_TIMEOUT_SECONDS
                         )
 
                         if response.status_code != 200:
@@ -777,7 +782,7 @@ class DellDataDomainClient(StorageClient):
                             f"{self.base_url}/rest/v1.0/dd-systems/0/networks/{iface}",
                             headers=headers,
                             verify=ssl_verify,
-                            timeout=10
+                                timeout=DD_API_TIMEOUT_SECONDS
                         )
 
                         if iface_response.status_code == 200:
