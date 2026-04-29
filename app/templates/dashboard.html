@@ -83,11 +83,23 @@ body {
 }
 
 .overview-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.overview-header-actions-left,
+.overview-header-actions-right {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    margin-left: auto;
     flex-wrap: wrap;
+}
+
+.overview-header-actions-right {
+    margin-left: 0.35rem;
 }
 
 .btn-tool {
@@ -1120,34 +1132,45 @@ body.table-view .systems-table {
     <div class="overview-header">
         <h2><span class="overview-title-icon" aria-hidden="true">📊</span> Storage Systems Overview</h2>
         <div class="overview-header-actions">
-            <div class="view-toggle">
-                <button id="card-view-btn" class="active" onclick="switchView('card')">
-                    <span>&#x25A0;&#x25A0;</span> <span class="btn-label">Cards</span>
+            <div class="overview-header-actions-left">
+                <button type="button"
+                        id="filter-toggle-btn"
+                        class="btn-tool"
+                        onclick="toggleFilters()"
+                        aria-controls="dashboard-filters"
+                        aria-expanded="false"
+                        aria-pressed="false"
+                        title="Filter ein-/ausblenden">
+                    <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"
+                         style="width:.95rem;height:.95rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">
+                        <polygon points="3 4 21 4 14 13 14 19 10 21 10 13 3 4"></polygon>
+                    </svg>
+                    <span class="btn-label">Filter</span>
                 </button>
-                <button id="table-view-btn" onclick="switchView('table')">
-                    <span>☰</span> <span class="btn-label">Table</span>
+                <div class="view-toggle">
+                    <button id="card-view-btn" class="active" onclick="switchView('card')">
+                        <span>&#x25A0;&#x25A0;</span> <span class="btn-label">Cards</span>
+                    </button>
+                    <button id="table-view-btn" onclick="switchView('table')">
+                        <span>☰</span> <span class="btn-label">Table</span>
+                    </button>
+                </div>
+                <div class="column-selector" title="Anzahl Spalten">
+                    <button id="col-1-btn" onclick="setColumnCount(1)" title="1 Spalte">▌</button>
+                    <button id="col-2-btn" onclick="setColumnCount(2)" title="2 Spalten">▌▌</button>
+                    <button id="col-3-btn" onclick="setColumnCount(3)" title="3 Spalten">▌▌▌</button>
+                    <button id="col-4-btn" onclick="setColumnCount(4)" title="4 Spalten">▌▌▌▌</button>
+                </div>
+            </div>
+            <div class="overview-header-actions-right">
+                <button id="collect-now-btn" class="btn-collect-now" onclick="triggerCollectNow()" title="Daten aller Systeme sofort neu abrufen">
+                    🔄 Jetzt abrufen
                 </button>
+                <div class="refresh-indicator" id="refresh-indicator" title="Dashboard aktualisiert sich automatisch">
+                    <span class="refresh-dot" id="refresh-dot"></span>
+                    <span id="last-updated-label"></span>
+                </div>
             </div>
-            <div class="column-selector" title="Anzahl Spalten">
-                <button id="col-1-btn" onclick="setColumnCount(1)" title="1 Spalte">▌</button>
-                <button id="col-2-btn" onclick="setColumnCount(2)" title="2 Spalten">▌▌</button>
-                <button id="col-3-btn" onclick="setColumnCount(3)" title="3 Spalten">▌▌▌</button>
-                <button id="col-4-btn" onclick="setColumnCount(4)" title="4 Spalten">▌▌▌▌</button>
-            </div>
-            <button type="button"
-                    id="filter-toggle-btn"
-                    class="btn-tool"
-                    onclick="toggleFilters()"
-                    aria-controls="dashboard-filters"
-                    aria-expanded="false"
-                    aria-pressed="false"
-                    title="Filter ein-/ausblenden">
-                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"
-                     style="width:.95rem;height:.95rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">
-                    <polygon points="3 4 21 4 14 13 14 19 10 21 10 13 3 4"></polygon>
-                </svg>
-                <span class="btn-label">Filter</span>
-            </button>
         </div>
     </div>
     
@@ -1220,19 +1243,6 @@ body.table-view .systems-table {
                 </div>
             </div>
             
-            <!-- Actions Section -->
-            <div class="actions-section">
-                <h3>Dashboard Optionen</h3>
-                <div class="header-actions">
-                    <button id="collect-now-btn" class="btn-collect-now" onclick="triggerCollectNow()" title="Daten aller Systeme sofort neu abrufen">
-                        🔄 Jetzt abrufen
-                    </button>
-                    <div class="refresh-indicator" id="refresh-indicator" title="Dashboard aktualisiert sich automatisch">
-                        <span class="refresh-dot" id="refresh-dot"></span>
-                        <span id="last-updated-label"></span>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 </div>
