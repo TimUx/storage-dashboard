@@ -854,6 +854,7 @@ let _sortDir   = 'asc';
 let _ttlEditId = null;        // snapshot id being edited
 let _deleteTimers = {};       // intervalId per snapshot id
 let _execRunning = false;     // execution modal is currently streaming
+let _openDetailIds = new Set(); // keep expanded detail rows across re-renders
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -1079,11 +1080,13 @@ function renderTable() {
     const now = Date.now();
     let html = '';
     for (const s of rows) {
+        const snapId = Number(s.id);
+        const isOpen = _openDetailIds.has(snapId);
         const isPending = s.delete_marked && s.delete_deadline;
         const isLocked  = !!s.actions_locked;   // TTL ≤ 25h until expiry
         const rowClass  = isPending ? ' class="delete-pending"' : '';
-        const expandId  = `detail-${s.id}`;
-        const btnId     = `expand-btn-${s.id}`;
+        const expandId  = `detail-${snapId}`;
+        const btnId     = `expand-btn-${snapId}`;
 
         // TTL display
         const ttlDisp = s.ttl ? formatTtlDt(s.ttl) : '–';
@@ -1198,7 +1201,7 @@ function renderTable() {
 
         html += `
         <tr${rowClass}>
-            <td><button class="expand-btn" id="${btnId}" onclick="toggleDetail(${s.id})" title="Details">▶</button></td>
+            <td><button class="expand-btn${isOpen ? ' open' : ''}" id="${btnId}" onclick="toggleDetail(${snapId})" title="Details">▶</button></td>
             <td><strong>${escHtml(s.sid)}</strong></td>
             <td style="white-space:nowrap">${s.creation_time ? formatDt(s.creation_time) : '–'}</td>
             <td class="ttl-cell">
@@ -1218,7 +1221,7 @@ function renderTable() {
             </td>
             <td>${delCol}</td>
         </tr>
-        <tr class="sn-detail-row" id="${expandId}">
+        <tr class="sn-detail-row${isOpen ? ' open' : ''}" id="${expandId}">
             <td colspan="8" class="sn-detail-cell">${detailHtml}</td>
         </tr>`;
     }
@@ -1234,12 +1237,16 @@ function renderTable() {
 
 // ─── Expand / collapse ────────────────────────────────────────────────────
 function toggleDetail(id) {
-    const row = document.getElementById(`detail-${id}`);
-    const btn = document.getElementById(`expand-btn-${id}`);
+    const snapId = Number(id);
+    const row = document.getElementById(`detail-${snapId}`);
+    const btn = document.getElementById(`expand-btn-${snapId}`);
     if (!row) return;
     const isOpen = row.classList.contains('open');
-    row.classList.toggle('open', !isOpen);
-    btn.classList.toggle('open', !isOpen);
+    const willOpen = !isOpen;
+    row.classList.toggle('open', willOpen);
+    if (btn) btn.classList.toggle('open', willOpen);
+    if (willOpen) _openDetailIds.add(snapId);
+    else _openDetailIds.delete(snapId);
 }
 
 // ─── Comment editing ──────────────────────────────────────────────────────
