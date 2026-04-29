@@ -1979,3 +1979,30 @@ def test_build_delete_plan_ontap_two_steps_per_volume():
     for i in range(0, len(plan), 2):
         assert 'expiry_time' in plan[i]['command']
         assert 'curl -X DELETE' in plan[i + 1]['command']
+
+
+def test_format_response_info_renders_nested_ontap_job_error():
+    """When an ONTAP async job fails, the terminal view must show state/message/code."""
+    from app.routes.snaps import _format_response_info
+
+    # Mirrors the wrapper shape returned by NetAppONTAPClient._wait_for_job_completion
+    # on failure: {'error': ..., 'job': <job_payload>}.
+    info = {
+        'status_code': 202,
+        'job_uuid': '67dedff3-439e-11f1-ac22-d039ea53066a',
+        'job': {
+            'error': 'ONTAP async job failed (state=failure): not authorized for that command',
+            'job': {
+                'uuid': '67dedff3-439e-11f1-ac22-d039ea53066a',
+                'description': 'PATCH /api/storage/volumes/…/snapshots/…',
+                'state': 'failure',
+                'message': 'not authorized for that command',
+                'code': 6,
+            },
+        },
+    }
+
+    s = _format_response_info(info)
+    assert 'job_state=failure' in s
+    assert 'not authorized for that command' in s
+    assert 'job_code=6' in s
