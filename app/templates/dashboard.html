@@ -67,27 +67,54 @@ body {
     color: var(--brand-blue);
     margin: 0;
     font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    line-height: 1.2;
 }
 
 .overview-content {
     padding: 0.75rem 1rem;
 }
 
-.btn-filter-toggle {
-    border: 1px solid var(--border-light);
-    background: var(--bg-light);
-    color: var(--text-medium);
-    border-radius: 4px;
-    padding: 0.35rem 0.65rem;
-    font-size: 0.8rem;
-    font-weight: 600;
+.overview-title-icon {
+    font-size: 1.15rem;
+    line-height: 1;
+}
+
+.overview-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.btn-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: transparent;
+    color: var(--brand-blue);
+    border: 1.5px solid var(--brand-blue);
+    border-radius: 6px;
+    padding: 0.42rem 0.85rem;
+    font-size: 0.9rem;
+    font-weight: 500;
     cursor: pointer;
+    line-height: 1;
+    transition: background 0.15s, color 0.15s;
     white-space: nowrap;
 }
 
-.btn-filter-toggle:hover {
-    border-color: var(--brand-blue);
-    color: var(--brand-blue);
+.btn-tool:hover {
+    background: var(--brand-blue);
+    color: #fff;
+}
+
+.btn-tool[aria-pressed="true"] {
+    background: var(--brand-blue);
+    color: #fff;
 }
 
 .dashboard-header {
@@ -872,7 +899,8 @@ body.table-view .systems-table {
         justify-content: flex-start;
     }
 
-    .header-actions {
+    .header-actions,
+    .overview-header-actions {
         flex-wrap: wrap;
         gap: 0.5rem;
     }
@@ -895,8 +923,8 @@ body.table-view .systems-table {
         padding: 0.55rem 0.75rem;
     }
 
-    .btn-filter-toggle {
-        padding: 0.25rem 0.5rem;
+    .btn-tool {
+        padding: 0.3rem 0.55rem;
         font-size: 0.75rem;
     }
 
@@ -941,6 +969,10 @@ body.table-view .systems-table {
     }
 
     .column-selector {
+        display: none;
+    }
+
+    .btn-tool .btn-label {
         display: none;
     }
 }
@@ -1086,16 +1118,43 @@ body.table-view .systems-table {
 <!-- Combined Overview Card with Filters and Actions -->
 <div class="overview-card" id="overview-card">
     <div class="overview-header">
-        <h2>Storage Systems Overview</h2>
-        <button type="button" id="filter-toggle-btn" class="btn-filter-toggle" onclick="toggleFilters()" aria-expanded="true">
-            🔎 Filter ausblenden
-        </button>
+        <h2><span class="overview-title-icon" aria-hidden="true">📊</span> Storage Systems Overview</h2>
+        <div class="overview-header-actions">
+            <div class="view-toggle">
+                <button id="card-view-btn" class="active" onclick="switchView('card')">
+                    <span>&#x25A0;&#x25A0;</span> <span class="btn-label">Cards</span>
+                </button>
+                <button id="table-view-btn" onclick="switchView('table')">
+                    <span>☰</span> <span class="btn-label">Table</span>
+                </button>
+            </div>
+            <div class="column-selector" title="Anzahl Spalten">
+                <button id="col-1-btn" onclick="setColumnCount(1)" title="1 Spalte">▌</button>
+                <button id="col-2-btn" onclick="setColumnCount(2)" title="2 Spalten">▌▌</button>
+                <button id="col-3-btn" onclick="setColumnCount(3)" title="3 Spalten">▌▌▌</button>
+                <button id="col-4-btn" onclick="setColumnCount(4)" title="4 Spalten">▌▌▌▌</button>
+            </div>
+            <button type="button"
+                    id="filter-toggle-btn"
+                    class="btn-tool"
+                    onclick="toggleFilters()"
+                    aria-controls="dashboard-filters"
+                    aria-expanded="false"
+                    aria-pressed="false"
+                    title="Filter ein-/ausblenden">
+                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"
+                     style="width:.95rem;height:.95rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">
+                    <polygon points="3 4 21 4 14 13 14 19 10 21 10 13 3 4"></polygon>
+                </svg>
+                <span class="btn-label">Filter</span>
+            </button>
+        </div>
     </div>
     
     <div class="overview-content">
         <div class="controls-wrapper">
             <!-- Filter Section -->
-            <div class="filter-section">
+            <div class="filter-section" id="dashboard-filters">
                 <h3>🔍 Filter</h3>
                 <div class="filter-controls">
                     <div class="filter-group">
@@ -1171,20 +1230,6 @@ body.table-view .systems-table {
                     <div class="refresh-indicator" id="refresh-indicator" title="Dashboard aktualisiert sich automatisch">
                         <span class="refresh-dot" id="refresh-dot"></span>
                         <span id="last-updated-label"></span>
-                    </div>
-                    <div class="view-toggle">
-                        <button id="card-view-btn" class="active" onclick="switchView('card')">
-                            <span>&#x25A0;&#x25A0;</span> <span class="btn-label">Cards</span>
-                        </button>
-                        <button id="table-view-btn" onclick="switchView('table')">
-                            <span>☰</span> <span class="btn-label">Table</span>
-                        </button>
-                    </div>
-                    <div class="column-selector" title="Anzahl Spalten">
-                        <button id="col-1-btn" onclick="setColumnCount(1)" title="1 Spalte">▌</button>
-                        <button id="col-2-btn" onclick="setColumnCount(2)" title="2 Spalten">▌▌</button>
-                        <button id="col-3-btn" onclick="setColumnCount(3)" title="3 Spalten">▌▌▌</button>
-                        <button id="col-4-btn" onclick="setColumnCount(4)" title="4 Spalten">▌▌▌▌</button>
                     </div>
                 </div>
             </div>
@@ -1956,8 +2001,8 @@ function setFiltersCollapsed(collapsed) {
     if (!overviewCard || !toggleBtn) return;
 
     overviewCard.classList.toggle('filters-collapsed', collapsed);
-    toggleBtn.textContent = collapsed ? '🔎 Filter anzeigen' : '🔎 Filter ausblenden';
     toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+    toggleBtn.setAttribute('aria-pressed', String(!collapsed));
     localStorage.setItem('dashboard-filters-collapsed', String(collapsed));
 }
 
