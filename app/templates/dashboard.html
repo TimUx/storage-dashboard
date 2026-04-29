@@ -22,6 +22,7 @@
     --bg-white: #ffffff;
     --border-light: #e1e8ed;
     --warning: #FFA500;
+    --header-control-height: 2.1rem;
 }
 
 [data-theme="dark"] {
@@ -117,6 +118,8 @@ body {
     line-height: 1;
     transition: background 0.15s, color 0.15s;
     white-space: nowrap;
+    min-height: var(--header-control-height);
+    box-sizing: border-box;
 }
 
 .btn-tool:hover {
@@ -207,6 +210,9 @@ body {
     color: var(--text-medium);
     transition: all 0.3s;
     font-weight: 500;
+    min-height: var(--header-control-height);
+    box-sizing: border-box;
+    line-height: 1;
 }
 
 .view-toggle button:hover {
@@ -237,6 +243,8 @@ body {
     font-weight: 500;
     line-height: 1;
     letter-spacing: 0.05em;
+    min-height: var(--header-control-height);
+    box-sizing: border-box;
 }
 
 .column-selector button:hover {
@@ -872,6 +880,9 @@ body.table-view .systems-table {
     font-weight: 500;
     transition: all 0.3s;
     white-space: nowrap;
+    min-height: var(--header-control-height);
+    box-sizing: border-box;
+    line-height: 1;
 }
 
 .btn-collect-now:hover {
@@ -956,6 +967,13 @@ body.table-view .systems-table {
     .btn-collect-now {
         padding: 0.3rem 0.55rem;
         font-size: 0.75rem;
+    }
+
+    .btn-tool,
+    .btn-collect-now,
+    .view-toggle button,
+    .column-selector button {
+        min-height: 1.9rem;
     }
 
     .refresh-indicator {
