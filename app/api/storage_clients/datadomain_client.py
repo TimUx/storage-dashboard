@@ -25,6 +25,11 @@ DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS = float(
 DD_SLOW_CALL_WARN_SECONDS = float(os.getenv('DD_SLOW_CALL_WARN_SECONDS', '5.0'))
 DD_API_RETRIES = int(os.getenv('DD_API_RETRIES', '2'))
 DD_API_RETRY_BACKOFF_SECONDS = float(os.getenv('DD_API_RETRY_BACKOFF_SECONDS', '1.5'))
+DD_API_NIC_RETRIES = int(os.getenv('DD_API_NIC_RETRIES', '1'))
+DD_NETWORK_NIC_EXPAND_ALL_DETAILS = os.getenv('DD_NETWORK_NIC_EXPAND_ALL_DETAILS', '0').strip().lower() in {
+    '1', 'true', 'yes', 'on'
+}
+DD_NETWORK_NICS_MAX_SECONDS = float(os.getenv('DD_NETWORK_NICS_MAX_SECONDS', '90'))
 
 
 def _is_timeout_error(exc: Exception) -> bool:
@@ -97,7 +102,9 @@ class DellDataDomainClient(StorageClient):
 
     def _request_with_retry(self, operation: str, call):
         """Execute request call with retries for transient transport failures."""
-        attempts = max(1, DD_API_RETRIES + 1)
+        is_nic_op = '/networks/nics' in operation
+        retries = DD_API_NIC_RETRIES if is_nic_op else DD_API_RETRIES
+        attempts = max(1, retries + 1)
         for attempt in range(1, attempts + 1):
             try:
                 return call()
@@ -110,7 +117,7 @@ class DellDataDomainClient(StorageClient):
                     operation,
                     type(exc).__name__,
                     attempt,
-                    attempts - 1,
+                    retries,
                     DD_API_RETRY_BACKOFF_SECONDS,
                 )
                 time.sleep(max(0.0, DD_API_RETRY_BACKOFF_SECONDS))
@@ -437,6 +444,11 @@ class DellDataDomainClient(StorageClient):
             list: List of network NICs with detailed configuration
         """
         try:
+            step_started = time.monotonic()
+
+            def _nics_time_exceeded() -> bool:
+                return (time.monotonic() - step_started) >= max(1.0, DD_NETWORK_NICS_MAX_SECONDS)
+
             # Try v2.0 API first for NICs
             data = self._make_api_request('/rest/v2.0/dd-systems/0/networks/nics', headers, ssl_verify)
             if not data:
@@ -451,8 +463,13 @@ class DellDataDomainClient(StorageClient):
 
             if isinstance(nic_list, list):
                 for nic in nic_list:
+                    nic_name = nic.get('name', nic.get('id', 'unknown'))
+                    # Management interfaces are the only NICs needed by status/details views.
+                    # Keep optional full expansion behind env flag for troubleshooting.
+                    if not DD_NETWORK_NIC_EXPAND_ALL_DETAILS and nic_name not in self.MANAGEMENT_INTERFACES:
+                        continue
                     nic_info = {
-                        'name': nic.get('name', nic.get('id', 'unknown')),
+                        'name': nic_name,
                         'enabled': nic.get('enabled', False),
                         'link_status': nic.get('link_status', 'unknown'),
                         'mtu': nic.get('mtu')
@@ -478,6 +495,16 @@ class DellDataDomainClient(StorageClient):
 
                     # If no IP was found but ID is available, try to fetch individual NIC details
                     elif nic.get('id'):
+                        if _nics_time_exceeded():
+                            logger.warning(
+                                "DataDomain %s - stopping NIC detail expansion after %.1fs (budget %.1fs)",
+                                self.ip_address,
+                                time.monotonic() - step_started,
+                                DD_NETWORK_NICS_MAX_SECONDS,
+                            )
+                            break
+                        if not DD_NETWORK_NIC_EXPAND_ALL_DETAILS and nic_info.get('name') not in self.MANAGEMENT_INTERFACES:
+                            continue
                         nic_id = nic.get('id')
                         nic_detail = self._make_api_request(f'/rest/v2.0/dd-systems/0/networks/nics/{nic_id}', headers, ssl_verify)
                         if nic_detail:
@@ -501,6 +528,14 @@ class DellDataDomainClient(StorageClient):
             found_interfaces = {nic.get('name') for nic in nics if nic.get('name')}
 
             for iface_name in self.MANAGEMENT_INTERFACES:
+                if _nics_time_exceeded():
+                    logger.warning(
+                        "DataDomain %s - stopping management NIC lookups after %.1fs (budget %.1fs)",
+                        self.ip_address,
+                        time.monotonic() - step_started,
+                        DD_NETWORK_NICS_MAX_SECONDS,
+                    )
+                    break
                 # Skip if we already found this interface from bulk API
                 if iface_name in found_interfaces:
                     continue
@@ -535,7 +570,7 @@ class DellDataDomainClient(StorageClient):
 
             logger.debug(f"DataDomain {self.ip_address} - Found {len(nics)} NICs from v2.0 API")
 
-            # Perform reverse DNS lookups for all NICs (similar to Pure Storage implementation)
+            # Perform reverse DNS lookups for included NICs (management-focused by default).
             nics_with_dns = []
             for nic in nics:
                 ip_address = nic.get('ip_address')
