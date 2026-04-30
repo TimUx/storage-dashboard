@@ -91,7 +91,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import OperationalError
 
@@ -145,6 +145,7 @@ _background_thread_started = False
 _thread_lock = threading.Lock()
 _collect_event = threading.Event()
 _collect_run_lock = threading.Lock()
+_PG_ADVISORY_LOCK_KEY = 92017341
 
 
 # ---------------------------------------------------------------------------
@@ -947,13 +948,45 @@ def _execute_scheduled_deletion(app, rec):
 
 def _do_collect(app):
     """Run one full snapshot collection cycle."""
+    from app import db
     from app.models import StorageSystem
+
+    def _try_acquire_pg_lock() -> bool:
+        """Cross-process lock for PostgreSQL deployments."""
+        bind = db.session.get_bind()
+        dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
+        if dialect_name != 'postgresql':
+            return True
+        got = db.session.execute(
+            text("SELECT pg_try_advisory_lock(:key)"),
+            {'key': _PG_ADVISORY_LOCK_KEY},
+        ).scalar()
+        return bool(got)
+
+    def _release_pg_lock() -> None:
+        bind = db.session.get_bind()
+        dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
+        if dialect_name != 'postgresql':
+            return
+        try:
+            db.session.execute(
+                text("SELECT pg_advisory_unlock(:key)"),
+                {'key': _PG_ADVISORY_LOCK_KEY},
+            )
+        except Exception as exc:
+            logger.warning("Snapshot collector: could not release PG advisory lock: %s", exc)
+
     if not _collect_run_lock.acquire(blocking=False):
         logger.info("Snapshot collector: previous run still active, skipping overlapping run.")
         return
 
+    pg_lock_acquired = False
     try:
         with app.app_context():
+            pg_lock_acquired = _try_acquire_pg_lock()
+            if not pg_lock_acquired:
+                logger.info("Snapshot collector: another process currently runs collection, skipping.")
+                return
             systems = StorageSystem.query.filter(
                 StorageSystem.enabled == True,  # noqa: E712
                 or_(StorageSystem.snaps_enabled == True, StorageSystem.snaps_enabled == None),  # noqa: E712,E711
@@ -989,6 +1022,9 @@ def _do_collect(app):
         _upsert_snapshot_records(app, aggregated, systems_queried)
         _process_expired_deletions(app)
     finally:
+        with app.app_context():
+            if pg_lock_acquired:
+                _release_pg_lock()
         _collect_run_lock.release()
 
 
