@@ -379,9 +379,13 @@ def _fetch_live_health_with_timeout(system, timeout_seconds=60):
 
     worker = threading.Thread(target=_worker, name=f"dr-health-{system.name}", daemon=True)
     worker.start()
-    worker.join(timeout=timeout_seconds)
+    if timeout_seconds and timeout_seconds > 0:
+        worker.join(timeout=timeout_seconds)
+    else:
+        # No hard timeout: wait until complete to prefer completeness over speed.
+        worker.join()
 
-    if worker.is_alive():
+    if timeout_seconds and timeout_seconds > 0 and worker.is_alive():
         last_started = progress.get('last_started_step')
         last_done = progress.get('last_completed_step')
         step_runtime = None

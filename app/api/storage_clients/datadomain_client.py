@@ -2,8 +2,9 @@
 import logging
 import os
 import time
+from http.client import RemoteDisconnected
 
-from requests.exceptions import Timeout
+from requests.exceptions import ConnectionError, Timeout
 
 from app.api.base_client import StorageClient
 from app.api.storage_clients.common import _epoch_s_to_str
@@ -22,6 +23,8 @@ DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS = float(
     os.getenv('DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS', '1.0')
 )
 DD_SLOW_CALL_WARN_SECONDS = float(os.getenv('DD_SLOW_CALL_WARN_SECONDS', '5.0'))
+DD_API_RETRIES = int(os.getenv('DD_API_RETRIES', '2'))
+DD_API_RETRY_BACKOFF_SECONDS = float(os.getenv('DD_API_RETRY_BACKOFF_SECONDS', '1.5'))
 
 
 def _is_timeout_error(exc: Exception) -> bool:
@@ -31,6 +34,18 @@ def _is_timeout_error(exc: Exception) -> bool:
     while cur and id(cur) not in visited:
         visited.add(id(cur))
         if isinstance(cur, Timeout):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+def _is_retryable_transport_error(exc: Exception) -> bool:
+    """Return True for transient transport errors worth retrying."""
+    cur = exc
+    visited: set[int] = set()
+    while cur and id(cur) not in visited:
+        visited.add(id(cur))
+        if isinstance(cur, (Timeout, ConnectionError, RemoteDisconnected)):
             return True
         cur = cur.__cause__ or cur.__context__
     return False
@@ -80,6 +95,26 @@ class DellDataDomainClient(StorageClient):
             )
         return result
 
+    def _request_with_retry(self, operation: str, call):
+        """Execute request call with retries for transient transport failures."""
+        attempts = max(1, DD_API_RETRIES + 1)
+        for attempt in range(1, attempts + 1):
+            try:
+                return call()
+            except Exception as exc:
+                if not _is_retryable_transport_error(exc) or attempt >= attempts:
+                    raise
+                logger.warning(
+                    "DataDomain %s - %s transient error (%s), retry %d/%d in %.1fs",
+                    self.ip_address,
+                    operation,
+                    type(exc).__name__,
+                    attempt,
+                    attempts - 1,
+                    DD_API_RETRY_BACKOFF_SECONDS,
+                )
+                time.sleep(max(0.0, DD_API_RETRY_BACKOFF_SECONDS))
+
     def authenticate(self):
         """Authenticate with DataDomain and obtain session token
 
@@ -103,12 +138,15 @@ class DellDataDomainClient(StorageClient):
 
             logger.debug(f"Authenticating to DataDomain {self.ip_address} via {self.base_url}")
 
-            response = local_session().post(
-                f"{self.base_url}/rest/v1.0/auth",
-                json=auth_data,
-                headers={'Content-Type': 'application/json'},
-                verify=ssl_verify,
-                timeout=DD_API_TIMEOUT_SECONDS
+            response = self._request_with_retry(
+                "authenticate",
+                lambda: local_session().post(
+                    f"{self.base_url}/rest/v1.0/auth",
+                    json=auth_data,
+                    headers={'Content-Type': 'application/json'},
+                    verify=ssl_verify,
+                    timeout=DD_API_TIMEOUT_SECONDS,
+                ),
             )
 
             if response.status_code == 201:
@@ -166,13 +204,47 @@ class DellDataDomainClient(StorageClient):
             url = f"{self.base_url}{endpoint}"
 
             if method.upper() == 'GET':
-                response = local_session().get(url, headers=headers, verify=ssl_verify, timeout=DD_API_TIMEOUT_SECONDS)
+                response = self._request_with_retry(
+                    f"{method.upper()} {endpoint}",
+                    lambda: local_session().get(
+                        url,
+                        headers=headers,
+                        verify=ssl_verify,
+                        timeout=DD_API_TIMEOUT_SECONDS,
+                    ),
+                )
             elif method.upper() == 'POST':
-                response = local_session().post(url, headers=headers, json=data, verify=ssl_verify, timeout=DD_API_TIMEOUT_SECONDS)
+                response = self._request_with_retry(
+                    f"{method.upper()} {endpoint}",
+                    lambda: local_session().post(
+                        url,
+                        headers=headers,
+                        json=data,
+                        verify=ssl_verify,
+                        timeout=DD_API_TIMEOUT_SECONDS,
+                    ),
+                )
             elif method.upper() == 'PUT':
-                response = local_session().put(url, headers=headers, json=data, verify=ssl_verify, timeout=DD_API_TIMEOUT_SECONDS)
+                response = self._request_with_retry(
+                    f"{method.upper()} {endpoint}",
+                    lambda: local_session().put(
+                        url,
+                        headers=headers,
+                        json=data,
+                        verify=ssl_verify,
+                        timeout=DD_API_TIMEOUT_SECONDS,
+                    ),
+                )
             elif method.upper() == 'DELETE':
-                response = local_session().delete(url, headers=headers, verify=ssl_verify, timeout=DD_API_TIMEOUT_SECONDS)
+                response = self._request_with_retry(
+                    f"{method.upper()} {endpoint}",
+                    lambda: local_session().delete(
+                        url,
+                        headers=headers,
+                        verify=ssl_verify,
+                        timeout=DD_API_TIMEOUT_SECONDS,
+                    ),
+                )
             else:
                 logger.error(f"Unsupported HTTP method: {method}")
                 return None
