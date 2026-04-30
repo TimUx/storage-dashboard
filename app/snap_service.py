@@ -83,7 +83,6 @@ per SID + creation-time.
 """
 import json
 import logging
-import os
 import re
 import threading
 import time
@@ -101,10 +100,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-# How often (seconds) the collector runs.  Override via env var.
-SNAP_COLLECT_INTERVAL_SECONDS = int(
-    os.getenv('SNAP_COLLECT_INTERVAL_SECONDS', str(15 * 60))  # 15 minutes
-)
+# How often (seconds) the collector runs.
+SNAP_COLLECT_INTERVAL_SECONDS = 15 * 60
 
 # Thread-pool size for parallel system queries.
 _MAX_SNAP_WORKERS = 32

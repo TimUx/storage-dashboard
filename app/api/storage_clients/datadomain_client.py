@@ -1,6 +1,5 @@
 """Dell DataDomain REST API client (v1.0)."""
 import logging
-import os
 import time
 from http.client import RemoteDisconnected
 
@@ -15,22 +14,18 @@ from app.ssl_utils import get_ssl_verify
 
 logger = logging.getLogger(__name__)
 
-# requests timeout in seconds (both connect + read). Used for DataDomain REST calls.
-# Override via env var to accommodate slower networks / appliances.
-DD_API_TIMEOUT_SECONDS = int(os.getenv('DD_API_TIMEOUT_SECONDS', os.getenv('STORAGE_API_TIMEOUT_SECONDS', '90')))
-DD_HEALTH_TIMEOUT_RETRIES = int(os.getenv('DD_HEALTH_TIMEOUT_RETRIES', '1'))
-DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS = float(
-    os.getenv('DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS', '1.0')
-)
-DD_SLOW_CALL_WARN_SECONDS = float(os.getenv('DD_SLOW_CALL_WARN_SECONDS', '5.0'))
-DD_API_RETRIES = int(os.getenv('DD_API_RETRIES', '3'))
-DD_API_RETRY_BACKOFF_SECONDS = float(os.getenv('DD_API_RETRY_BACKOFF_SECONDS', '2.0'))
-DD_API_NIC_RETRIES = int(os.getenv('DD_API_NIC_RETRIES', '2'))
-DD_NETWORK_NIC_EXPAND_ALL_DETAILS = os.getenv('DD_NETWORK_NIC_EXPAND_ALL_DETAILS', '0').strip().lower() in {
-    '1', 'true', 'yes', 'on'
-}
+# DataDomain client tuning is intentionally fixed in code (no ENV tuning).
+# This keeps behavior predictable across environments.
+DD_API_TIMEOUT_SECONDS = 90
+DD_HEALTH_TIMEOUT_RETRIES = 1
+DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS = 1.0
+DD_SLOW_CALL_WARN_SECONDS = 5.0
+DD_API_RETRIES = 3
+DD_API_RETRY_BACKOFF_SECONDS = 2.0
+DD_API_NIC_RETRIES = 2
+DD_NETWORK_NIC_EXPAND_ALL_DETAILS = False
 # 0 disables the NIC time budget to avoid early cut-offs.
-DD_NETWORK_NICS_MAX_SECONDS = float(os.getenv('DD_NETWORK_NICS_MAX_SECONDS', '0'))
+DD_NETWORK_NICS_MAX_SECONDS = 0.0
 
 
 def _is_timeout_error(exc: Exception) -> bool:

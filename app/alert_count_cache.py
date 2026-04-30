@@ -1,7 +1,6 @@
 """Kurzzeit-Cache für die Navbar-Alertanzahl (weniger DB/CPU pro Template-Render)."""
 from __future__ import annotations
 
-import os
 import threading
 import time
 
@@ -21,7 +20,7 @@ def invalidate_open_alerts_count_cache() -> None:
 
 def get_open_alerts_count_cached() -> int:
     """Liefert die Anzahl nicht bestätigter Alerts; Ergebnis bis zu *TTL* Sekunden gecacht."""
-    ttl = float(os.getenv('OPEN_ALERTS_CACHE_SECONDS', str(_DEFAULT_TTL)))
+    ttl = _DEFAULT_TTL
     if ttl <= 0:
         return _compute_count()
 

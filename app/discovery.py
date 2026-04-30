@@ -1,5 +1,4 @@
 """System discovery utilities for auto-detecting storage system details"""
-import os
 import socket
 import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
@@ -17,8 +16,8 @@ SHELF_CONTROLLER_PATTERN = '.SC'
 
 # API configuration constants
 PURE_API_VERSION = '2.4'
-API_TIMEOUT = int(os.getenv('DISCOVERY_API_TIMEOUT_SECONDS', os.getenv('STORAGE_API_TIMEOUT_SECONDS', '30')))  # seconds
-REVERSE_DNS_LOOKUP_TIMEOUT_SECONDS = float(os.getenv('REVERSE_DNS_LOOKUP_TIMEOUT_SECONDS', '2.5'))
+API_TIMEOUT = 30  # seconds
+REVERSE_DNS_LOOKUP_TIMEOUT_SECONDS = 2.5
 
 # HTTP status codes
 HTTP_OK = 200
