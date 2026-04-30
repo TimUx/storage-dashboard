@@ -112,6 +112,18 @@ body.sn-page > .container {
 .sn-chip-value { font-weight: 700; }
 .sn-chip.warn { background: rgba(255, 165, 0, .12); color: var(--sn-warn); border-color: rgba(255,165,0,.25); }
 .sn-chip.warn .sn-chip-label { color: var(--sn-warn); opacity: .8; }
+.sn-chip.error {
+    background: rgba(220, 53, 69, .12);
+    color: var(--sn-danger);
+    border-color: rgba(220,53,69,.25);
+}
+.sn-chip.error .sn-chip-label { color: var(--sn-danger); opacity: .85; }
+.sn-chip.info {
+    background: rgba(0, 86, 179, .12);
+    color: var(--sn-blue);
+    border-color: rgba(0,86,179,.25);
+}
+.sn-chip.info .sn-chip-label { color: var(--sn-blue); opacity: .85; }
 .sn-chip.muted { background: transparent; border-color: var(--sn-border); color: var(--sn-muted); }
 
 .sn-toolbar-actions {
@@ -855,6 +867,9 @@ let _ttlEditId = null;        // snapshot id being edited
 let _deleteTimers = {};       // intervalId per snapshot id
 let _execRunning = false;     // execution modal is currently streaming
 let _openDetailIds = new Set(); // keep expanded detail rows across re-renders
+let _lastCollectorUpdate = null; // most recent stats.last_update value from API
+let _collectInProgress = false;  // manual refresh currently waiting for new run
+let _autoReloadTimer = null;     // periodic list refresh interval
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -871,6 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) { /* localStorage unavailable – keep collapsed */ }
 
     loadSnapshots();
+    startAutoRefresh();
     document.querySelectorAll('table.sn-table th[data-col]').forEach(th => {
         th.addEventListener('click', () => sortBy(th.dataset.col));
     });
@@ -885,6 +901,12 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) { /* ignore */ }
         });
     }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && !_execRunning) {
+            loadSnapshots();
+        }
+    });
 });
 
 // ─── Data loading ─────────────────────────────────────────────────────────
@@ -894,20 +916,28 @@ async function loadSnapshots() {
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const data = await resp.json();
         _snapshots = data.snapshots || [];
+        _lastCollectorUpdate = (data.stats && data.stats.last_update) || null;
         renderStats(data.stats || {});
         applyFilters();
+        return data;
     } catch (e) {
         document.getElementById('sn-tbody').innerHTML =
             `<tr><td colspan="8" class="sn-empty">Fehler beim Laden: ${e.message}</td></tr>`;
+        return null;
     }
 }
 
 function renderStats(stats) {
     const panel = document.getElementById('sn-stats');
     const lastUpdate = stats.last_update ? formatDt(stats.last_update) : '–';
+    const status = (stats.last_update_status || '').toLowerCase();
     const total   = stats.total ?? 0;
     const older5  = stats.older_5_days ?? 0;
     const older10 = stats.older_10_days ?? 0;
+    const statusLabel = status === 'success'
+        ? 'OK'
+        : (status === 'error' ? 'Fehler' : (status || '–'));
+    const statusClass = status === 'error' ? 'error' : (status === 'success' ? '' : 'muted');
     panel.innerHTML = `
         <span class="sn-chip" title="Anzahl der Snapshot-Gruppen insgesamt">
             <span class="sn-chip-label">Gesamt</span>
@@ -925,7 +955,41 @@ function renderStats(stats) {
             <span class="sn-chip-label">Stand</span>
             <span class="sn-chip-value" style="font-weight:500">${lastUpdate}</span>
         </span>
+        <span class="sn-chip ${statusClass}" title="Status der letzten Sammelroutine">
+            <span class="sn-chip-label">Status</span>
+            <span class="sn-chip-value" style="font-weight:600">${escHtml(statusLabel)}</span>
+        </span>
     `;
+    renderCollectorRunningChip();
+}
+
+function startAutoRefresh() {
+    if (_autoReloadTimer) clearInterval(_autoReloadTimer);
+    _autoReloadTimer = setInterval(() => {
+        // Avoid re-render churn while an execution stream is active or while
+        // a manual collect request is already polling for the next run.
+        if (_execRunning || _collectInProgress) return;
+        loadSnapshots();
+    }, 60_000);
+}
+
+function renderCollectorRunningChip() {
+    const panel = document.getElementById('sn-stats');
+    if (!panel) return;
+    const existing = document.getElementById('sn-collect-running-chip');
+    if (_collectInProgress) {
+        if (existing) return;
+        const chip = document.createElement('span');
+        chip.id = 'sn-collect-running-chip';
+        chip.className = 'sn-chip info';
+        chip.title = 'Manueller Snapshot-Refresh läuft gerade';
+        chip.innerHTML =
+            '<span class="sn-chip-label">Collector</span>' +
+            '<span class="sn-chip-value" style="font-weight:600">läuft…</span>';
+        panel.appendChild(chip);
+    } else if (existing) {
+        existing.remove();
+    }
 }
 
 // ─── Filters ──────────────────────────────────────────────────────────────
@@ -1751,10 +1815,56 @@ function startTimer(id, deadline) {
 
 // ─── Manual trigger ───────────────────────────────────────────────────────
 async function triggerCollect() {
+    if (_collectInProgress) return;
+    _collectInProgress = true;
+    renderCollectorRunningChip();
+    const triggerBtn = document.querySelector('.sn-toolbar-actions .btn-tool:last-child');
+    if (triggerBtn) {
+        triggerBtn.disabled = true;
+        triggerBtn.style.opacity = '.7';
+    }
+    const beforeUpdate = _lastCollectorUpdate;
     try {
-        await fetch('/snaps/api/trigger-collect', {method:'POST'});
-        setTimeout(loadSnapshots, 3000); // reload after 3s
-    } catch(e) { console.error(e); }
+        const resp = await fetch('/snaps/api/trigger-collect', {method:'POST'});
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        // Poll until a *new* collector run is visible in stats.last_update.
+        const started = Date.now();
+        const timeoutMs = 90_000;
+        const intervalMs = 2_500;
+        let changed = false;
+        while ((Date.now() - started) < timeoutMs) {
+            await new Promise(resolve => setTimeout(resolve, intervalMs));
+            const data = await loadSnapshots();
+            const currentUpdate = data && data.stats ? data.stats.last_update : null;
+            if (!beforeUpdate && currentUpdate) {
+                changed = true;
+                break;
+            }
+            if (beforeUpdate && currentUpdate && currentUpdate !== beforeUpdate) {
+                changed = true;
+                break;
+            }
+        }
+        if (!changed) {
+            // Keep this non-fatal: collector may still be queued/running.
+            alert(
+                'Die Aktualisierung wurde ausgelöst, aber es liegt noch kein neuer Laufstand vor. ' +
+                'Bitte in 1-2 Minuten erneut prüfen.'
+            );
+            await loadSnapshots();
+        }
+    } catch(e) {
+        console.error(e);
+        alert('Aktualisierung konnte nicht gestartet werden: ' + e.message);
+    } finally {
+        _collectInProgress = false;
+        renderCollectorRunningChip();
+        if (triggerBtn) {
+            triggerBtn.disabled = false;
+            triggerBtn.style.opacity = '';
+        }
+    }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
