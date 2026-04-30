@@ -62,6 +62,13 @@
         border-bottom: 4px solid var(--brand-red);
     }
 
+    .detail-header-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
     .detail-header h1 {
         margin: 0 0 0.5rem 0;
         font-size: 1.8rem;
@@ -69,6 +76,75 @@
         align-items: center;
         gap: 1rem;
         color: var(--brand-blue);
+    }
+
+    .detail-header-indicators {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+    }
+
+    .detail-indicator {
+        width: 1.3rem;
+        height: 1.3rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid transparent;
+        cursor: help;
+        position: relative;
+    }
+
+    .detail-indicator.cache {
+        background: var(--det-cache-bg);
+        color: var(--det-cache-text);
+        border-color: var(--det-cache-border);
+    }
+
+    .detail-indicator.revalidate {
+        background: var(--det-info-bg);
+        color: var(--brand-blue);
+        border-color: rgba(0, 102, 204, 0.35);
+    }
+
+    .detail-indicator svg {
+        width: 0.8rem;
+        height: 0.8rem;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .detail-indicator[data-tooltip]::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        right: 0;
+        top: calc(100% + 0.35rem);
+        min-width: 14rem;
+        max-width: 20rem;
+        padding: 0.45rem 0.55rem;
+        border-radius: 6px;
+        background: var(--det-dns-bg);
+        color: #fff;
+        font-size: 0.75rem;
+        line-height: 1.35;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-2px);
+        transition: opacity 0.15s ease, transform 0.15s ease;
+        z-index: 40;
+        white-space: normal;
+    }
+
+    .detail-indicator[data-tooltip]:hover::after,
+    .detail-indicator[data-tooltip]:focus-visible::after {
+        opacity: 1;
+        transform: translateY(0);
     }
 
     .webui-link {
@@ -511,13 +587,40 @@
     </div>
 
     <div class="detail-header">
-        <h1>
-            <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" class="webui-link" 
-               title="Zur WebUI öffnen">
-                {{ system.name }}
-                <span class="webui-link-icon">↗</span>
-            </a>
-        </h1>
+        <div class="detail-header-top">
+            <h1>
+                <a href="https://{% if system.get_dns_names() %}{{ system.get_dns_names()[0] }}{% else %}{{ system.ip_address }}{% endif %}" target="_blank" rel="noopener noreferrer" class="webui-link" 
+                   title="Zur WebUI öffnen">
+                    {{ system.name }}
+                    <span class="webui-link-icon">↗</span>
+                </a>
+            </h1>
+            <div class="detail-header-indicators" aria-label="Datenstatus Hinweise">
+                {% if served_from_fresh_cache %}
+                <span class="detail-indicator cache"
+                      data-tooltip="Schnelle Anzeige: Es werden aktuelle Cache-Daten genutzt, um die Detailansicht schneller zu laden."
+                      aria-label="Schnelle Anzeige aus Cache"
+                      tabindex="0">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <polyline points="13 2 3 14 11 14 10 22 21 9 13 9"></polyline>
+                    </svg>
+                </span>
+                {% endif %}
+                {% if swr_revalidation_started %}
+                <span class="detail-indicator revalidate"
+                      data-tooltip="Hintergrund-Update: Es läuft eine Live-Aktualisierung im Hintergrund. Beim nächsten Öffnen sind die Detaildaten aktueller."
+                      aria-label="Hintergrund-Update aktiv"
+                      tabindex="0">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <polyline points="1 20 1 14 7 14"></polyline>
+                        <path d="M3.5 9a9 9 0 0 1 14.2-3.36L23 10"></path>
+                        <path d="M20.5 15a9 9 0 0 1-14.2 3.36L1 14"></path>
+                    </svg>
+                </span>
+                {% endif %}
+            </div>
+        </div>
         <div class="detail-meta">
             <div class="detail-meta-item">
                 <strong>Hersteller:</strong> {{ system.vendor }}
@@ -570,17 +673,6 @@
         <strong>ℹ️ Gecachte Daten:</strong> Live-Abfrage fehlgeschlagen – es werden die zuletzt gecachten Status-Daten angezeigt.
     </div>
     {% endif %}
-    {% if served_from_fresh_cache %}
-    <div class="info-message">
-        <strong>⚡ Schnelle Anzeige:</strong> Es werden aktuelle Cache-Daten genutzt, um die Detailansicht schneller zu laden.
-    </div>
-    {% endif %}
-    {% if swr_revalidation_started %}
-    <div class="info-message">
-        <strong>🔄 Hintergrund-Update:</strong> Es läuft eine Live-Aktualisierung im Hintergrund. Beim nächsten Öffnen sind die Detaildaten aktueller.
-    </div>
-    {% endif %}
-
     <div class="detail-grid">
         <!-- Status Overview -->
         <div class="detail-card">
