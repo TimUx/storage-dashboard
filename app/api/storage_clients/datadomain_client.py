@@ -21,6 +21,7 @@ DD_HEALTH_TIMEOUT_RETRIES = int(os.getenv('DD_HEALTH_TIMEOUT_RETRIES', '1'))
 DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS = float(
     os.getenv('DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS', '1.0')
 )
+DD_SLOW_CALL_WARN_SECONDS = float(os.getenv('DD_SLOW_CALL_WARN_SECONDS', '5.0'))
 
 
 def _is_timeout_error(exc: Exception) -> bool:
@@ -53,6 +54,31 @@ class DellDataDomainClient(StorageClient):
 
     # Management network interfaces to check when bulk API fails
     MANAGEMENT_INTERFACES = ['ethMa', 'ethMb', 'ethMc', 'ethMd']
+
+    def _timed_call(self, label: str, func, *args, progress_callback=None, **kwargs):
+        """Run a DD API helper and log its runtime for timeout diagnostics."""
+        if progress_callback:
+            progress_callback('start', label, None)
+        start = time.monotonic()
+        result = func(*args, **kwargs)
+        elapsed = time.monotonic() - start
+        if progress_callback:
+            progress_callback('done', label, elapsed)
+        if elapsed >= DD_SLOW_CALL_WARN_SECONDS:
+            logger.warning(
+                "DataDomain %s - slow API step '%s': %.2fs",
+                self.ip_address,
+                label,
+                elapsed,
+            )
+        else:
+            logger.debug(
+                "DataDomain %s - API step '%s' completed in %.2fs",
+                self.ip_address,
+                label,
+                elapsed,
+            )
+        return result
 
     def authenticate(self):
         """Authenticate with DataDomain and obtain session token
@@ -726,7 +752,7 @@ class DellDataDomainClient(StorageClient):
                 )
                 time.sleep(max(0.0, DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS))
 
-    def get_health_status(self):
+    def get_health_status(self, include_optional_details: bool = True, progress_callback=None):
         try:
             # DataDomain REST API v1.0 with token authentication
             # If no token is configured, try to authenticate automatically
@@ -748,10 +774,13 @@ class DellDataDomainClient(StorageClient):
 
             # Get system info from /rest/v1.0/system
             # This provides comprehensive system information including capacity, compression, etc.
-            response = self._get_with_timeout_retry(
+            response = self._timed_call(
+                "system",
+                self._get_with_timeout_retry,
                 f"{self.base_url}/rest/v1.0/system",
                 headers=headers,
                 ssl_verify=ssl_verify,
+                progress_callback=progress_callback,
             )
 
             if response.status_code != 200:
@@ -811,58 +840,121 @@ class DellDataDomainClient(StorageClient):
 
             # Gather comprehensive system information using helper methods
             # Get HA status and partner node information
-            ha_status = self._get_ha_status(headers, ssl_verify, system_type)
+            ha_status = None
+            active_alerts = []
+            network_interfaces = []
+            alert_count = 0
+            if include_optional_details:
+                ha_status = self._timed_call(
+                    "ha_status",
+                    self._get_ha_status,
+                    headers,
+                    ssl_verify,
+                    system_type,
+                    progress_callback=progress_callback,
+                )
 
-            # Get active alerts
-            active_alerts = self._get_active_alerts(headers, ssl_verify)
-            alert_count = len(active_alerts)
+                # Get active alerts
+                active_alerts = self._timed_call(
+                    "active_alerts",
+                    self._get_active_alerts,
+                    headers,
+                    ssl_verify,
+                    progress_callback=progress_callback,
+                )
+                alert_count = len(active_alerts)
 
-            # Get all network interfaces (includes management IPs)
-            # Try v2.0 NICs API first, fallback to v1.0 networks API
-            network_interfaces = self._get_network_nics(headers, ssl_verify)
+                # Get all network interfaces (includes management IPs)
+                # Try v2.0 NICs API first, fallback to v1.0 networks API
+                network_interfaces = self._timed_call(
+                    "network_nics",
+                    self._get_network_nics,
+                    headers,
+                    ssl_verify,
+                    progress_callback=progress_callback,
+                )
 
-            # If network interfaces API didn't work, try the legacy method for management IPs
-            if not network_interfaces:
-                for iface in self.MANAGEMENT_INTERFACES:
-                    try:
-                        iface_response = local_session().get(
-                            f"{self.base_url}/rest/v1.0/dd-systems/0/networks/{iface}",
-                            headers=headers,
-                            verify=ssl_verify,
+                # If network interfaces API didn't work, try the legacy method for management IPs
+                if not network_interfaces:
+                    for iface in self.MANAGEMENT_INTERFACES:
+                        try:
+                            iface_response = local_session().get(
+                                f"{self.base_url}/rest/v1.0/dd-systems/0/networks/{iface}",
+                                headers=headers,
+                                verify=ssl_verify,
                                 timeout=DD_API_TIMEOUT_SECONDS
-                        )
+                            )
 
-                        if iface_response.status_code == 200:
-                            iface_data = iface_response.json()
-                            ip_config = iface_data.get('ip_config', {})
-                            ip_address = ip_config.get('ip_address')
-                            if ip_address:
-                                network_interfaces.append({
-                                    'name': iface,
-                                    'ip_address': ip_address,
-                                    'enabled': iface_data.get('enabled', False)
-                                })
-                    except Exception as iface_error:
-                        logger.debug(f"Could not get interface {iface} for DataDomain {self.ip_address}: {iface_error}")
+                            if iface_response.status_code == 200:
+                                iface_data = iface_response.json()
+                                ip_config = iface_data.get('ip_config', {})
+                                ip_address = ip_config.get('ip_address')
+                                if ip_address:
+                                    network_interfaces.append({
+                                        'name': iface,
+                                        'ip_address': ip_address,
+                                        'enabled': iface_data.get('enabled', False)
+                                    })
+                        except Exception as iface_error:
+                            logger.debug(f"Could not get interface {iface} for DataDomain {self.ip_address}: {iface_error}")
 
             # Get replication status (legacy context API)
-            replication_status = self._get_replication_status(headers, ssl_verify)
+            replication_status = self._timed_call(
+                "replication_status",
+                self._get_replication_status,
+                headers,
+                ssl_verify,
+                progress_callback=progress_callback,
+            )
 
             # Get MTree replications using the schema-defined endpoint
             # GET /api/v1/dd-systems/0/mtree-replications (per dd_api.json)
-            mtree_replications = self._get_mtree_replications(headers, ssl_verify)
+            mtree_replications = self._timed_call(
+                "mtree_replications",
+                self._get_mtree_replications,
+                headers,
+                ssl_verify,
+                progress_callback=progress_callback,
+            )
 
             # Get replication partner information via targets/sources endpoints
             # GET /api/v1/dd-systems/0/replication/targets  – systems this DD replicates TO
             # GET /api/v1/dd-systems/0/replication/sources  – systems replicating TO this DD
-            replication_targets = self._get_replication_targets(headers, ssl_verify)
-            replication_sources = self._get_replication_sources(headers, ssl_verify)
+            replication_targets = self._timed_call(
+                "replication_targets",
+                self._get_replication_targets,
+                headers,
+                ssl_verify,
+                progress_callback=progress_callback,
+            )
+            replication_sources = self._timed_call(
+                "replication_sources",
+                self._get_replication_sources,
+                headers,
+                ssl_verify,
+                progress_callback=progress_callback,
+            )
 
-            # Get hardware health status
-            hardware_status = self._get_hardware_status(headers, ssl_verify)
+            hardware_status = None
+            service_status = []
+            if include_optional_details:
+                # Get hardware health status
+                hardware_status = self._timed_call(
+                    "hardware_status",
+                    self._get_hardware_status,
+                    headers,
+                    ssl_verify,
+                    progress_callback=progress_callback,
+                )
 
-            # Get service status
-            service_status = self._get_service_status(headers, ssl_verify)
+                # Get service status
+                service_status = self._timed_call(
+                    "service_status",
+                    self._get_service_status,
+                    headers,
+                    ssl_verify,
+                    progress_callback=progress_callback,
+                )
 
             # Determine overall hardware and cluster status based on gathered data
             hardware_health = 'ok'
@@ -907,7 +999,7 @@ class DellDataDomainClient(StorageClient):
             if ha_status:
                 result['ha_status'] = ha_status
 
-            if active_alerts:
+            if include_optional_details and active_alerts:
                 result['active_alerts'] = active_alerts
 
             if replication_status:
@@ -922,10 +1014,10 @@ class DellDataDomainClient(StorageClient):
             if replication_sources:
                 result['replication_sources'] = replication_sources
 
-            if hardware_status:
+            if include_optional_details and hardware_status:
                 result['hardware_details'] = hardware_status
 
-            if service_status:
+            if include_optional_details and service_status:
                 result['services'] = service_status
 
             # Add additional system details
