@@ -17,19 +17,20 @@ logger = logging.getLogger(__name__)
 
 # requests timeout in seconds (both connect + read). Used for DataDomain REST calls.
 # Override via env var to accommodate slower networks / appliances.
-DD_API_TIMEOUT_SECONDS = int(os.getenv('DD_API_TIMEOUT_SECONDS', os.getenv('STORAGE_API_TIMEOUT_SECONDS', '30')))
+DD_API_TIMEOUT_SECONDS = int(os.getenv('DD_API_TIMEOUT_SECONDS', os.getenv('STORAGE_API_TIMEOUT_SECONDS', '90')))
 DD_HEALTH_TIMEOUT_RETRIES = int(os.getenv('DD_HEALTH_TIMEOUT_RETRIES', '1'))
 DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS = float(
     os.getenv('DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS', '1.0')
 )
 DD_SLOW_CALL_WARN_SECONDS = float(os.getenv('DD_SLOW_CALL_WARN_SECONDS', '5.0'))
-DD_API_RETRIES = int(os.getenv('DD_API_RETRIES', '2'))
-DD_API_RETRY_BACKOFF_SECONDS = float(os.getenv('DD_API_RETRY_BACKOFF_SECONDS', '1.5'))
-DD_API_NIC_RETRIES = int(os.getenv('DD_API_NIC_RETRIES', '1'))
+DD_API_RETRIES = int(os.getenv('DD_API_RETRIES', '3'))
+DD_API_RETRY_BACKOFF_SECONDS = float(os.getenv('DD_API_RETRY_BACKOFF_SECONDS', '2.0'))
+DD_API_NIC_RETRIES = int(os.getenv('DD_API_NIC_RETRIES', '2'))
 DD_NETWORK_NIC_EXPAND_ALL_DETAILS = os.getenv('DD_NETWORK_NIC_EXPAND_ALL_DETAILS', '0').strip().lower() in {
     '1', 'true', 'yes', 'on'
 }
-DD_NETWORK_NICS_MAX_SECONDS = float(os.getenv('DD_NETWORK_NICS_MAX_SECONDS', '90'))
+# 0 disables the NIC time budget to avoid early cut-offs.
+DD_NETWORK_NICS_MAX_SECONDS = float(os.getenv('DD_NETWORK_NICS_MAX_SECONDS', '0'))
 
 
 def _is_timeout_error(exc: Exception) -> bool:
@@ -447,7 +448,10 @@ class DellDataDomainClient(StorageClient):
             step_started = time.monotonic()
 
             def _nics_time_exceeded() -> bool:
-                return (time.monotonic() - step_started) >= max(1.0, DD_NETWORK_NICS_MAX_SECONDS)
+                # 0 or negative disables the NIC time budget entirely.
+                if DD_NETWORK_NICS_MAX_SECONDS <= 0:
+                    return False
+                return (time.monotonic() - step_started) >= DD_NETWORK_NICS_MAX_SECONDS
 
             # Try v2.0 API first for NICs
             data = self._make_api_request('/rest/v2.0/dd-systems/0/networks/nics', headers, ssl_verify)
