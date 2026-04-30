@@ -81,37 +81,102 @@ def get_cached_status():
     from app.models import CapacitySnapshot, StatusCache
 
     systems = StorageSystem.query.filter_by(enabled=True).all()
+    if not systems:
+        return jsonify([])
+
+    system_ids = [s.id for s in systems]
+    cache_by_system_id = {
+        c.system_id: c
+        for c in StatusCache.query.filter(StatusCache.system_id.in_(system_ids)).all()
+    }
+    snap_by_system_id = {
+        s.system_id: s
+        for s in CapacitySnapshot.query.filter(CapacitySnapshot.system_id.in_(system_ids)).all()
+    }
+
+    # Build all potential alert keys first and resolve acknowledged states with
+    # one DB query to avoid per-system N+1 lookups.
+    all_alert_keys = []
+    for system in systems:
+        cache = cache_by_system_id.get(system.id)
+        if not cache:
+            continue
+        status = cache.get_status() or {}
+        all_alert_keys.extend(_collect_alert_keys(status, system.name))
+    acknowledged_keys = _get_acknowledged_keys(all_alert_keys)
+
     result = []
     for system in systems:
-        cache = StatusCache.query.filter_by(system_id=system.id).first()
-        if cache:
-            status = cache.get_status()
-            # Override capacity values with Pure1-corrected data from
-            # CapacitySnapshot (populated by the hourly capacity refresh which
-            # supplements local values with Pure1 physical-used figures).
-            snap = CapacitySnapshot.query.filter_by(system_id=system.id).first()
-            if snap and snap.total_tb > 0:
-                status['capacity_total_tb'] = snap.total_tb
-                status['capacity_used_tb'] = snap.used_tb
-                status['capacity_percent'] = snap.percent_used
-            # Overlay acknowledged alert states so the dashboard reflects
-            # operator acknowledgments without requiring a live API refresh.
-            _apply_acknowledged_states(status, system.name)
-            result.append({
-                'system': system.to_dict(),
-                'status': status,
-                'fetched_at': cache.fetched_at.isoformat() if cache.fetched_at else None,
-            })
-        else:
+        cache = cache_by_system_id.get(system.id)
+        if not cache:
             result.append({
                 'system': system.to_dict(),
                 'status': None,
                 'fetched_at': None,
             })
+            continue
+
+        status = cache.get_status() or {}
+
+        # Override capacity values with Pure1-corrected data from
+        # CapacitySnapshot (populated by the hourly capacity refresh which
+        # supplements local values with Pure1 physical-used figures).
+        snap = snap_by_system_id.get(system.id)
+        if snap and snap.total_tb > 0:
+            status['capacity_total_tb'] = snap.total_tb
+            status['capacity_used_tb'] = snap.used_tb
+            status['capacity_percent'] = snap.percent_used
+
+        # Overlay acknowledged alert states so the dashboard reflects operator
+        # acknowledgments without requiring a live API refresh.
+        _apply_acknowledged_states(status, system.name, acknowledged_keys=acknowledged_keys)
+
+        result.append({
+            'system': system.to_dict(),
+            'status': status,
+            'fetched_at': cache.fetched_at.isoformat() if cache.fetched_at else None,
+        })
+
     return jsonify(result)
 
 
-def _apply_acknowledged_states(status, system_name):
+def _collect_alert_keys(status, system_name):
+    """Return composite alert keys for this status payload and system."""
+    from app.models import AlertState
+
+    is_active_alerts = bool(status.get('active_alerts'))
+    alert_list = status.get('active_alerts') if is_active_alerts else status.get('alert_details')
+    if not alert_list:
+        return []
+
+    keys = []
+    for alert in alert_list:
+        alert_id = str(alert.get('id', '-'))
+        if is_active_alerts:
+            title = alert.get('name', alert.get('category', '-'))
+        else:
+            title = alert.get('title', '-')
+        keys.append(AlertState.make_key(system_name, alert_id, title))
+    return keys
+
+
+def _get_acknowledged_keys(alert_keys):
+    """Resolve acknowledged alert keys in one query."""
+    from app.models import AlertState
+
+    if not alert_keys:
+        return set()
+
+    return {
+        s.alert_key
+        for s in AlertState.query.filter(
+            AlertState.alert_key.in_(alert_keys),
+            AlertState.acknowledged,
+        ).all()
+    }
+
+
+def _apply_acknowledged_states(status, system_name, *, acknowledged_keys=None):
     """Adjust *status* in-place to reflect acknowledged alert states.
 
     For each alert stored in ``alert_details`` (Pure Storage / ONTAP /
@@ -131,36 +196,12 @@ def _apply_acknowledged_states(status, system_name):
         system_name: The human-readable name of the storage system, used as
                      part of the composite alert key.
     """
-    from app.models import AlertState
-
-    # Determine which alert list to use and how to extract key fields.
-    # DataDomain uses 'active_alerts' with 'id'/'name' fields;
-    # all other vendors use 'alert_details' with 'id'/'title' fields.
-    is_active_alerts = bool(status.get('active_alerts'))
-    alert_list = status.get('active_alerts') if is_active_alerts else status.get('alert_details')
-
-    if not alert_list:
+    alert_keys = _collect_alert_keys(status, system_name)
+    if not alert_keys:
         return  # No per-alert detail → cannot determine acknowledged state
 
-    # Build composite keys for every alert in the list.
-    def _make_key(alert):
-        alert_id = str(alert.get('id', '-'))
-        if is_active_alerts:
-            title = alert.get('name', alert.get('category', '-'))
-        else:
-            title = alert.get('title', '-')
-        return AlertState.make_key(system_name, alert_id, title)
-
-    alert_keys = [_make_key(a) for a in alert_list]
-
-    # Single batch query – O(1) DB round-trips regardless of alert count.
-    acknowledged_keys = {
-        s.alert_key
-        for s in AlertState.query.filter(
-            AlertState.alert_key.in_(alert_keys),
-            AlertState.acknowledged,
-        ).all()
-    }
+    if acknowledged_keys is None:
+        acknowledged_keys = _get_acknowledged_keys(alert_keys)
 
     unacknowledged_count = sum(1 for k in alert_keys if k not in acknowledged_keys)
 
