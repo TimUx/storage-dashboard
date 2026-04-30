@@ -401,7 +401,7 @@ def api_build_status():
     from app.dr_service import get_latest_build, DR_BUILD_INTERVAL_SECONDS
     from app.models import DRBuildMetadata
 
-    build = get_latest_build()
+    build = get_latest_build(include_running=True)
     stale = _is_stale(build)
 
     next_build = None

@@ -23,6 +23,7 @@ import os
 import threading
 import time
 import traceback
+from queue import Queue
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ logger = logging.getLogger(__name__)
 # Build interval – configurable via DR_BUILD_INTERVAL_SECONDS env var.
 # Default: once per week (7 days).
 DR_BUILD_INTERVAL_SECONDS = int(os.getenv('DR_BUILD_INTERVAL_SECONDS', str(7 * 24 * 60 * 60)))
+DR_SYSTEM_FETCH_TIMEOUT_SECONDS = int(os.getenv('DR_SYSTEM_FETCH_TIMEOUT_SECONDS', '60'))
+DR_STALE_RUNNING_BUILD_SECONDS = int(os.getenv('DR_STALE_RUNNING_BUILD_SECONDS', '3600'))
 
 _background_thread_started = False
 _thread_lock = threading.Lock()
@@ -96,6 +99,7 @@ def _do_build(app):
 
     with _build_lock:
         with app.app_context():
+            _mark_stale_running_builds_error()
             start_time = datetime.utcnow()
             build = DRBuildMetadata(
                 build_timestamp=start_time,
@@ -139,7 +143,9 @@ def _do_build(app):
                         # metrocluster, snapmirror, etc.) that are not preserved in the
                         # normalized StatusCache. This is correct: API calls happen only
                         # during the scheduled build pipeline, not on page rendering.
-                        health_data = _fetch_live_health(system)
+                        health_data = _fetch_live_health_with_timeout(
+                            system, timeout_seconds=DR_SYSTEM_FETCH_TIMEOUT_SECONDS
+                        )
 
                         if not health_data:
                             continue
@@ -283,6 +289,32 @@ def _do_build(app):
                     pass
 
 
+def _mark_stale_running_builds_error():
+    """Mark abandoned running builds as error to avoid permanent 'running' state."""
+    from app import db
+    from app.models import DRBuildMetadata
+
+    now = datetime.utcnow()
+    running_builds = DRBuildMetadata.query.filter_by(build_status='running').all()
+    changed = False
+    for stale in running_builds:
+        if not stale.build_timestamp:
+            continue
+        age = (now - stale.build_timestamp).total_seconds()
+        if age < DR_STALE_RUNNING_BUILD_SECONDS:
+            continue
+        stale.build_status = 'error'
+        stale.error_message = (
+            f"Build exceeded {DR_STALE_RUNNING_BUILD_SECONDS}s without completion; "
+            "marked as stale by watchdog."
+        )
+        stale.build_duration_seconds = age
+        changed = True
+
+    if changed:
+        db.session.commit()
+
+
 def _fetch_live_health(system):
     """Fetch live health data from a storage system as fallback."""
     try:
@@ -299,6 +331,38 @@ def _fetch_live_health(system):
     except Exception as exc:
         logger.warning("Live health fetch failed for %s: %s", system.name, exc)
         return {}
+
+
+def _fetch_live_health_with_timeout(system, timeout_seconds=60):
+    """Fetch health with a hard timeout guard to prevent stuck DR builds."""
+    result_q = Queue(maxsize=1)
+
+    def _worker():
+        try:
+            result_q.put((True, _fetch_live_health(system)))
+        except Exception as exc:
+            result_q.put((False, exc))
+
+    worker = threading.Thread(target=_worker, name=f"dr-health-{system.name}", daemon=True)
+    worker.start()
+    worker.join(timeout=timeout_seconds)
+
+    if worker.is_alive():
+        logger.warning(
+            "Live health fetch timeout for %s after %ss; skipping system.",
+            system.name,
+            timeout_seconds,
+        )
+        return {}
+
+    if result_q.empty():
+        return {}
+
+    success, payload = result_q.get()
+    if success:
+        return payload or {}
+    logger.warning("Live health fetch failed for %s: %s", system.name, payload)
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -361,14 +425,17 @@ def trigger_rebuild(app):
 # Data access helpers (used by UI routes – no live API calls)
 # ---------------------------------------------------------------------------
 
-def get_latest_build():
-    """Return the most recent successful DRBuildMetadata or None."""
+def get_latest_build(include_running=False):
+    """Return newest DR build metadata.
+
+    By default only completed builds are considered so UI data endpoints keep
+    showing the last usable data while a new build is still running.
+    """
     from app.models import DRBuildMetadata
-    return (
-        DRBuildMetadata.query
-        .order_by(DRBuildMetadata.build_timestamp.desc())
-        .first()
-    )
+    query = DRBuildMetadata.query
+    if not include_running:
+        query = query.filter(DRBuildMetadata.build_status == 'success')
+    return query.order_by(DRBuildMetadata.build_timestamp.desc()).first()
 
 
 def get_dr_relationships(build_id=None):
