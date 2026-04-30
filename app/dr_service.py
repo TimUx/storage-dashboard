@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 # Build interval – configurable via DR_BUILD_INTERVAL_SECONDS env var.
 # Default: once per week (7 days).
 DR_BUILD_INTERVAL_SECONDS = int(os.getenv('DR_BUILD_INTERVAL_SECONDS', str(7 * 24 * 60 * 60)))
-DR_SYSTEM_FETCH_TIMEOUT_SECONDS = int(os.getenv('DR_SYSTEM_FETCH_TIMEOUT_SECONDS', '60'))
+# Default to no hard timeout (0) to prefer completeness over early aborts.
+DR_SYSTEM_FETCH_TIMEOUT_SECONDS = int(os.getenv('DR_SYSTEM_FETCH_TIMEOUT_SECONDS', '0'))
 DR_STALE_RUNNING_BUILD_SECONDS = int(os.getenv('DR_STALE_RUNNING_BUILD_SECONDS', '3600'))
 DR_DATADOMAIN_FAST_HEALTH_FETCH = os.getenv('DR_DATADOMAIN_FAST_HEALTH_FETCH', '1').strip().lower() in {
     '1', 'true', 'yes', 'on'
