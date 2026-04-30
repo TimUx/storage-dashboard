@@ -42,6 +42,14 @@
 }
 .dr-header h2 { font-size: 1.4rem; color: var(--dr-blue); margin: 0; }
 .dr-header-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+.dr-rebuild-feedback {
+    font-size: .8rem;
+    color: var(--dr-muted);
+    min-width: 220px;
+}
+.dr-rebuild-feedback.running { color: var(--dr-warn); }
+.dr-rebuild-feedback.success { color: var(--dr-success); }
+.dr-rebuild-feedback.error { color: var(--dr-danger); }
 
 .dr-build-panel {
     background: var(--dr-white);
@@ -464,6 +472,7 @@
         <div class="dr-header-actions">
             <button class="dr-btn dr-btn-outline" id="btnRefreshAll" onclick="loadSystems()">&#x21BB; Aktualisieren</button>
             <button class="dr-btn dr-btn-danger" id="btnRebuild" onclick="confirmRebuild()">&#x1F504; DR-Informationen neu erstellen</button>
+            <span id="rebuildFeedback" class="dr-rebuild-feedback"></span>
         </div>
     </div>
 
@@ -666,6 +675,8 @@ var systemsData = [];
 var groupsData = {};
 var currentTab = null;
 var currentSiteFilter = '';
+var rebuildPollTimer = null;
+var rebuildPollStartedAt = null;
 
 // Init Mermaid
 (function() {
@@ -713,8 +724,21 @@ function loadBuildStatus() {
             }
             document.getElementById('staleWarning').style.display = data.stale ? 'block' : 'none';
             if (data.stale) document.getElementById('buildTimestamp').classList.add('stale');
+            syncRebuildFeedback(data);
         })
         .catch(function(err) { console.error('Build status load failed:', err); });
+}
+
+function syncRebuildFeedback(data) {
+    var build = data && data.build ? data.build : null;
+    if (!build) {
+        setRebuildFeedback('', '');
+        return;
+    }
+    var status = (build.build_status || '').toLowerCase();
+    if (status === 'running' && !rebuildPollTimer) {
+        setRebuildFeedback('running', 'Ein Rebuild wird aktuell ausgef\u00fchrt.');
+    }
 }
 
 function loadSystems() {
@@ -1103,19 +1127,79 @@ function triggerRebuild() {
     btn.textContent = '\u23F3 Rebuild l\u00e4uft\u2026';
     fetch('/dr/api/rebuild', { method: 'POST' })
         .then(function(r) { return r.json(); })
-        .then(function() {
-            btn.textContent = '\u2705 Rebuild gestartet';
-            setTimeout(function() {
-                btn.disabled = false;
-                btn.textContent = '\uD83D\uDD04 DR-Informationen neu erstellen';
-                loadBuildStatus(); loadSystems();
-            }, 3000);
+        .then(function(resp) {
+            btn.textContent = '\u23F3 Rebuild l\u00e4uft\u2026';
+            setRebuildFeedback('running', (resp && resp.message) ? resp.message : 'Rebuild wurde gestartet. Status wird aktualisiert…');
+            startRebuildPolling();
         })
         .catch(function(err) {
             btn.disabled = false;
             btn.textContent = '\u274C Fehler';
+            setRebuildFeedback('error', 'Rebuild konnte nicht gestartet werden: ' + (err && err.message ? err.message : 'Unbekannter Fehler'));
             setTimeout(function() { btn.textContent = '\uD83D\uDD04 DR-Informationen neu erstellen'; }, 2000);
             console.error('Rebuild failed:', err);
+        });
+}
+
+function setRebuildFeedback(state, message) {
+    var el = document.getElementById('rebuildFeedback');
+    if (!el) return;
+    el.className = 'dr-rebuild-feedback' + (state ? (' ' + state) : '');
+    el.textContent = message || '';
+}
+
+function startRebuildPolling() {
+    stopRebuildPolling();
+    rebuildPollStartedAt = Date.now();
+    pollRebuildStatusOnce();
+    rebuildPollTimer = setInterval(pollRebuildStatusOnce, 5000);
+}
+
+function stopRebuildPolling() {
+    if (rebuildPollTimer) {
+        clearInterval(rebuildPollTimer);
+        rebuildPollTimer = null;
+    }
+}
+
+function pollRebuildStatusOnce() {
+    var btn = document.getElementById('btnRebuild');
+    fetch('/dr/api/build-status')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var build = data.build || {};
+            var status = (build.build_status || '').toLowerCase();
+            loadBuildStatus();
+            loadSystems();
+
+            if (status === 'running') {
+                var elapsed = rebuildPollStartedAt ? Math.floor((Date.now() - rebuildPollStartedAt) / 1000) : 0;
+                setRebuildFeedback('running', 'Rebuild l\u00e4uft\u2026 (' + elapsed + 's)');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent = '\u23F3 Rebuild l\u00e4uft\u2026';
+                }
+                return;
+            }
+
+            stopRebuildPolling();
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '\uD83D\uDD04 DR-Informationen neu erstellen';
+            }
+
+            if (status === 'success') {
+                setRebuildFeedback('success', 'Rebuild erfolgreich abgeschlossen.');
+            } else if (status === 'error') {
+                var msg = build.error_message ? ('Rebuild fehlgeschlagen: ' + build.error_message) : 'Rebuild fehlgeschlagen.';
+                setRebuildFeedback('error', msg);
+            } else {
+                setRebuildFeedback('', '');
+            }
+        })
+        .catch(function(err) {
+            setRebuildFeedback('error', 'Statusabfrage fehlgeschlagen: ' + (err && err.message ? err.message : 'Unbekannter Fehler'));
+            console.error('Rebuild status poll failed:', err);
         });
 }
 
