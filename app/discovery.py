@@ -2,6 +2,7 @@
 import os
 import socket
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import requests
 import traceback
 from datetime import datetime
@@ -17,6 +18,7 @@ SHELF_CONTROLLER_PATTERN = '.SC'
 # API configuration constants
 PURE_API_VERSION = '2.4'
 API_TIMEOUT = int(os.getenv('DISCOVERY_API_TIMEOUT_SECONDS', os.getenv('STORAGE_API_TIMEOUT_SECONDS', '30')))  # seconds
+REVERSE_DNS_LOOKUP_TIMEOUT_SECONDS = float(os.getenv('REVERSE_DNS_LOOKUP_TIMEOUT_SECONDS', '2.5'))
 
 # HTTP status codes
 HTTP_OK = 200
@@ -40,9 +42,14 @@ def reverse_dns_lookup(ip_address):
     """
     dns_names = []
 
+    def _call_with_timeout(fn, *args):
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(fn, *args)
+            return future.result(timeout=max(0.1, REVERSE_DNS_LOOKUP_TIMEOUT_SECONDS))
+
     try:
         # Get hostname and aliases via gethostbyaddr
-        hostname, aliases, _ = socket.gethostbyaddr(ip_address)
+        hostname, aliases, _ = _call_with_timeout(socket.gethostbyaddr, ip_address)
 
         if hostname:
             dns_names.append(hostname)
@@ -50,6 +57,12 @@ def reverse_dns_lookup(ip_address):
         if aliases:
             dns_names.extend(aliases)
 
+    except FuturesTimeoutError:
+        logger.warning(
+            "Reverse DNS lookup timeout for %s after %.1fs",
+            ip_address,
+            REVERSE_DNS_LOOKUP_TIMEOUT_SECONDS,
+        )
     except socket.herror as e:
         logger.debug(f"Reverse DNS lookup failed for {ip_address}: {e}")
     except Exception as e:
@@ -71,9 +84,16 @@ def reverse_dns_lookup(ip_address):
     verified_names = []
     for name in unique_names:
         try:
-            resolved_ip = socket.gethostbyname(name)
+            resolved_ip = _call_with_timeout(socket.gethostbyname, name)
             if resolved_ip == ip_address:
                 verified_names.append(name)
+        except FuturesTimeoutError:
+            logger.debug(
+                "Forward DNS verification timeout for %s (%s) after %.1fs",
+                ip_address,
+                name,
+                REVERSE_DNS_LOOKUP_TIMEOUT_SECONDS,
+            )
         except (socket.gaierror, socket.herror):
             pass  # Cannot resolve forward – skip this candidate
 
