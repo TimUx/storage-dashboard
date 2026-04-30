@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 DR_BUILD_INTERVAL_SECONDS = int(os.getenv('DR_BUILD_INTERVAL_SECONDS', str(7 * 24 * 60 * 60)))
 DR_SYSTEM_FETCH_TIMEOUT_SECONDS = int(os.getenv('DR_SYSTEM_FETCH_TIMEOUT_SECONDS', '60'))
 DR_STALE_RUNNING_BUILD_SECONDS = int(os.getenv('DR_STALE_RUNNING_BUILD_SECONDS', '3600'))
+DR_DATADOMAIN_FAST_HEALTH_FETCH = os.getenv('DR_DATADOMAIN_FAST_HEALTH_FETCH', '1').strip().lower() in {
+    '1', 'true', 'yes', 'on'
+}
 
 _background_thread_started = False
 _thread_lock = threading.Lock()
@@ -315,8 +318,9 @@ def _mark_stale_running_builds_error():
         db.session.commit()
 
 
-def _fetch_live_health(system):
+def _fetch_live_health(system, progress=None):
     """Fetch live health data from a storage system as fallback."""
+    started = time.monotonic()
     try:
         from app.api import get_client
         client = get_client(
@@ -327,19 +331,49 @@ def _fetch_live_health(system):
             password=system.api_password,
             token=system.api_token,
         )
-        return client.get_health_status()
+        vendor = (getattr(system, 'vendor', '') or '').lower()
+        if vendor == 'dell-datadomain' and DR_DATADOMAIN_FAST_HEALTH_FETCH:
+            def _dd_progress(event, step, elapsed_seconds):
+                if progress is None:
+                    return
+                if event == 'start':
+                    progress['last_started_step'] = step
+                    progress['last_started_at'] = time.monotonic()
+                elif event == 'done':
+                    progress['last_completed_step'] = step
+                    progress['last_completed_elapsed_seconds'] = elapsed_seconds
+
+            data = client.get_health_status(
+                include_optional_details=False,
+                progress_callback=_dd_progress,
+            )
+        else:
+            data = client.get_health_status()
+        logger.info(
+            "Live health fetch completed for %s (%s) in %.2fs.",
+            system.name,
+            system.vendor,
+            time.monotonic() - started,
+        )
+        return data
     except Exception as exc:
-        logger.warning("Live health fetch failed for %s: %s", system.name, exc)
+        logger.warning(
+            "Live health fetch failed for %s after %.2fs: %s",
+            system.name,
+            time.monotonic() - started,
+            exc,
+        )
         return {}
 
 
 def _fetch_live_health_with_timeout(system, timeout_seconds=60):
     """Fetch health with a hard timeout guard to prevent stuck DR builds."""
     result_q = Queue(maxsize=1)
+    progress = {}
 
     def _worker():
         try:
-            result_q.put((True, _fetch_live_health(system)))
+            result_q.put((True, _fetch_live_health(system, progress=progress)))
         except Exception as exc:
             result_q.put((False, exc))
 
@@ -348,11 +382,35 @@ def _fetch_live_health_with_timeout(system, timeout_seconds=60):
     worker.join(timeout=timeout_seconds)
 
     if worker.is_alive():
+        last_started = progress.get('last_started_step')
+        last_done = progress.get('last_completed_step')
+        step_runtime = None
+        if progress.get('last_started_at') is not None:
+            step_runtime = time.monotonic() - progress['last_started_at']
         logger.warning(
-            "Live health fetch timeout for %s after %ss; skipping system.",
+            (
+                "Live health fetch timeout for %s after %ss; skipping system. "
+                "last_started_step=%s%s%s"
+            ),
             system.name,
             timeout_seconds,
+            last_started or '-',
+            ", last_completed_step=",
+            last_done or '-',
         )
+        if step_runtime is not None:
+            logger.warning(
+                "Live health fetch timeout context for %s: current_step_runtime=%.2fs",
+                system.name,
+                step_runtime,
+            )
+        last_done_elapsed = progress.get('last_completed_elapsed_seconds')
+        if last_done and last_done_elapsed is not None:
+            logger.warning(
+                "Live health fetch timeout context for %s: last_completed_step_duration=%.2fs",
+                system.name,
+                last_done_elapsed,
+            )
         return {}
 
     if result_q.empty():
