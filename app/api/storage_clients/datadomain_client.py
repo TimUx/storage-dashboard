@@ -1,7 +1,8 @@
 """Dell DataDomain REST API client (v1.0)."""
 import logging
 import os
-import traceback
+import time
+from requests.exceptions import Timeout
 
 from app.api.base_client import StorageClient
 from app.api.storage_clients.common import _epoch_s_to_str
@@ -15,6 +16,22 @@ logger = logging.getLogger(__name__)
 # requests timeout in seconds (both connect + read). Used for DataDomain REST calls.
 # Override via env var to accommodate slower networks / appliances.
 DD_API_TIMEOUT_SECONDS = int(os.getenv('DD_API_TIMEOUT_SECONDS', os.getenv('STORAGE_API_TIMEOUT_SECONDS', '30')))
+DD_HEALTH_TIMEOUT_RETRIES = int(os.getenv('DD_HEALTH_TIMEOUT_RETRIES', '1'))
+DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS = float(
+    os.getenv('DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS', '1.0')
+)
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    """Return True when ``exc`` (or one of its causes) is a request timeout."""
+    cur = exc
+    visited: set[int] = set()
+    while cur and id(cur) not in visited:
+        visited.add(id(cur))
+        if isinstance(cur, Timeout):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
 
 class DellDataDomainClient(StorageClient):
     """Dell DataDomain client - REST API v1.0
@@ -87,8 +104,14 @@ class DellDataDomainClient(StorageClient):
                 return None
 
         except Exception as e:
-            logger.error(f"Error authenticating to DataDomain {self.ip_address}: {e}")
-            logger.error(traceback.format_exc())
+            if _is_timeout_error(e):
+                logger.warning(
+                    "DataDomain authentication timeout for %s after %ss",
+                    self.ip_address,
+                    DD_API_TIMEOUT_SECONDS,
+                )
+            else:
+                logger.error(f"Error authenticating to DataDomain {self.ip_address}: {e}")
             return None
 
     def _make_api_request(self, endpoint, headers=None, ssl_verify=None, method='GET', data=None):
@@ -677,6 +700,31 @@ class DellDataDomainClient(StorageClient):
             logger.debug(f"Could not get service status for DataDomain {self.ip_address}: {e}")
             return []
 
+    def _get_with_timeout_retry(self, url: str, *, headers, ssl_verify):
+        """GET wrapper with timeout-only retry for transient DD health polling hiccups."""
+        attempts = max(1, DD_HEALTH_TIMEOUT_RETRIES + 1)
+        for attempt in range(1, attempts + 1):
+            try:
+                return local_session().get(
+                    url,
+                    headers=headers,
+                    verify=ssl_verify,
+                    timeout=DD_API_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                if not _is_timeout_error(exc):
+                    raise
+                if attempt >= attempts:
+                    raise
+                logger.warning(
+                    "DataDomain health request timeout for %s (attempt %d/%d), retrying in %.1fs",
+                    self.ip_address,
+                    attempt,
+                    attempts,
+                    DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS,
+                )
+                time.sleep(max(0.0, DD_HEALTH_TIMEOUT_RETRY_BACKOFF_SECONDS))
+
     def get_health_status(self):
         try:
             # DataDomain REST API v1.0 with token authentication
@@ -699,11 +747,10 @@ class DellDataDomainClient(StorageClient):
 
             # Get system info from /rest/v1.0/system
             # This provides comprehensive system information including capacity, compression, etc.
-            response = local_session().get(
+            response = self._get_with_timeout_retry(
                 f"{self.base_url}/rest/v1.0/system",
                 headers=headers,
-                verify=ssl_verify,
-                timeout=DD_API_TIMEOUT_SECONDS
+                ssl_verify=ssl_verify,
             )
 
             if response.status_code != 200:
@@ -719,11 +766,10 @@ class DellDataDomainClient(StorageClient):
 
                         # Retry the request with new token
                         headers['X-DD-AUTH-TOKEN'] = self.token
-                        response = local_session().get(
+                        response = self._get_with_timeout_retry(
                             f"{self.base_url}/rest/v1.0/system",
                             headers=headers,
-                            verify=ssl_verify,
-                            timeout=DD_API_TIMEOUT_SECONDS
+                            ssl_verify=ssl_verify,
                         )
 
                         if response.status_code != 200:
@@ -894,6 +940,22 @@ class DellDataDomainClient(StorageClient):
             return result
 
         except Exception as e:
+            if _is_timeout_error(e):
+                err = (
+                    f"DataDomain API timeout after {DD_API_TIMEOUT_SECONDS}s "
+                    f"({self.base_url}/rest/v1.0/system)"
+                )
+                logger.warning(
+                    "DataDomain health request timed out for %s after %ss",
+                    self.ip_address,
+                    DD_API_TIMEOUT_SECONDS,
+                )
+                return self._format_response(
+                    status='error',
+                    hardware='error',
+                    cluster='error',
+                    error=err,
+                )
+
             logger.error(f"Error getting Dell DataDomain health status for {self.ip_address}: {e}")
-            logger.error(traceback.format_exc())
             return self._format_response(status='error', hardware='error', cluster='error', error=str(e))
