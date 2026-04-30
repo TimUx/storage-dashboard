@@ -13,6 +13,8 @@ DEFAULT_INTERVAL_SECONDS = 5 * 60  # 5 minutes
 # Module-level flag so that only one background thread is started per process
 _background_thread_started = False
 _thread_lock = threading.Lock()
+_single_refresh_lock = threading.Lock()
+_single_refresh_in_flight = set()
 
 # Event used to wake the background loop early (e.g. on manual trigger)
 _refresh_now_event = threading.Event()
@@ -130,6 +132,63 @@ def trigger_refresh(app):
             name="status-refresh-manual",
         )
         t.start()
+
+
+def _do_refresh_one_system(app, system_id):
+    """Fetch status for one system and upsert its cache entry."""
+    from app import db
+    from app.models import StatusCache, StorageSystem
+    from app.services.system_status import fetch_system_status
+
+    with app.app_context():
+        system = StorageSystem.query.filter_by(id=system_id, enabled=True).first()
+        if not system:
+            logger.debug("Single-system refresh skipped for unknown/disabled system_id=%s", system_id)
+            return
+
+        t0 = time.monotonic()
+        result = fetch_system_status(system, app)
+        now = datetime.utcnow()
+        _upsert_cache_entry(StatusCache, db, result['system']['id'], result['status'], now)
+        try:
+            db.session.commit()
+            logger.info(
+                "Single-system status cache refreshed for %s (%s) in %.2fs.",
+                system.name,
+                system.ip_address,
+                time.monotonic() - t0,
+            )
+        except Exception as exc:
+            logger.error("Failed to commit single-system status cache refresh: %s", exc)
+            db.session.rollback()
+
+
+def trigger_system_refresh(app, system_id):
+    """Trigger a non-blocking refresh for exactly one system.
+
+    Returns ``True`` when a new refresh worker was started and ``False`` when
+    the same system is already being refreshed.
+    """
+    with _single_refresh_lock:
+        if system_id in _single_refresh_in_flight:
+            return False
+        _single_refresh_in_flight.add(system_id)
+
+    def _worker():
+        try:
+            _do_refresh_one_system(app, system_id)
+        except Exception as exc:
+            logger.error("Unhandled error in single-system status refresh (%s): %s", system_id, exc)
+        finally:
+            with _single_refresh_lock:
+                _single_refresh_in_flight.discard(system_id)
+
+    threading.Thread(
+        target=_worker,
+        daemon=True,
+        name=f"status-refresh-system-{system_id}",
+    ).start()
+    return True
 
 
 def do_refresh_sync(app):

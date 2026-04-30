@@ -570,6 +570,16 @@
         <strong>ℹ️ Gecachte Daten:</strong> Live-Abfrage fehlgeschlagen – es werden die zuletzt gecachten Status-Daten angezeigt.
     </div>
     {% endif %}
+    {% if served_from_fresh_cache %}
+    <div class="info-message">
+        <strong>⚡ Schnelle Anzeige:</strong> Es werden aktuelle Cache-Daten genutzt, um die Detailansicht schneller zu laden.
+    </div>
+    {% endif %}
+    {% if swr_revalidation_started %}
+    <div class="info-message">
+        <strong>🔄 Hintergrund-Update:</strong> Es läuft eine Live-Aktualisierung im Hintergrund. Beim nächsten Öffnen sind die Detaildaten aktueller.
+    </div>
+    {% endif %}
 
     <div class="detail-grid">
         <!-- Status Overview -->
