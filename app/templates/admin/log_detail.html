@@ -1,8 +1,8 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 
 {% block title %}Log Details - Admin{% endblock %}
 
-{% block styles %}
+{% block admin_styles %}
 .admin-header {
     margin: 1.5rem 0;
     display: flex;
@@ -164,7 +164,7 @@
 [data-theme="dark"] td { border-bottom-color: var(--card-border); color: var(--text-color); }
 {% endblock %}
 
-{% block content %}
+{% block admin_content %}
 <div class="admin-header">
     <h2>📋 Log Details</h2>
     <div class="admin-actions">

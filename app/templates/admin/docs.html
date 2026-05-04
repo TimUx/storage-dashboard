@@ -1,11 +1,12 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 
 {% block title %}API Dokumentation - Admin{% endblock %}
 
-{% block styles %}
+{% block admin_styles %}
 .docs-container {
-    max-width: 960px;
-    margin: 2rem auto;
+    width: 100%;
+    max-width: 100%;
+    margin: 1rem 0 2rem 0;
     background: white;
     padding: 2rem;
     border-radius: 8px;
@@ -25,13 +26,18 @@
 /* Tabs */
 .vendor-tabs {
     display: flex;
+    flex-wrap: nowrap;
     gap: 0;
     border-bottom: 2px solid #e1e8ed;
     margin-bottom: 1.5rem;
-    flex-wrap: wrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
 }
 
 .tab-btn {
+    flex: 0 0 auto;
     background: none;
     border: none;
     padding: 0.65rem 1.2rem;
@@ -173,7 +179,7 @@
 [data-theme="dark"] .info-card h3 { color: var(--text-color); }
 {% endblock %}
 
-{% block content %}
+{% block admin_content %}
 <div class="docs-container">
     <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
         {% include 'admin/_menu_button.html' %}

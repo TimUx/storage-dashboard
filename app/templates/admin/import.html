@@ -1,11 +1,12 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 
 {% block title %}Import - Storage Dashboard{% endblock %}
 
-{% block styles %}
+{% block admin_styles %}
 .import-container {
-    max-width: 600px;
-    margin: 2rem auto;
+    width: 100%;
+    max-width: 100%;
+    margin: 1rem 0 2rem 0;
     background: white;
     padding: 2rem;
     border-radius: 8px;
@@ -91,7 +92,7 @@
 [data-theme="dark"] .info-box ul { color: var(--text-color); opacity: .8; }
 {% endblock %}
 
-{% block content %}
+{% block admin_content %}
 <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
     {% include 'admin/_menu_button.html' %}
 </div>

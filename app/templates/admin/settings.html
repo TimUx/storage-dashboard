@@ -1,11 +1,12 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 
 {% block title %}Einstellungen - Storage Dashboard{% endblock %}
 
-{% block styles %}
+{% block admin_styles %}
 .settings-container {
-    max-width: 800px;
-    margin: 2rem auto;
+    width: 100%;
+    max-width: 100%;
+    margin: 1.5rem 0 2rem 0;
 }
 
 .settings-section {
@@ -131,7 +132,7 @@
 [data-theme="dark"] .color-preview { border-color: var(--card-border); }
 {% endblock %}
 
-{% block content %}
+{% block admin_content %}
 <div class="settings-container">
     <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
         {% include 'admin/_menu_button.html' %}

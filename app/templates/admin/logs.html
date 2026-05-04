@@ -1,8 +1,8 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 
 {% block title %}System Logs - Admin{% endblock %}
 
-{% block styles %}
+{% block admin_styles %}
 .admin-header {
     margin: 1.5rem 0;
     display: flex;
@@ -63,6 +63,7 @@
 table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
 }
 
 thead {
@@ -129,7 +130,6 @@ tbody tr:hover {
 }
 
 .log-message {
-    max-width: 500px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -237,7 +237,7 @@ tbody tr:hover {
 [data-theme="dark"] tbody tr:hover { background: var(--table-row-hover); }
 {% endblock %}
 
-{% block content %}
+{% block admin_content %}
 <div class="admin-header">
     <h2>📋 System Logs</h2>
     <div class="admin-actions">

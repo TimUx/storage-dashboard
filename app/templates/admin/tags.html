@@ -1,8 +1,8 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 
 {% block title %}Tags verwalten - Admin{% endblock %}
 
-{% block styles %}
+{% block admin_styles %}
 .tags-header {
     margin: 1.5rem 0;
     display: flex;
@@ -96,7 +96,7 @@
 [data-theme="dark"] .tag-badge { background: rgba(0,152,219,.15); color: #40c4ff; }
 {% endblock %}
 
-{% block content %}
+{% block admin_content %}
 <div class="tags-header">
     <h2>Tags verwalten</h2>
     <div style="display: flex; gap: 1rem;" class="admin-actions">
