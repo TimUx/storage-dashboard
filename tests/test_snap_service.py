@@ -957,6 +957,112 @@ def test_process_expired_deletions_skips_records_not_yet_due(app):
         assert SnapshotRecord.query.get(snap_id) is not None
 
 
+def test_schedule_ttl_expired_deletions_no_op_when_disabled(app):
+    """TTL auto-delete must not mark rows when the admin setting is off (default)."""
+    from app import db
+    from app.models import AppSettings, SnapshotRecord
+    from app.snap_service import _schedule_ttl_expired_deletions
+
+    snap_id = _seed_snapshot_with_ttl(app, datetime.utcnow() - timedelta(hours=2), sid='EXPA')
+    with app.app_context():
+        s = AppSettings.query.first()
+        if not s:
+            s = AppSettings()
+            db.session.add(s)
+        s.snap_auto_delete_ttl_expired = 0
+        db.session.commit()
+
+    _schedule_ttl_expired_deletions(app)
+
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        assert rec is not None
+        assert rec.delete_marked is False
+
+
+def test_schedule_ttl_expired_deletions_marks_when_enabled(app):
+    """Expired TTL + setting on → same scheduling flags as manual delete (immediate deadline)."""
+    from app import db
+    from app.models import AppSettings, SnapshotRecord
+    from app.snap_service import _schedule_ttl_expired_deletions
+
+    snap_id = _seed_snapshot_with_ttl(app, datetime.utcnow() - timedelta(hours=2), sid='EXPB')
+    with app.app_context():
+        s = AppSettings.query.first()
+        if not s:
+            s = AppSettings()
+            db.session.add(s)
+        s.snap_auto_delete_ttl_expired = 1
+        db.session.commit()
+
+    before = datetime.utcnow()
+    _schedule_ttl_expired_deletions(app)
+    after = datetime.utcnow()
+
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        assert rec is not None
+        assert rec.delete_marked is True
+        assert rec.delete_deadline is not None
+        assert rec.delete_deadline <= after
+        assert rec.delete_deadline >= before - timedelta(seconds=2)
+
+
+def test_schedule_ttl_expired_deletions_skips_future_ttl(app):
+    """Snapshots whose TTL is still in the future must never be auto-marked."""
+    from app import db
+    from app.models import AppSettings, SnapshotRecord
+    from app.snap_service import _schedule_ttl_expired_deletions
+
+    snap_id = _seed_snapshot(app)
+    with app.app_context():
+        s = AppSettings.query.first()
+        if not s:
+            s = AppSettings()
+            db.session.add(s)
+        s.snap_auto_delete_ttl_expired = 1
+        db.session.commit()
+
+    _schedule_ttl_expired_deletions(app)
+
+    with app.app_context():
+        rec = SnapshotRecord.query.get(snap_id)
+        assert rec is not None
+        assert rec.delete_marked is False
+
+
+def test_schedule_ttl_expired_deletions_drops_stale_only_row(app):
+    """Empty delete plan removes the DB row immediately (same as POST /snaps/api/delete)."""
+    from app import db
+    from app.models import AppSettings, SnapshotRecord
+    from app.snap_service import _schedule_ttl_expired_deletions
+
+    with app.app_context():
+        s = AppSettings.query.first()
+        if not s:
+            s = AppSettings()
+            db.session.add(s)
+        s.snap_auto_delete_ttl_expired = 1
+        db.session.commit()
+
+        rec = SnapshotRecord(
+            sid='STLO',
+            creation_time=datetime.utcnow() - timedelta(days=3),
+            ttl=datetime.utcnow() - timedelta(days=1),
+            flasharray_present=False,
+            ontap_present=False,
+            storage_locations=json.dumps({'flasharray_systems': [], 'ontap_clusters': []}),
+        )
+        db.session.add(rec)
+        db.session.commit()
+        snap_id = rec.id
+
+    _schedule_ttl_expired_deletions(app)
+
+    with app.app_context():
+        assert SnapshotRecord.query.get(snap_id) is None
+
+
 def test_api_update_ttl_streams_and_persists(app, client):
     """POST /snaps/api/update-ttl streams progress and updates ttl on success."""
     snap_id = _seed_snapshot(app)

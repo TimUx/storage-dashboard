@@ -760,6 +760,24 @@
                         </p>
                     </div>
                 </div>
+
+                <div class="settings-section">
+                    <h2>Snapshot-Verwaltung</h2>
+                    <div class="form-group">
+                        <label class="inline-check" for="snap_auto_delete_ttl_expired">
+                            <input type="checkbox" id="snap_auto_delete_ttl_expired"
+                                   name="snap_auto_delete_ttl_expired" value="1"
+                                   {% if settings.snap_auto_delete_ttl_expired %}checked{% endif %}>
+                            Abgelaufene Snapshots automatisch auf dem Storage löschen
+                        </label>
+                        <p class="info-text">
+                            Ist diese Option aktiv, markiert der Snapshot-Collector nach jedem Lauf alle Datensätze,
+                            deren TTL-Zeitpunkt erreicht oder überschritten ist, für die Löschung auf FlashArray bzw. ONTAP
+                            (dieselben API-Schritte wie bei manuell geplanter Löschung). Es gibt dabei keine 24-Stunden-Widerrufsfrist.
+                            Standardmäßig ist die Funktion deaktiviert.
+                        </p>
+                    </div>
+                </div>
             </div>
             
             <!-- Submit Buttons -->

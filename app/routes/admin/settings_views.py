@@ -42,6 +42,11 @@ def settings():
             if refresh_interval and refresh_interval.isdigit():
                 app_settings.dashboard_refresh_interval = int(refresh_interval)
 
+            # Snapshot management: auto-delete from storage when TTL has passed (collector)
+            app_settings.snap_auto_delete_ttl_expired = (
+                1 if request.form.get('snap_auto_delete_ttl_expired') == '1' else 0
+            )
+
             # Update log settings
             max_logs = request.form.get('max_logs_per_system')
             if max_logs:
