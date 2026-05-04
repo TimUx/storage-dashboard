@@ -864,8 +864,30 @@ def _schedule_ttl_expired_deletions(app):
         if not candidates:
             return
 
+        from app.snap_ttl_auto_delete_exclusions import (
+            normalize_rules_from_json,
+            snapshot_matches_ttl_exclusion_rules,
+        )
+
+        raw_excl = getattr(settings, 'snap_ttl_auto_delete_exclusions_json', None) or ''
+        excl_rules, excl_err = normalize_rules_from_json(raw_excl)
+        if excl_err:
+            logger.warning("Snapshot collector: TTL exclusion rules ignored (parse error): %s", excl_err)
+
         for rec in candidates:
             try:
+                if excl_rules and not excl_err:
+                    locs = rec.get_storage_locations()
+                    matched, ridx = snapshot_matches_ttl_exclusion_rules(rec.sid, locs, excl_rules)
+                    if matched:
+                        logger.info(
+                            "Snapshot collector: TTL expired, skipping auto-delete for record %s "
+                            "sid=%s (exclusion rule #%s)",
+                            rec.id,
+                            rec.sid,
+                            (ridx + 1) if ridx is not None else '?',
+                        )
+                        continue
                 plan = _build_delete_plan(rec, rec.get_storage_locations())
                 if not plan:
                     logger.info(

@@ -124,6 +124,9 @@ class AppSettings(db.Model):
     # deferred storage deletion as manual "Löschen" (immediate deadline so the worker runs same cycle).
     snap_auto_delete_ttl_expired = db.Column(db.Integer, default=0)  # 0 = off, 1 = on
 
+    # JSON array of {"storage":"*fnmatch*","sid":"SID*"} rules; see snap_ttl_auto_delete_exclusions.py
+    snap_ttl_auto_delete_exclusions_json = db.Column(db.Text)
+
     # Snapshot list: optional morning digest (after 07:00 app timezone) via SMTP
     snap_ttl_expiry_email_enabled = db.Column(db.Integer, default=0)  # 0 = off, 1 = on
     snap_ttl_expiry_recipients = db.Column(db.Text)  # comma/semicolon/line-separated addresses

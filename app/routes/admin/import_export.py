@@ -158,6 +158,9 @@ def export_backup():
                 'snap_auto_delete_ttl_expired': bool(
                     getattr(settings_obj, 'snap_auto_delete_ttl_expired', None)
                 ),
+                'snap_ttl_auto_delete_exclusions_json': getattr(
+                    settings_obj, 'snap_ttl_auto_delete_exclusions_json', None
+                ),
                 'snap_ttl_expiry_email_enabled': bool(
                     getattr(settings_obj, 'snap_ttl_expiry_email_enabled', None)
                 ),
@@ -313,6 +316,10 @@ def import_backup():
             settings_obj.dashboard_refresh_interval = s.get('dashboard_refresh_interval', 5)
             settings_obj.snap_auto_delete_ttl_expired = (
                 1 if s.get('snap_auto_delete_ttl_expired') else 0
+            )
+            excl = s.get('snap_ttl_auto_delete_exclusions_json')
+            settings_obj.snap_ttl_auto_delete_exclusions_json = (
+                excl.strip() if isinstance(excl, str) and excl.strip() else None
             )
             settings_obj.snap_ttl_expiry_email_enabled = (
                 1 if s.get('snap_ttl_expiry_email_enabled') else 0

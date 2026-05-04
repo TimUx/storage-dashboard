@@ -1031,6 +1031,45 @@ def test_schedule_ttl_expired_deletions_skips_future_ttl(app):
         assert rec.delete_marked is False
 
 
+def test_schedule_ttl_expired_deletions_skips_when_exclusion_matches(app):
+    """TTL auto-delete must not mark rows that match an admin exclusion rule."""
+    from app import db
+    from app.models import AppSettings, SnapshotRecord
+    from app.snap_service import _schedule_ttl_expired_deletions
+
+    locs = json.dumps({
+        'flasharray_systems': [{'name': 'fa01', 'snapshot_names': ['EXCL_1.HDBSNAP']}],
+        'ontap_clusters': [],
+    })
+    with app.app_context():
+        s = AppSettings.query.first()
+        if not s:
+            s = AppSettings()
+            db.session.add(s)
+        s.snap_auto_delete_ttl_expired = 1
+        s.snap_ttl_auto_delete_exclusions_json = json.dumps([{'storage': 'fa01', 'sid': 'EXCL'}])
+        db.session.commit()
+
+        rec = SnapshotRecord(
+            sid='EXCL',
+            creation_time=datetime.utcnow() - timedelta(days=2),
+            ttl=datetime.utcnow() - timedelta(hours=1),
+            flasharray_present=True,
+            ontap_present=False,
+            storage_locations=locs,
+        )
+        db.session.add(rec)
+        db.session.commit()
+        snap_id = rec.id
+
+    _schedule_ttl_expired_deletions(app)
+
+    with app.app_context():
+        rec2 = SnapshotRecord.query.get(snap_id)
+        assert rec2 is not None
+        assert rec2.delete_marked is False
+
+
 def test_schedule_ttl_expired_deletions_drops_stale_only_row(app):
     """Empty delete plan removes the DB row immediately (same as POST /snaps/api/delete)."""
     from app import db

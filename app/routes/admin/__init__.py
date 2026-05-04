@@ -12,6 +12,7 @@ from app.routes.admin import (  # noqa: E402
     mail_api,  # noqa: F401
     pure1,  # noqa: F401
     settings_views,  # noqa: F401
+    snap_ttl_exclusions,  # noqa: F401
     systems,  # noqa: F401
     tags,  # noqa: F401
 )

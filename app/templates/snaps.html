@@ -335,6 +335,19 @@ table.sn-table tr.delete-pending > td { opacity: .6; }
 .badge-ok   { color: var(--sn-success); font-weight: 700; }
 .badge-miss { color: var(--sn-danger); font-weight: 700; }
 
+/* SID cell — TTL auto-delete exclusion (admin rules) */
+td.sid-cell {
+    white-space: nowrap;
+}
+td.sid-cell .sn-ttl-exempt {
+    display: inline-block;
+    margin-right: .25rem;
+    font-size: .8rem;
+    vertical-align: middle;
+    opacity: .9;
+    cursor: help;
+}
+
 /* Comment cell */
 td.comment-cell .comment-display { cursor: pointer; min-height: 1.2em; }
 td.comment-cell .comment-display:hover { background: rgba(0,0,0,.04); }
@@ -756,6 +769,13 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
             <input type="date" id="filter-ttl-before" onchange="applyFilters()">
         </div>
 
+        <div class="sn-filter-field sn-filter-check" id="filter-ttl-exclusion-row" hidden>
+            <label class="sn-filter-label sn-filter-check-label" for="filter-ttl-exclusion-only">
+                <input type="checkbox" id="filter-ttl-exclusion-only" onchange="applyFilters()">
+                Nur TTL-Auto-Lösch-Ausnahmen
+            </label>
+        </div>
+
         <div class="sn-filter-actions">
             <button class="btn-secondary" onclick="clearFilters()" title="Alle Filter zurücksetzen">✕ Filter löschen</button>
         </div>
@@ -868,6 +888,7 @@ let _deleteTimers = {};       // intervalId per snapshot id
 let _execRunning = false;     // execution modal is currently streaming
 let _openDetailIds = new Set(); // keep expanded detail rows across re-renders
 let _lastCollectorUpdate = null; // most recent stats.last_update value from API
+let _listStats = {};             // last /snaps/api/list stats (exclusion rules, auto-delete flag)
 let _collectInProgress = false;  // manual refresh currently waiting for new run
 let _autoReloadTimer = null;     // periodic list refresh interval
 
@@ -917,7 +938,9 @@ async function loadSnapshots() {
         const data = await resp.json();
         _snapshots = data.snapshots || [];
         _lastCollectorUpdate = (data.stats && data.stats.last_update) || null;
+        _listStats = data.stats || {};
         renderStats(data.stats || {});
+        updateTtlExclusionFilterRow();
         applyFilters();
         return data;
     } catch (e) {
@@ -938,6 +961,24 @@ function renderStats(stats) {
         ? 'OK'
         : (status === 'error' ? 'Fehler' : (status || '–'));
     const statusClass = status === 'error' ? 'error' : (status === 'success' ? '' : 'muted');
+    const nExRules = stats.snap_ttl_auto_delete_exclusion_rule_count || 0;
+    const autoDelOn = !!stats.snap_ttl_auto_delete_enabled;
+    let ruleChip = '';
+    if (nExRules > 0) {
+        ruleChip = `
+        <span class="sn-chip muted" title="Anzahl der Ausschlussregeln in Admin → Einstellungen → Snapshots (JSON). Snapshots mit 🛡 werden bei abgelaufener TTL nicht automatisch gelöscht, solange die automatische TTL-Löschung aktiv ist.">
+            <span class="sn-chip-label">TTL-Ausnahme-Regeln</span>
+            <span class="sn-chip-value">${nExRules}</span>
+        </span>`;
+    }
+    if (autoDelOn) {
+        ruleChip += `
+        <span class="sn-chip warn" title="Abgelaufene TTLs werden vom Collector automatisch auf dem Storage gelöscht (ohne 24h-Widerruf).">
+            <span class="sn-chip-label">TTL-Auto-Löschung</span>
+            <span class="sn-chip-value">an</span>
+        </span>`;
+    }
+
     panel.innerHTML = `
         <span class="sn-chip" title="Anzahl der Snapshot-Gruppen insgesamt">
             <span class="sn-chip-label">Gesamt</span>
@@ -959,8 +1000,26 @@ function renderStats(stats) {
             <span class="sn-chip-label">Status</span>
             <span class="sn-chip-value" style="font-weight:600">${escHtml(statusLabel)}</span>
         </span>
+        ${ruleChip}
     `;
     renderCollectorRunningChip();
+}
+
+function updateTtlExclusionFilterRow() {
+    const row = document.getElementById('filter-ttl-exclusion-row');
+    const cb = document.getElementById('filter-ttl-exclusion-only');
+    if (!row || !cb) return;
+    const n = (_listStats.snap_ttl_auto_delete_exclusion_rule_count || 0);
+    if (n > 0) {
+        row.removeAttribute('hidden');
+        cb.disabled = false;
+        cb.title = `${n} Regel(n) in den Admin-Einstellungen (JSON).`;
+    } else {
+        row.setAttribute('hidden', '');
+        cb.checked = false;
+        cb.disabled = true;
+        cb.title = 'Keine Ausschlussregeln in Admin → Einstellungen → Snapshots.';
+    }
 }
 
 function startAutoRefresh() {
@@ -1046,12 +1105,16 @@ function applyFilters() {
     const taAfter = document.getElementById('filter-ttl-after').value;
     const taBefore= document.getElementById('filter-ttl-before').value;
 
+    const exOnlyEl = document.getElementById('filter-ttl-exclusion-only');
+    const exOnly = exOnlyEl && exOnlyEl.checked && !exOnlyEl.disabled;
+
     _filtered = _snapshots.filter(s => {
         if (!snapshotTextSearchMatch(snapshotSearchHaystack(s), textF)) return false;
         if (caAfter  && s.creation_time && s.creation_time.slice(0,10) < caAfter)  return false;
         if (caBefore && s.creation_time && s.creation_time.slice(0,10) > caBefore) return false;
         if (taAfter  && s.ttl && s.ttl.slice(0,10) < taAfter)  return false;
         if (taBefore && s.ttl && s.ttl.slice(0,10) > taBefore) return false;
+        if (exOnly && !s.ttl_auto_delete_excluded) return false;
         return true;
     });
     refreshFilterBadge();
@@ -1061,6 +1124,8 @@ function applyFilters() {
 function clearFilters() {
     ['filter-sid','filter-created-after','filter-created-before','filter-ttl-after','filter-ttl-before']
         .forEach(id => { document.getElementById(id).value = ''; });
+    const exCb = document.getElementById('filter-ttl-exclusion-only');
+    if (exCb) exCb.checked = false;
     applyFilters();
 }
 
@@ -1073,6 +1138,8 @@ function refreshFilterBadge() {
         const el = document.getElementById(id);
         if (el && el.value && el.value.trim()) n++;
     }
+    const exCb = document.getElementById('filter-ttl-exclusion-only');
+    if (exCb && exCb.checked && !exCb.disabled) n++;
     const badge = document.getElementById('sn-filter-badge');
     if (badge) {
         if (n > 0) { badge.hidden = false; badge.textContent = String(n); }
@@ -1194,6 +1261,11 @@ function renderTable() {
             delCol = `<button class="icon-btn icon-btn-delete" onclick="markDelete(${s.id})" title="Löschung in 24h einplanen" aria-label="Löschung in 24h einplanen">${ICON_TRASH}</button>`;
         }
 
+        const ttlExclTitle = 'Von der automatischen TTL-Löschung ausgenommen (Admin-Regel).';
+        const ttlExclIcon = s.ttl_auto_delete_excluded
+            ? `<span class="sn-ttl-exempt" title="${escAttr(ttlExclTitle)}" aria-label="TTL-Auto-Lösch-Ausnahme">🛡</span>`
+            : '';
+
         // Storage locations detail
         const locs = s.storage_locations || {};
         const faSystems  = locs.flasharray_systems || [];
@@ -1266,7 +1338,7 @@ function renderTable() {
         html += `
         <tr${rowClass}>
             <td><button class="expand-btn${isOpen ? ' open' : ''}" id="${btnId}" onclick="toggleDetail(${snapId})" title="Details">▶</button></td>
-            <td><strong>${escHtml(s.sid)}</strong></td>
+            <td class="sid-cell">${ttlExclIcon}<strong>${escHtml(s.sid)}</strong></td>
             <td style="white-space:nowrap">${s.creation_time ? formatDt(s.creation_time) : '–'}</td>
             <td class="ttl-cell">
                 ${ttlCellHtml}
