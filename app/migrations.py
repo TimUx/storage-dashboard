@@ -55,6 +55,7 @@ ALLOWED_COLUMNS = {
     'dashboard_refresh_interval': 'INTEGER',
     # app_settings – snapshot auto-delete after TTL
     'snap_auto_delete_ttl_expired': 'INTEGER',
+    'snap_ttl_auto_delete_exclusions_json': 'TEXT',
     # app_settings – snapshot TTL digest e-mail
     'snap_ttl_expiry_email_enabled': 'INTEGER',
     'snap_ttl_expiry_recipients': 'TEXT',
@@ -223,6 +224,7 @@ def migrate_app_settings_table():
         # Dashboard refresh interval
         ('dashboard_refresh_interval', ALLOWED_COLUMNS['dashboard_refresh_interval']),
         ('snap_auto_delete_ttl_expired', ALLOWED_COLUMNS['snap_auto_delete_ttl_expired']),
+        ('snap_ttl_auto_delete_exclusions_json', ALLOWED_COLUMNS['snap_ttl_auto_delete_exclusions_json']),
         ('snap_ttl_expiry_email_enabled', ALLOWED_COLUMNS['snap_ttl_expiry_email_enabled']),
         ('snap_ttl_expiry_recipients', ALLOWED_COLUMNS['snap_ttl_expiry_recipients']),
         ('snap_ttl_expiry_email_last_sent', ALLOWED_COLUMNS['snap_ttl_expiry_email_last_sent']),

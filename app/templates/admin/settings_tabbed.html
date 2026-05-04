@@ -766,6 +766,71 @@
                             Standardmäßig ist die Funktion deaktiviert.
                         </p>
                     </div>
+
+                    <div class="form-group" style="margin-top:1.25rem;">
+                        <h3 style="margin-top:0;">Ausschluss von der automatischen TTL-Löschung</h3>
+                        <p class="info-text">
+                            JSON-Array von Regelobjekten. Felder (optional): <code>storage</code> für FlashArray-Arraynamen,
+                            ONTAP-Cluster oder <code>Cluster/SVM</code>; <code>sid</code> für die SID.
+                            Fehlende Seite bzw. <code>*</code> bedeutet „egal“. Platzhalter wie bei Dateinamen: <code>*</code>, <code>?</code>
+                            (Groß-/Kleinschreibung egal). Pro Regel müssen <em>alle</em> angegebenen Teile passen; mindestens ein
+                            Speicher-Token des Snapshots muss dem <code>storage</code>-Muster entsprechen (außer <code>storage</code> ist nur <code>*</code>).
+                        </p>
+                        <label for="snap_ttl_auto_delete_exclusions_json">Regeln (JSON)</label>
+                        <textarea id="snap_ttl_auto_delete_exclusions_json"
+                                  name="snap_ttl_auto_delete_exclusions_json"
+                                  rows="8" style="width:100%; font-family: ui-monospace, Consolas, monospace; font-size:0.82rem;"
+                                  spellcheck="false"
+                                  placeholder='[{"storage":"fa*","sid":"PRD*"},{"sid":"SYS*"}]'
+                                  >{{ settings.snap_ttl_auto_delete_exclusions_json or '' }}</textarea>
+                        <p class="info-text">Beispiel: <code>[{"sid":"DIP*"},{"storage":"pure-*","sid":"ACP"}]</code></p>
+                        <p style="margin:.75rem 0 .35rem;">
+                            <button type="button" class="btn btn-secondary" onclick="previewTtlExclusionsDraft()">
+                                Vorschau (nicht gespeicherten Text)
+                            </button>
+                            <span id="ttl-excl-preview-status" style="margin-left:.75rem;font-size:0.9rem;color:#555;"></span>
+                        </p>
+                        {% if ttl_exclusion_parse_error %}
+                        <p class="warning-text" style="margin-top:.5rem;">⚠️ {{ ttl_exclusion_parse_error }}</p>
+                        {% endif %}
+                        <div id="ttl-excl-preview-wrap" style="margin-top:.5rem;">
+                            {% if ttl_exclusion_parse_error %}
+                            <p class="info-text" style="margin:0;">Bitte JSON korrigieren — die Vorschau ist nicht verfügbar.</p>
+                            {% elif ttl_exclusion_rule_count == 0 %}
+                            <p class="info-text" style="margin:0;">Keine Regeln definiert — es gibt keine TTL-Lösch-Ausnahmen.</p>
+                            {% elif ttl_exclusion_preview_total == 0 %}
+                            <p class="info-text" style="margin:0;">Kein Snapshot entspricht aktuell den Regeln.</p>
+                            {% else %}
+                            <p style="font-size:0.9rem;margin:0 0 .35rem;">
+                                {{ ttl_exclusion_preview_total }} Snapshot(s) erfüllen die Regeln (max. 500 in der Tabelle).
+                            </p>
+                            <div style="overflow:auto; max-height:22rem; border:1px solid #e0e0e0;">
+                                <table class="data-table" style="width:100%; font-size:0.85rem;">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>SID</th>
+                                            <th>TTL (UTC)</th>
+                                            <th>Speicher (Kurz)</th>
+                                            <th>Regel #</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in ttl_exclusion_preview_rows %}
+                                        <tr>
+                                            <td>{{ row.id }}</td>
+                                            <td><strong>{{ row.sid }}</strong></td>
+                                            <td style="white-space:nowrap">{{ row.ttl or '–' }}</td>
+                                            <td>{{ row.storage_summary }}</td>
+                                            <td>{{ row.matched_rule_index + 1 }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
 
                 <div class="settings-section">
@@ -990,6 +1055,61 @@ async function testPure1Connection() {
     } finally {
         btn.disabled = false;
         btn.textContent = '🔌 Verbindung testen';
+    }
+}
+
+function _escPreviewCell(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+async function previewTtlExclusionsDraft() {
+    const ta = document.getElementById('snap_ttl_auto_delete_exclusions_json');
+    const st = document.getElementById('ttl-excl-preview-status');
+    const wrap = document.getElementById('ttl-excl-preview-wrap');
+    if (!ta || !wrap) return;
+    st.textContent = 'Lade…';
+    try {
+        const resp = await fetch('/admin/api/snap-ttl-exclusions-preview', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({raw_json: ta.value}),
+        });
+        const data = await resp.json();
+        st.textContent = '';
+        if (!resp.ok) {
+            wrap.innerHTML = '<p class="warning-text">Fehler: ' + _escPreviewCell(data.error || ('HTTP ' + resp.status)) + '</p>';
+            return;
+        }
+        if (data.parse_error) {
+            wrap.innerHTML = '<p class="warning-text">⚠️ ' + _escPreviewCell(data.parse_error) + '</p>';
+            return;
+        }
+        const rows = data.rows || [];
+        const total = data.total != null ? data.total : rows.length;
+        if (!rows.length) {
+            wrap.innerHTML = '<p class="info-text" style="margin:0;">Kein Snapshot entspricht dem eingegebenen Text.</p>';
+            return;
+        }
+        let tb = '';
+        for (const r of rows) {
+            tb += '<tr><td>' + r.id + '</td><td><strong>' + _escPreviewCell(r.sid) + '</strong></td>' +
+                '<td style="white-space:nowrap">' + _escPreviewCell(r.ttl || '–') + '</td>' +
+                '<td>' + _escPreviewCell(r.storage_summary || '') + '</td>' +
+                '<td>' + (r.matched_rule_index != null ? (r.matched_rule_index + 1) : '–') + '</td></tr>';
+        }
+        wrap.innerHTML = '<p style="font-size:0.9rem;margin:0 0 .35rem;">' + total +
+            ' Snapshot(s) (Vorschau, max. 500 Zeilen)</p>' +
+            '<div style="overflow:auto; max-height:22rem; border:1px solid #e0e0e0;">' +
+            '<table class="data-table" style="width:100%; font-size:0.85rem;"><thead><tr>' +
+            '<th>ID</th><th>SID</th><th>TTL (UTC)</th><th>Speicher (Kurz)</th><th>Regel #</th></tr></thead>' +
+            '<tbody>' + tb + '</tbody></table></div>';
+    } catch (err) {
+        st.textContent = '';
+        wrap.innerHTML = '<p class="warning-text">Netzwerkfehler: ' + _escPreviewCell(err.message) + '</p>';
     }
 }
 

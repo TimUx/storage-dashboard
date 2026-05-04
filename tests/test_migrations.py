@@ -299,6 +299,7 @@ class TestMigrateAppSettingsTable:
                 'pure1_app_id', 'pure1_private_key', 'pure1_private_key_passphrase',
                 'pure1_public_key', 'proxy_http', 'proxy_https', 'proxy_no_proxy',
                 'dashboard_refresh_interval', 'snap_auto_delete_ttl_expired',
+                'snap_ttl_auto_delete_exclusions_json',
                 'snap_ttl_expiry_email_enabled', 'snap_ttl_expiry_recipients',
                 'snap_ttl_expiry_email_last_sent',
                 'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_use_tls', 'smtp_use_ssl',

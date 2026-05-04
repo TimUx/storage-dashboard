@@ -6,11 +6,32 @@ from flask import flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from app import db
-from app.models import AppSettings, Certificate
+from app.models import AppSettings, Certificate, SnapshotRecord
 from app.routes.admin import bp
+from app.snap_ttl_auto_delete_exclusions import (
+    normalize_rules_from_json,
+    preview_excluded_snapshots,
+)
 from app.snap_ttl_email import parse_recipient_list, smtp_config_complete
 
 logger = logging.getLogger(__name__)
+
+
+def _snapshot_ttl_exclusion_preview_context(app_settings: AppSettings | None) -> dict:
+    """Rows for the admin settings table of snapshots matching exclusion rules."""
+    raw = getattr(app_settings, 'snap_ttl_auto_delete_exclusions_json', None) if app_settings else None
+    recs = SnapshotRecord.query.order_by(
+        SnapshotRecord.sid.asc(),
+        SnapshotRecord.creation_time.desc(),
+    ).all()
+    rows, err, total = preview_excluded_snapshots(recs, raw, limit=500)
+    rules, rerr = normalize_rules_from_json(raw)
+    return {
+        'ttl_exclusion_preview_rows': rows,
+        'ttl_exclusion_preview_total': total,
+        'ttl_exclusion_parse_error': err or rerr,
+        'ttl_exclusion_rule_count': len(rules),
+    }
 
 
 @bp.route('/settings', methods=['GET', 'POST'])
@@ -47,6 +68,19 @@ def settings():
             app_settings.snap_auto_delete_ttl_expired = (
                 1 if request.form.get('snap_auto_delete_ttl_expired') == '1' else 0
             )
+
+            excl_raw = (request.form.get('snap_ttl_auto_delete_exclusions_json') or '').strip()
+            if excl_raw:
+                _, excl_err = normalize_rules_from_json(excl_raw)
+                if excl_err:
+                    flash(
+                        f'TTL-Auto-Lösch-Ausschlussregeln: {excl_err} — das JSON-Feld wurde nicht geändert.',
+                        'error',
+                    )
+                else:
+                    app_settings.snap_ttl_auto_delete_exclusions_json = excl_raw
+            else:
+                app_settings.snap_ttl_auto_delete_exclusions_json = None
 
             app_settings.snap_ttl_expiry_email_enabled = (
                 1 if request.form.get('snap_ttl_expiry_email_enabled') == '1' else 0
@@ -137,7 +171,13 @@ def settings():
             logger.error(f'Error saving settings: {e}', exc_info=True)
             flash(f'Fehler beim Speichern: {str(e)}', 'error')
 
-    return render_template('admin/settings_tabbed.html', settings=app_settings, certificates=certificates)
+    preview_ctx = _snapshot_ttl_exclusion_preview_context(app_settings)
+    return render_template(
+        'admin/settings_tabbed.html',
+        settings=app_settings,
+        certificates=certificates,
+        **preview_ctx,
+    )
 
 
 @bp.route('/settings/logo')

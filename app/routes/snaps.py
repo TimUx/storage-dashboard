@@ -116,10 +116,16 @@ def api_list():
         ttl_after    – ISO-8601 date; only return snapshots with TTL after this date
         created_before – ISO-8601 date filter on creation_time
         created_after  – ISO-8601 date filter on creation_time
+        ttl_exclusion_only – if ``1``, only snapshots matching an admin TTL auto-delete exclusion rule
     """
-    from app.models import SnapshotCollectorMetadata, SnapshotRecord
+    from app.models import AppSettings, SnapshotCollectorMetadata, SnapshotRecord
+    from app.snap_ttl_auto_delete_exclusions import (
+        normalize_rules_from_json,
+        snapshot_matches_ttl_exclusion_rules,
+    )
 
     sid_filter = request.args.get('sid', '').strip().upper()
+    ttl_exclusion_only = request.args.get('ttl_exclusion_only', '').strip() == '1'
 
     query = SnapshotRecord.query.filter(
         or_(
@@ -155,6 +161,20 @@ def api_list():
         SnapshotRecord.creation_time.desc(),
     ).all()
 
+    settings = AppSettings.query.first()
+    raw_excl = (settings.snap_ttl_auto_delete_exclusions_json if settings else None) or ''
+    ttl_excl_rules, _ttl_excl_err = normalize_rules_from_json(raw_excl)
+    snap_ttl_auto_delete_enabled = bool(settings and settings.snap_auto_delete_ttl_expired)
+
+    if ttl_exclusion_only:
+        if ttl_excl_rules:
+            records = [
+                r for r in records
+                if snapshot_matches_ttl_exclusion_rules(r.sid, r.get_storage_locations(), ttl_excl_rules)[0]
+            ]
+        else:
+            records = []
+
     now = datetime.utcnow()
     total = len(records)
     older_5 = sum(1 for r in records if r.creation_time and (now - r.creation_time).days >= 5)
@@ -174,6 +194,10 @@ def api_list():
             f'Bearbeitung und Löschung sind gesperrt.'
             if d['actions_locked'] else None
         )
+        excl_match, _ = snapshot_matches_ttl_exclusion_rules(
+            rec.sid, rec.get_storage_locations(), ttl_excl_rules,
+        )
+        d['ttl_auto_delete_excluded'] = bool(ttl_excl_rules) and excl_match
         snapshots_payload.append(d)
 
     return jsonify({
@@ -186,6 +210,8 @@ def api_list():
             'last_update_status': last_run.status if last_run else None,
             'actions_lock_hours': _TTL_ACTION_LOCK_HOURS,
             'ttl_min_increase_hours': _TTL_MIN_INCREASE_HOURS,
+            'snap_ttl_auto_delete_enabled': snap_ttl_auto_delete_enabled,
+            'snap_ttl_auto_delete_exclusion_rule_count': len(ttl_excl_rules),
         },
     })
 
