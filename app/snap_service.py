@@ -1115,6 +1115,13 @@ def _background_loop(app):
         except Exception as exc:
             logger.error("Snapshot collector background loop error: %s", exc)
             logger.debug(traceback.format_exc())
+        try:
+            from app.snap_ttl_email import maybe_send_snap_ttl_expiry_digest
+
+            maybe_send_snap_ttl_expiry_digest(app)
+        except Exception as exc:
+            logger.error("Snapshot TTL digest mail loop error: %s", exc)
+            logger.debug(traceback.format_exc())
         _collect_event.wait(timeout=SNAP_COLLECT_INTERVAL_SECONDS)
         _collect_event.clear()
 

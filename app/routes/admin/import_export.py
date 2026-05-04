@@ -158,6 +158,13 @@ def export_backup():
                 'snap_auto_delete_ttl_expired': bool(
                     getattr(settings_obj, 'snap_auto_delete_ttl_expired', None)
                 ),
+                'snap_ttl_expiry_email_enabled': bool(
+                    getattr(settings_obj, 'snap_ttl_expiry_email_enabled', None)
+                ),
+                'snap_ttl_expiry_recipients': getattr(settings_obj, 'snap_ttl_expiry_recipients', None),
+                'snap_ttl_expiry_email_last_sent': getattr(
+                    settings_obj, 'snap_ttl_expiry_email_last_sent', None
+                ),
                 # Pure1 credentials (decrypted plain-text in the backup)
                 'pure1_display_name': settings_obj.pure1_display_name,
                 'pure1_app_id': settings_obj.pure1_app_id,
@@ -306,6 +313,13 @@ def import_backup():
             settings_obj.dashboard_refresh_interval = s.get('dashboard_refresh_interval', 5)
             settings_obj.snap_auto_delete_ttl_expired = (
                 1 if s.get('snap_auto_delete_ttl_expired') else 0
+            )
+            settings_obj.snap_ttl_expiry_email_enabled = (
+                1 if s.get('snap_ttl_expiry_email_enabled') else 0
+            )
+            settings_obj.snap_ttl_expiry_recipients = (s.get('snap_ttl_expiry_recipients') or '').strip() or None
+            settings_obj.snap_ttl_expiry_email_last_sent = (
+                (s.get('snap_ttl_expiry_email_last_sent') or '').strip() or None
             )
             # Pure1 credentials
             settings_obj.pure1_display_name = s.get('pure1_display_name') or None

@@ -320,6 +320,7 @@
         <button class="tab-button" data-tab="api-access">🔑 API-Zugänge</button>
         <button class="tab-button" data-tab="proxy">🌐 Proxy</button>
         <button class="tab-button" data-tab="email">📧 E-Mail</button>
+        <button class="tab-button" data-tab="snapshots">📷 Snapshots</button>
         <button class="tab-button" data-tab="system">⚙️ System</button>
         <button class="tab-button" data-tab="backup">🗃️ Backup</button>
     </div>
@@ -735,6 +736,56 @@
                 </div>
             </div>
 
+            <!-- Snapshots Tab -->
+            <div class="tab-pane" id="snapshots-tab">
+                <div class="settings-section">
+                    <h2>Snapshot-Liste &amp; Verwaltung</h2>
+                    <p class="info-text">
+                        Einstellungen für die Snapshot-Übersicht (<a href="/snaps/">/snaps/</a>).
+                        Der Versand der Tages-Mail nutzt die SMTP-Konfiguration im Tab „E-Mail“.
+                    </p>
+                    <div class="form-group">
+                        <label class="inline-check" for="snap_auto_delete_ttl_expired">
+                            <input type="checkbox" id="snap_auto_delete_ttl_expired"
+                                   name="snap_auto_delete_ttl_expired" value="1"
+                                   {% if settings.snap_auto_delete_ttl_expired %}checked{% endif %}>
+                            Abgelaufene Snapshots automatisch auf dem Storage löschen
+                        </label>
+                        <p class="info-text">
+                            Ist diese Option aktiv, markiert der Snapshot-Collector nach jedem Lauf alle Datensätze,
+                            deren TTL-Zeitpunkt erreicht oder überschritten ist, für die Löschung auf FlashArray bzw. ONTAP
+                            (dieselben API-Schritte wie bei manuell geplanter Löschung). Es gibt dabei keine 24-Stunden-Widerrufsfrist.
+                            Standardmäßig ist die Funktion deaktiviert.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h2>Tages-Mail: TTL läuft in den nächsten 24&nbsp;Stunden ab</h2>
+                    <p class="info-text">
+                        Wenn aktiviert, wird <strong>täglich nach 07:00 Uhr</strong> (Ortszeit gemäß Tab „System“ → Zeitzone)
+                        höchstens eine E-Mail versendet, sofern SMTP unter „E-Mail“ vollständig eingerichtet ist.
+                        Gelistet werden Snapshots, deren TTL in den <strong>nächsten 24&nbsp;Stunden</strong> abläuft
+                        (und damit in Kürze gelöscht werden können).
+                    </p>
+                    <div class="form-group">
+                        <label class="inline-check" for="snap_ttl_expiry_email_enabled">
+                            <input type="checkbox" id="snap_ttl_expiry_email_enabled"
+                                   name="snap_ttl_expiry_email_enabled" value="1"
+                                   {% if settings.snap_ttl_expiry_email_enabled %}checked{% endif %}>
+                            Tages-Benachrichtigung per E-Mail senden
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label for="snap_ttl_expiry_recipients">Empfänger-Adressen</label>
+                        <textarea id="snap_ttl_expiry_recipients" name="snap_ttl_expiry_recipients"
+                                  rows="3" style="width:100%; font-family: inherit;"
+                                  placeholder="ops@firma.de, storage@firma.de">{{ settings.snap_ttl_expiry_recipients or '' }}</textarea>
+                        <p class="info-text">Mehrere Adressen durch Komma, Semikolon oder Zeilenumbruch trennen.</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- System Tab -->
             <div class="tab-pane" id="system-tab">
                 <div class="settings-section">
@@ -773,24 +824,6 @@
                         <p class="info-text">
                             Legt fest, wie oft der Hintergrund-Dienst die Storage-Systeme abfragt und den Status-Cache aktualisiert.
                             Das Dashboard liest die Daten aus diesem Cache, ohne direkte API-Calls zu den Systemen zu machen.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="settings-section">
-                    <h2>Snapshot-Verwaltung</h2>
-                    <div class="form-group">
-                        <label class="inline-check" for="snap_auto_delete_ttl_expired">
-                            <input type="checkbox" id="snap_auto_delete_ttl_expired"
-                                   name="snap_auto_delete_ttl_expired" value="1"
-                                   {% if settings.snap_auto_delete_ttl_expired %}checked{% endif %}>
-                            Abgelaufene Snapshots automatisch auf dem Storage löschen
-                        </label>
-                        <p class="info-text">
-                            Ist diese Option aktiv, markiert der Snapshot-Collector nach jedem Lauf alle Datensätze,
-                            deren TTL-Zeitpunkt erreicht oder überschritten ist, für die Löschung auf FlashArray bzw. ONTAP
-                            (dieselben API-Schritte wie bei manuell geplanter Löschung). Es gibt dabei keine 24-Stunden-Widerrufsfrist.
-                            Standardmäßig ist die Funktion deaktiviert.
                         </p>
                     </div>
                 </div>

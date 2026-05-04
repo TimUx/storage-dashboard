@@ -8,6 +8,7 @@ from flask_login import login_required
 from app import db
 from app.models import AppSettings, Certificate
 from app.routes.admin import bp
+from app.snap_ttl_email import parse_recipient_list, smtp_config_complete
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,26 @@ def settings():
             app_settings.snap_auto_delete_ttl_expired = (
                 1 if request.form.get('snap_auto_delete_ttl_expired') == '1' else 0
             )
+
+            app_settings.snap_ttl_expiry_email_enabled = (
+                1 if request.form.get('snap_ttl_expiry_email_enabled') == '1' else 0
+            )
+            rec_raw = request.form.get('snap_ttl_expiry_recipients', '') or ''
+            app_settings.snap_ttl_expiry_recipients = rec_raw.strip() or None
+
+            if app_settings.snap_ttl_expiry_email_enabled:
+                if not parse_recipient_list(rec_raw):
+                    flash(
+                        'Tages-Mail für Snapshots: ohne Empfänger-Adressen wurde die Option deaktiviert.',
+                        'warning',
+                    )
+                    app_settings.snap_ttl_expiry_email_enabled = 0
+                elif not smtp_config_complete(app_settings):
+                    flash(
+                        'Tages-Mail für Snapshots: SMTP unter „E-Mail“ ist unvollständig – '
+                        'es wird kein Versand stattfinden, bis Host, Absender und ggf. Anmeldung gesetzt sind.',
+                        'info',
+                    )
 
             # Update log settings
             max_logs = request.form.get('max_logs_per_system')
