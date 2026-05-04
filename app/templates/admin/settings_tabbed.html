@@ -547,6 +547,22 @@
                                 onclick="testPure1Connection()">🔌 Verbindung testen</button>
                         <div id="pure1TestResult" style="display:none;margin-top:.75rem;"></div>
                     </div>
+
+                    {% if settings.pure1_app_id and settings.pure1_private_key %}
+                    <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #e0e0e0;">
+                        <h3 style="font-size:1.05rem;margin:0 0 .5rem 0;">SoD-Verlauf (Kapazitätsreport)</h3>
+                        <p class="info-text" style="margin-bottom:.75rem;">
+                            Importiert historische Storage-on-Demand-Daten von Pure1 für die Verlaufsdiagramme
+                            im Kapazitätsreport (Zeitraum etwa zwei Kalenderjahre bis heute). Kann die Pure1-API
+                            spürbar belasten und dauert je nach Datenmenge – nur bei Bedarf ausführen.
+                        </p>
+                        <button type="button" id="adminSodHistoryImportBtn" class="btn btn-secondary"
+                                onclick="adminImportSodHistoryPure1()">
+                            📥 SoD-Verlauf (2 Jahre) von Pure1 importieren
+                        </button>
+                        <div id="adminSodHistoryImportResult" style="display:none;margin-top:.75rem;padding:.75rem;border-radius:6px;font-size:.9rem;"></div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
@@ -933,6 +949,48 @@ async function testPure1Connection() {
     } finally {
         btn.disabled = false;
         btn.textContent = '🔌 Verbindung testen';
+    }
+}
+
+async function adminImportSodHistoryPure1() {
+    const btn = document.getElementById('adminSodHistoryImportBtn');
+    const resultEl = document.getElementById('adminSodHistoryImportResult');
+    if (!btn || !resultEl) return;
+    btn.disabled = true;
+    btn.textContent = '⏳ Import läuft…';
+    resultEl.style.display = 'block';
+    resultEl.style.background = '#fff8e1';
+    resultEl.style.border = '1px solid #f0c14b';
+    resultEl.style.color = '#333';
+    resultEl.style.whiteSpace = 'normal';
+    resultEl.textContent = 'Pure1 wird abgefragt … dies kann mehrere Minuten dauern.';
+    try {
+        const resp = await fetch('/admin/api/sod-history-import-pure1', {method: 'POST'});
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+            resultEl.style.background = '#fdecea';
+            resultEl.style.border = '1px solid #f5c6cb';
+            resultEl.textContent = 'Fehler: ' + (data.error || 'HTTP ' + resp.status);
+        } else {
+            resultEl.style.background = '#e8f5e9';
+            resultEl.style.border = '1px solid #c8e6c9';
+            let msg = 'Import abgeschlossen (' + (data.start_date || '') + ' – ' + (data.end_date || '') + ').\n';
+            msg += data.imported + ' Datensätze importiert';
+            if (data.skipped) msg += ', ' + data.skipped + ' übersprungen';
+            msg += '.';
+            if (data.errors && data.errors.length) {
+                msg += '\n\nHinweise:\n' + data.errors.join('\n');
+            }
+            resultEl.style.whiteSpace = 'pre-wrap';
+            resultEl.textContent = msg;
+        }
+    } catch (err) {
+        resultEl.style.background = '#fdecea';
+        resultEl.style.border = '1px solid #f5c6cb';
+        resultEl.textContent = 'Fehler: ' + err.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '📥 SoD-Verlauf (2 Jahre) von Pure1 importieren';
     }
 }
 
