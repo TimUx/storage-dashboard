@@ -120,6 +120,26 @@ class AppSettings(db.Model):
     # Valid values: 1, 5, 15, 30, 60
     dashboard_refresh_interval = db.Column(db.Integer, default=5)
 
+    # Outbound SMTP (reports, notifications). Password stored encrypted.
+    smtp_enabled = db.Column(db.Integer, default=0)  # 0 = off, 1 = on
+    smtp_host = db.Column(db.String(255))
+    smtp_port = db.Column(db.Integer, default=587)
+    smtp_use_tls = db.Column(db.Integer, default=1)  # STARTTLS (typical port 587)
+    smtp_use_ssl = db.Column(db.Integer, default=0)  # SMTPS implicit TLS (typical port 465)
+    smtp_auth_mode = db.Column(db.String(20), default='none')  # 'none' | 'password'
+    smtp_username = db.Column(db.Text)
+    _smtp_password = db.Column('smtp_password', db.Text)
+    smtp_from_address = db.Column(db.String(255))
+    smtp_from_name = db.Column(db.String(200))
+
+    @property
+    def smtp_password(self):
+        return decrypt_value(self._smtp_password) if self._smtp_password else None
+
+    @smtp_password.setter
+    def smtp_password(self, value):
+        self._smtp_password = encrypt_value(value) if value else None
+
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def __repr__(self):

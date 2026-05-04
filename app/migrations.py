@@ -53,6 +53,17 @@ ALLOWED_COLUMNS = {
     'proxy_https': 'TEXT',
     'proxy_no_proxy': 'TEXT',
     'dashboard_refresh_interval': 'INTEGER',
+    # app_settings – SMTP / outbound mail
+    'smtp_enabled': 'INTEGER',
+    'smtp_host': 'VARCHAR(255)',
+    'smtp_port': 'INTEGER',
+    'smtp_use_tls': 'INTEGER',
+    'smtp_use_ssl': 'INTEGER',
+    'smtp_auth_mode': 'VARCHAR(20)',
+    'smtp_username': 'TEXT',
+    'smtp_password': 'TEXT',
+    'smtp_from_address': 'VARCHAR(255)',
+    'smtp_from_name': 'VARCHAR(200)',
     # sod_history
     'on_demand_tb': 'FLOAT',
 }
@@ -205,6 +216,17 @@ def migrate_app_settings_table():
         ('proxy_no_proxy', ALLOWED_COLUMNS['proxy_no_proxy']),
         # Dashboard refresh interval
         ('dashboard_refresh_interval', ALLOWED_COLUMNS['dashboard_refresh_interval']),
+        # SMTP / e-mail outbound
+        ('smtp_enabled', ALLOWED_COLUMNS['smtp_enabled']),
+        ('smtp_host', ALLOWED_COLUMNS['smtp_host']),
+        ('smtp_port', ALLOWED_COLUMNS['smtp_port']),
+        ('smtp_use_tls', ALLOWED_COLUMNS['smtp_use_tls']),
+        ('smtp_use_ssl', ALLOWED_COLUMNS['smtp_use_ssl']),
+        ('smtp_auth_mode', ALLOWED_COLUMNS['smtp_auth_mode']),
+        ('smtp_username', ALLOWED_COLUMNS['smtp_username']),
+        ('smtp_password', ALLOWED_COLUMNS['smtp_password']),
+        ('smtp_from_address', ALLOWED_COLUMNS['smtp_from_address']),
+        ('smtp_from_name', ALLOWED_COLUMNS['smtp_from_name']),
     ]
     for col_name, col_type in columns:
         if add_column_if_not_exists('app_settings', col_name, col_type):
