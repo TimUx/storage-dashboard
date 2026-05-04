@@ -2,6 +2,8 @@
 import base64 as _b64
 import datetime as _dt
 import json as _json
+import logging
+from datetime import date as _date
 
 import requests as req_lib
 from flask import jsonify
@@ -10,6 +12,8 @@ from flask_login import login_required
 from app.api.pure1_client import PURE1_API_BASE, PURE1_TOKEN_URL, build_pure1_jwt
 from app.models import AppSettings
 from app.routes.admin import bp
+
+logger = logging.getLogger(__name__)
 
 
 @bp.route('/api/pure1-test', methods=['POST'])
@@ -192,3 +196,40 @@ def api_pure1_test():
             step3_lines.append(f'Antwort: {exc.response.text[:400]}')
         steps.append(_step(3, 'API-Test  GET /arrays?limit=1', 'error', step3_lines))
         return jsonify({'success': False, 'steps': steps})
+
+
+@bp.route('/api/sod-history-import-pure1', methods=['POST'])
+@login_required
+def api_sod_history_import_pure1():
+    """Import SoD history from Pure1 for ~two calendar years (Kapazitätsreport Verlauf).
+
+    Runs synchronously; intended for rare admin use (initial fill / repair), not for
+    the regular dashboard refresh button.
+    """
+    from app.capacity_service import import_sod_history_from_pure1
+
+    settings = AppSettings.query.first()
+    if not settings or not settings.pure1_app_id or not settings.pure1_private_key:
+        return jsonify({'error': 'Pure1 API-Zugangsdaten nicht konfiguriert.'}), 400
+
+    end = _date.today()
+    try:
+        start = end.replace(year=end.year - 2)
+    except ValueError:
+        start = end.replace(year=end.year - 2, day=28)
+
+    try:
+        imported, skipped, errors = import_sod_history_from_pure1(start, end)
+    except RuntimeError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        logger.exception('Admin SoD Pure1 history import failed')
+        return jsonify({'error': str(exc)}), 500
+
+    return jsonify({
+        'imported': imported,
+        'skipped': skipped,
+        'errors': errors[:20],
+        'start_date': start.isoformat(),
+        'end_date': end.isoformat(),
+    })
