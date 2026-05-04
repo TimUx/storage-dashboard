@@ -73,6 +73,25 @@ def settings():
             app_settings.proxy_https = request.form.get('proxy_https', '').strip() or None
             app_settings.proxy_no_proxy = request.form.get('proxy_no_proxy', '').strip() or None
 
+            # SMTP / e-mail outbound
+            app_settings.smtp_enabled = 1 if request.form.get('smtp_enabled') == '1' else 0
+            app_settings.smtp_host = request.form.get('smtp_host', '').strip() or None
+            smtp_port_raw = request.form.get('smtp_port', '').strip()
+            if smtp_port_raw.isdigit():
+                app_settings.smtp_port = int(smtp_port_raw)
+            elif not smtp_port_raw:
+                app_settings.smtp_port = 587
+            app_settings.smtp_use_tls = 1 if request.form.get('smtp_use_tls') == '1' else 0
+            app_settings.smtp_use_ssl = 1 if request.form.get('smtp_use_ssl') == '1' else 0
+            auth_mode = (request.form.get('smtp_auth_mode') or 'none').strip().lower()
+            app_settings.smtp_auth_mode = auth_mode if auth_mode in ('none', 'password') else 'none'
+            app_settings.smtp_username = request.form.get('smtp_username', '').strip() or None
+            new_smtp_password = request.form.get('smtp_password', '').strip()
+            if new_smtp_password:
+                app_settings.smtp_password = new_smtp_password
+            app_settings.smtp_from_address = request.form.get('smtp_from_address', '').strip() or None
+            app_settings.smtp_from_name = request.form.get('smtp_from_name', '').strip() or None
+
             # Handle logo upload
             if 'logo_file' in request.files:
                 logo_file = request.files['logo_file']

@@ -165,6 +165,17 @@ def export_backup():
                 'proxy_http': settings_obj.proxy_http,
                 'proxy_https': settings_obj.proxy_https,
                 'proxy_no_proxy': settings_obj.proxy_no_proxy,
+                # SMTP (password decrypted in backup — treat file as sensitive)
+                'smtp_enabled': bool(getattr(settings_obj, 'smtp_enabled', None)),
+                'smtp_host': settings_obj.smtp_host,
+                'smtp_port': settings_obj.smtp_port,
+                'smtp_use_tls': bool(getattr(settings_obj, 'smtp_use_tls', None)),
+                'smtp_use_ssl': bool(getattr(settings_obj, 'smtp_use_ssl', None)),
+                'smtp_auth_mode': getattr(settings_obj, 'smtp_auth_mode', None) or 'none',
+                'smtp_username': settings_obj.smtp_username,
+                'smtp_password': settings_obj.smtp_password,
+                'smtp_from_address': settings_obj.smtp_from_address,
+                'smtp_from_name': settings_obj.smtp_from_name,
                 # Logo (base64-encoded binary)
                 'logo_filename': settings_obj.logo_filename,
                 'logo_data': base64.b64encode(settings_obj.logo_data).decode() if settings_obj.logo_data else None,
@@ -303,6 +314,29 @@ def import_backup():
             settings_obj.proxy_http = s.get('proxy_http') or None
             settings_obj.proxy_https = s.get('proxy_https') or None
             settings_obj.proxy_no_proxy = s.get('proxy_no_proxy') or None
+            # SMTP (only if backup contains this section — older backups omit these keys)
+            _smtp_keys = (
+                'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_use_tls', 'smtp_use_ssl',
+                'smtp_auth_mode', 'smtp_username', 'smtp_password', 'smtp_from_address',
+                'smtp_from_name',
+            )
+            if any(k in s for k in _smtp_keys):
+                settings_obj.smtp_enabled = 1 if s.get('smtp_enabled') else 0
+                settings_obj.smtp_host = (s.get('smtp_host') or '').strip() or None
+                sp = s.get('smtp_port')
+                if sp is not None and str(sp).strip().isdigit():
+                    settings_obj.smtp_port = int(str(sp).strip())
+                else:
+                    settings_obj.smtp_port = 587
+                settings_obj.smtp_use_tls = 1 if s.get('smtp_use_tls') else 0
+                settings_obj.smtp_use_ssl = 1 if s.get('smtp_use_ssl') else 0
+                am = (s.get('smtp_auth_mode') or 'none').strip().lower()
+                settings_obj.smtp_auth_mode = am if am in ('none', 'password') else 'none'
+                settings_obj.smtp_username = (s.get('smtp_username') or '').strip() or None
+                if s.get('smtp_password'):
+                    settings_obj.smtp_password = s['smtp_password']
+                settings_obj.smtp_from_address = (s.get('smtp_from_address') or '').strip() or None
+                settings_obj.smtp_from_name = (s.get('smtp_from_name') or '').strip() or None
             # Logo
             if s.get('logo_filename') and s.get('logo_data'):
                 settings_obj.logo_filename = s['logo_filename']

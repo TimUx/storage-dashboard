@@ -99,6 +99,9 @@ class TestAllowedColumnsCompleteness:
         'pure1_app_id', 'pure1_private_key', 'pure1_private_key_passphrase',
         'pure1_public_key', 'proxy_http', 'proxy_https', 'proxy_no_proxy',
         'dashboard_refresh_interval',
+        'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_use_tls', 'smtp_use_ssl',
+        'smtp_auth_mode', 'smtp_username', 'smtp_password', 'smtp_from_address',
+        'smtp_from_name',
     ]
 
     SOD_HISTORY_COLUMNS = ['on_demand_tb']
@@ -293,6 +296,9 @@ class TestMigrateAppSettingsTable:
                 'pure1_app_id', 'pure1_private_key', 'pure1_private_key_passphrase',
                 'pure1_public_key', 'proxy_http', 'proxy_https', 'proxy_no_proxy',
                 'dashboard_refresh_interval',
+                'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_use_tls', 'smtp_use_ssl',
+                'smtp_auth_mode', 'smtp_username', 'smtp_password', 'smtp_from_address',
+                'smtp_from_name',
             ]
             assert set(applied) == set(expected)
             for col in expected:
