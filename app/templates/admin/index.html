@@ -1,8 +1,8 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 
 {% block title %}Admin - Storage Dashboard{% endblock %}
 
-{% block styles %}
+{% block admin_styles %}
 .admin-header {
     margin: 1.5rem 0;
     display: flex;
@@ -306,7 +306,7 @@ tbody tr:hover {
 [data-theme="dark"] .col-filter { background: var(--card-bg); color: var(--text-color); border-color: var(--card-border); }
 {% endblock %}
 
-{% block content %}
+{% block admin_content %}
 <!-- Loading overlay -->
 <div id="loading-overlay" class="loading-overlay hidden">
     <div class="loading-spinner">

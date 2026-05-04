@@ -1,8 +1,8 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 
 {% block title %}Zertifikate - Admin{% endblock %}
 
-{% block styles %}
+{% block admin_styles %}
 .admin-header {
     margin: 1.5rem 0;
     display: flex;
@@ -183,7 +183,7 @@ tbody tr:hover {
 [data-theme="dark"] tbody tr:hover { background: var(--table-row-hover); }
 {% endblock %}
 
-{% block content %}
+{% block admin_content %}
 <div class="admin-header">
     <h2>🔒 Zertifikatsverwaltung</h2>
     <div class="admin-actions">

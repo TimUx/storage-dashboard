@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{# Gemeinsame Admin-Layouts: volle Breite innerhalb des Seiten-Containers, einheitlich für alle Admin-Seiten. #}
+
+{% block styles %}
+{{ super() }}
+.admin-shell {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0 0 2rem 0;
+}
+{% block admin_styles %}{% endblock %}
+{% endblock %}
+
+{% block content %}
+<div class="admin-shell">
+{% block admin_content %}{% endblock %}
+</div>
+{% endblock %}
