@@ -822,16 +822,93 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
 
 
 # ---------------------------------------------------------------------------
+# TTL-based auto scheduling (uses same delete plan as manual delete)
+# ---------------------------------------------------------------------------
+
+def _schedule_ttl_expired_deletions(app):
+    """Mark snapshots whose TTL has elapsed for storage deletion when enabled in AppSettings.
+
+    Mirrors ``POST /snaps/api/delete``: for each qualifying row,
+    :func:`app.routes.snaps._build_delete_plan` decides whether live storage
+    steps exist.  If the plan is empty the record is removed immediately; if
+    not, ``delete_marked=True`` and ``delete_deadline=utcnow()`` are set so
+    :func:`_process_expired_deletions` executes the same Pure/ONTAP API calls
+    in the same collector cycle (no 24-hour undo window for this path).
+    """
+    from app import db
+    from app.models import AppSettings, SnapshotAuditLog, SnapshotRecord
+    from app.routes.snaps import _build_delete_plan
+
+    with app.app_context():
+        try:
+            settings = AppSettings.query.first()
+            if not settings or not settings.snap_auto_delete_ttl_expired:
+                return
+        except Exception as exc:
+            db.session.rollback()
+            logger.error("Snapshot collector: TTL auto-delete settings read failed: %s", exc)
+            return
+
+        now = datetime.utcnow()
+        try:
+            candidates = SnapshotRecord.query.filter(
+                SnapshotRecord.ttl.isnot(None),
+                SnapshotRecord.ttl <= now,
+                SnapshotRecord.delete_marked.is_(False),
+            ).all()
+        except Exception as exc:
+            db.session.rollback()
+            logger.error("Snapshot collector: TTL auto-delete query failed: %s", exc)
+            return
+
+        if not candidates:
+            return
+
+        for rec in candidates:
+            try:
+                plan = _build_delete_plan(rec, rec.get_storage_locations())
+                if not plan:
+                    logger.info(
+                        "Snapshot collector: TTL expired, dropping record %s sid=%s "
+                        "(no storage delete steps)",
+                        rec.id, rec.sid,
+                    )
+                    SnapshotAuditLog.query.filter_by(snapshot_id=rec.id).delete(
+                        synchronize_session=False,
+                    )
+                    db.session.delete(rec)
+                else:
+                    logger.info(
+                        "Snapshot collector: TTL expired, scheduling storage deletion for "
+                        "record %s sid=%s (%d step(s))",
+                        rec.id, rec.sid, len(plan),
+                    )
+                    rec.delete_marked = True
+                    rec.delete_deadline = now
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                logger.error(
+                    "Snapshot collector: TTL auto-delete scheduling failed for record %s "
+                    "sid=%s: %s",
+                    getattr(rec, "id", "?"), getattr(rec, "sid", "?"), exc,
+                )
+
+
+# ---------------------------------------------------------------------------
 # Delete worker – executes expired deletions
 # ---------------------------------------------------------------------------
 
 def _process_expired_deletions(app):
     """Execute deletions for SnapshotRecords whose delete_deadline has passed.
 
-    Operators schedule deletions via the ``/snaps/api/delete`` endpoint.
-    The endpoint sets ``delete_marked=True`` and
-    ``delete_deadline = now + 24h`` and returns immediately so the deletion
-    can still be cancelled via ``/snaps/api/undo-delete``.
+    Operators schedule deletions via the ``/snaps/api/delete`` endpoint, or
+    automatic TTL expiry handling via :func:`_schedule_ttl_expired_deletions`
+    when that feature is enabled in admin settings.  The manual endpoint sets
+    ``delete_marked=True`` and ``delete_deadline = now + 24h`` and returns
+    immediately so the deletion can still be cancelled via
+    ``/snaps/api/undo-delete``.  TTL auto-delete sets ``delete_deadline`` to
+    ``now`` so the worker runs in the same collector cycle.
 
     This worker runs after every collection cycle and:
 
@@ -1017,6 +1094,7 @@ def _do_collect(app):
 
         aggregated = _group_by_sid_and_time(all_fa_snaps, all_ontap_snaps)
         _upsert_snapshot_records(app, aggregated, systems_queried)
+        _schedule_ttl_expired_deletions(app)
         _process_expired_deletions(app)
     finally:
         with app.app_context():

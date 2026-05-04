@@ -155,6 +155,9 @@ def export_backup():
                 'log_retention_days': settings_obj.log_retention_days,
                 'min_log_level': settings_obj.min_log_level,
                 'dashboard_refresh_interval': settings_obj.dashboard_refresh_interval,
+                'snap_auto_delete_ttl_expired': bool(
+                    getattr(settings_obj, 'snap_auto_delete_ttl_expired', None)
+                ),
                 # Pure1 credentials (decrypted plain-text in the backup)
                 'pure1_display_name': settings_obj.pure1_display_name,
                 'pure1_app_id': settings_obj.pure1_app_id,
@@ -301,6 +304,9 @@ def import_backup():
             settings_obj.log_retention_days = s.get('log_retention_days', 30)
             settings_obj.min_log_level = s.get('min_log_level', 'INFO')
             settings_obj.dashboard_refresh_interval = s.get('dashboard_refresh_interval', 5)
+            settings_obj.snap_auto_delete_ttl_expired = (
+                1 if s.get('snap_auto_delete_ttl_expired') else 0
+            )
             # Pure1 credentials
             settings_obj.pure1_display_name = s.get('pure1_display_name') or None
             settings_obj.pure1_app_id = s.get('pure1_app_id') or None

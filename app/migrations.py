@@ -53,6 +53,8 @@ ALLOWED_COLUMNS = {
     'proxy_https': 'TEXT',
     'proxy_no_proxy': 'TEXT',
     'dashboard_refresh_interval': 'INTEGER',
+    # app_settings – snapshot auto-delete after TTL
+    'snap_auto_delete_ttl_expired': 'INTEGER',
     # app_settings – SMTP / outbound mail
     'smtp_enabled': 'INTEGER',
     'smtp_host': 'VARCHAR(255)',
@@ -216,6 +218,7 @@ def migrate_app_settings_table():
         ('proxy_no_proxy', ALLOWED_COLUMNS['proxy_no_proxy']),
         # Dashboard refresh interval
         ('dashboard_refresh_interval', ALLOWED_COLUMNS['dashboard_refresh_interval']),
+        ('snap_auto_delete_ttl_expired', ALLOWED_COLUMNS['snap_auto_delete_ttl_expired']),
         # SMTP / e-mail outbound
         ('smtp_enabled', ALLOWED_COLUMNS['smtp_enabled']),
         ('smtp_host', ALLOWED_COLUMNS['smtp_host']),

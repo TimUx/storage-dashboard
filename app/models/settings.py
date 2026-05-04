@@ -120,6 +120,10 @@ class AppSettings(db.Model):
     # Valid values: 1, 5, 15, 30, 60
     dashboard_refresh_interval = db.Column(db.Integer, default=5)
 
+    # Snapshot management: when 1, the collector marks DB rows whose TTL has passed for the same
+    # deferred storage deletion as manual "Löschen" (immediate deadline so the worker runs same cycle).
+    snap_auto_delete_ttl_expired = db.Column(db.Integer, default=0)  # 0 = off, 1 = on
+
     # Outbound SMTP (reports, notifications). Password stored encrypted.
     smtp_enabled = db.Column(db.Integer, default=0)  # 0 = off, 1 = on
     smtp_host = db.Column(db.String(255))
