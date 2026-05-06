@@ -172,8 +172,8 @@ body.sn-page > .container {
     box-shadow: 0 2px 6px rgba(0,0,0,.07);
     padding: .65rem .9rem;
     display: grid;
-    grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(140px, 1fr)) auto;
-    gap: .5rem .85rem;
+    grid-template-columns: minmax(220px, 1.8fr) repeat(4, minmax(118px, .9fr)) minmax(185px, auto) auto;
+    gap: .4rem .6rem;
     align-items: end;
     flex: 0 0 auto;
 }
@@ -199,7 +199,7 @@ body.sn-page > .container {
     display: inline-flex;
     align-items: center;
     gap: .3rem;
-    font-size: .72rem;
+    font-size: .68rem;
     color: var(--sn-muted);
     text-transform: uppercase;
     letter-spacing: .04em;
@@ -233,7 +233,7 @@ body.sn-page > .container {
     font-size: .88rem;
     background: var(--sn-bg);
     color: var(--sn-text);
-    min-height: 2.2rem;
+    min-height: 2rem;
     transition: border-color .15s, box-shadow .15s;
 }
 .sn-filters input[type="text"]:focus,
@@ -251,8 +251,25 @@ body.sn-page > .container {
     justify-self: end;
 }
 .sn-filter-actions .btn-secondary {
-    min-height: 2.2rem;
+    min-height: 2rem;
     white-space: nowrap;
+    font-size: .82rem;
+    padding: .35rem .7rem;
+}
+.sn-filter-check {
+    align-self: end;
+}
+.sn-filter-check .sn-filter-check-label {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    white-space: nowrap;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: .76rem;
+}
+.sn-filter-check .sn-filter-check-label input[type="checkbox"] {
+    margin: 0;
 }
 
 /* Table – fills remaining vertical space, only the body scrolls */
@@ -784,7 +801,7 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
         <div class="sn-filter-field sn-filter-check" id="filter-ttl-exclusion-row" hidden>
             <label class="sn-filter-label sn-filter-check-label" for="filter-ttl-exclusion-only">
                 <input type="checkbox" id="filter-ttl-exclusion-only" onchange="applyFilters()">
-                Nur TTL-Auto-Lösch-Ausnahmen
+                Nur TTL-Ausnahmen
             </label>
         </div>
 
@@ -972,6 +989,14 @@ function renderStats(stats) {
     const panel = document.getElementById('sn-stats');
     const lastUpdate = stats.last_update ? formatDt(stats.last_update) : '–';
     const status = (stats.last_update_status || '').toLowerCase();
+    const lastErrorAt = stats.last_error_update ? formatDt(stats.last_error_update) : null;
+    const lastErrorMsg = (stats.last_error_message || '').trim();
+    const intervalSeconds = Number(stats.collector_interval_seconds || 0);
+    const staleThresholdSeconds = intervalSeconds > 0 ? Math.max(intervalSeconds * 2, 20 * 60) : 20 * 60;
+    const lastUpdateAgeSeconds = stats.last_update ? Math.floor((Date.now() - new Date(stats.last_update).getTime()) / 1000) : null;
+    const staleByAge = Number.isFinite(lastUpdateAgeSeconds) && lastUpdateAgeSeconds > staleThresholdSeconds;
+    const staleByStatus = status === 'error';
+    const stale = staleByAge || staleByStatus;
     const total   = stats.total ?? 0;
     const older5  = stats.older_5_days ?? 0;
     const older10 = stats.older_10_days ?? 0;
@@ -997,6 +1022,26 @@ function renderStats(stats) {
         </span>`;
     }
 
+    let collectorHealthChip = '';
+    if (staleByAge && Number.isFinite(lastUpdateAgeSeconds)) {
+        collectorHealthChip = `
+        <span class="sn-chip warn" title="Die Collector-Aktualisierung ist überfällig. Hintergrund-Thread prüfen.">
+            <span class="sn-chip-label">Collector</span>
+            <span class="sn-chip-value">überfällig (${formatAge(lastUpdateAgeSeconds)})</span>
+        </span>`;
+    }
+    let collectorErrorChip = '';
+    if (staleByStatus || lastErrorMsg) {
+        const errorTitle = lastErrorMsg
+            ? `Letzter Fehler: ${lastErrorMsg}${lastErrorAt ? ` (${lastErrorAt})` : ''}`
+            : 'Letzter Collector-Lauf mit Fehler beendet.';
+        collectorErrorChip = `
+        <span class="sn-chip error" title="${escAttr(errorTitle)}">
+            <span class="sn-chip-label">Fehler</span>
+            <span class="sn-chip-value">${lastErrorAt ? escHtml(lastErrorAt) : 'Details im Server-Log'}</span>
+        </span>`;
+    }
+
     panel.innerHTML = `
         <span class="sn-chip" title="Anzahl der Snapshot-Gruppen insgesamt">
             <span class="sn-chip-label">Gesamt</span>
@@ -1018,9 +1063,21 @@ function renderStats(stats) {
             <span class="sn-chip-label">Status</span>
             <span class="sn-chip-value" style="font-weight:600">${escHtml(statusLabel)}</span>
         </span>
+        ${collectorHealthChip}
+        ${collectorErrorChip}
         ${ruleChip}
     `;
     renderCollectorRunningChip();
+}
+
+function formatAge(totalSeconds) {
+    if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return 'unbekannt';
+    const mins = Math.floor(totalSeconds / 60);
+    if (mins < 1) return '<1 min';
+    if (mins < 60) return `${mins} min`;
+    const hrs = Math.floor(mins / 60);
+    const remMin = mins % 60;
+    return remMin ? `${hrs}h ${remMin}m` : `${hrs}h`;
 }
 
 function updateTtlExclusionFilterRow() {
