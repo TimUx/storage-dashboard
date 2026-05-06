@@ -183,6 +183,16 @@ def api_list():
     last_run = SnapshotCollectorMetadata.query.order_by(
         SnapshotCollectorMetadata.run_at.desc()
     ).first()
+    last_success_run = SnapshotCollectorMetadata.query.filter(
+        SnapshotCollectorMetadata.status == 'success'
+    ).order_by(SnapshotCollectorMetadata.run_at.desc()).first()
+    last_error_run = SnapshotCollectorMetadata.query.filter(
+        SnapshotCollectorMetadata.status == 'error'
+    ).order_by(SnapshotCollectorMetadata.run_at.desc()).first()
+    try:
+        from app.snap_service import SNAP_COLLECT_INTERVAL_SECONDS
+    except Exception:
+        SNAP_COLLECT_INTERVAL_SECONDS = 15 * 60
 
     snapshots_payload = []
     for rec in records:
@@ -208,6 +218,16 @@ def api_list():
             'older_10_days': older_10,
             'last_update': (last_run.run_at.isoformat() + 'Z') if last_run else None,
             'last_update_status': last_run.status if last_run else None,
+            'last_success_update': (
+                last_success_run.run_at.isoformat() + 'Z'
+            ) if last_success_run else None,
+            'last_error_update': (
+                last_error_run.run_at.isoformat() + 'Z'
+            ) if last_error_run else None,
+            'last_error_message': (
+                (last_error_run.error_message or '').strip()
+            ) if last_error_run else None,
+            'collector_interval_seconds': SNAP_COLLECT_INTERVAL_SECONDS,
             'actions_lock_hours': _TTL_ACTION_LOCK_HOURS,
             'ttl_min_increase_hours': _TTL_MIN_INCREASE_HOURS,
             'snap_ttl_auto_delete_enabled': snap_ttl_auto_delete_enabled,
