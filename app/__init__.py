@@ -28,6 +28,12 @@ def create_app():
     database_url = os.getenv('DATABASE_URL', 'sqlite:///storage_dashboard.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['SNAP_COLLECTOR_DB_LOCK_TIMEOUT_MS'] = int(
+        os.getenv('SNAP_COLLECTOR_DB_LOCK_TIMEOUT_MS', '3000')
+    )
+    app.config['SNAP_COLLECTOR_DB_STATEMENT_TIMEOUT_MS'] = int(
+        os.getenv('SNAP_COLLECTOR_DB_STATEMENT_TIMEOUT_MS', '0')
+    )
     
     # Configure database engine options for better concurrency
     if database_url.startswith('postgresql'):

@@ -245,8 +245,6 @@ def collect_alerts():
                 err_msg = (latest_snap_error.error_message or '').strip()
                 if err_msg:
                     err_msg = err_msg.replace('\n', ' ').strip()
-                    if len(err_msg) > 220:
-                        err_msg = err_msg[:220] + '...'
                     last_error_hint = (
                         f' Letzter Fehlerlauf ({err_run_at}): {err_msg}'
                     )
