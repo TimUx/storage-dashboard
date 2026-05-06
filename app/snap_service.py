@@ -760,6 +760,10 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                             {'statement_timeout': f'{stmt_timeout_ms}ms'},
                         )
                 stored = _bulk_upsert_records(run_start)
+                # Ensure ORM fallback upserts (sqlite/tests) are visible to the
+                # stale-record reconciliation query even though we use a
+                # no_autoflush block below.
+                db.session.flush()
 
                 # ------------------------------------------------------------------
                 # Reconciliation: remove (or mark absent) records that were not seen
