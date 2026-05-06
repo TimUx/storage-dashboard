@@ -120,7 +120,7 @@
 .cap-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: .88rem;
+    font-size: .84rem;
     table-layout: fixed;
 }
 
@@ -153,14 +153,14 @@
     background: #f8fafc;
     color: var(--cap-muted);
     font-weight: 600;
-    padding: .55rem .9rem;
+    padding: .45rem .55rem;
     text-align: right;
     border-bottom: 2px solid var(--cap-border);
     white-space: nowrap;
 }
 .cap-table th:first-child { text-align: left; }
 .cap-table td {
-    padding: .55rem .9rem;
+    padding: .45rem .55rem;
     text-align: right;
     border-bottom: 1px solid var(--cap-border);
     color: var(--cap-text);
@@ -185,7 +185,7 @@
     justify-content: flex-end;
 }
 .pct-bar {
-    width: 60px;
+    width: 44px;
     height: 6px;
     background: #e8eef3;
     border-radius: 3px;
@@ -930,8 +930,8 @@ function tableHeader(label, showProvisioned, showEffectiveUsed) {
     // With provisioned: + 2 cols = 7 cols
     // With effectiveUsed: + 1 col = up to 8 cols
     let totalCols = 5 + (showProvisioned ? 2 : 0) + (showEffectiveUsed ? 1 : 0);
-    const pctColWidth = totalCols <= 5 ? '28%' : '20%';
-    const tbColWidth  = totalCols <= 5 ? '18%' : '13%';
+    const pctColWidth = totalCols <= 5 ? '24%' : '17%';
+    const tbColWidth  = totalCols <= 5 ? '17%' : '12%';
 
     let cols = `<th>${label}</th>
         <th style="width:${tbColWidth}">Gesamt [TiB]</th>
@@ -1327,15 +1327,15 @@ function renderDetails(data) {
         let headerCols = `<th>System</th>
                         <th>Umgebung</th>
                         <th>Tätigkeitsfeld</th>
-                        <th style="width:10%">Gesamt [TiB]</th>
-                        <th style="width:10%">Genutzt [TiB]</th>
-                        <th style="width:10%">Frei [TiB]</th>
-                        <th style="width:18%">Genutzt [%]</th>`;
+                        <th style="width:9%">Gesamt [TiB]</th>
+                        <th style="width:9%">Genutzt [TiB]</th>
+                        <th style="width:9%">Frei [TiB]</th>
+                        <th style="width:15%">Genutzt [%]</th>`;
         if (showProvisioned) {
-            headerCols += `<th style="width:10%">Provisioniert [TiB]</th><th style="width:18%">Provisioniert [%]</th>`;
+            headerCols += `<th style="width:9%">Provisioniert [TiB]</th><th style="width:15%">Provisioniert [%]</th>`;
         }
         if (showEffectiveUsed) {
-            headerCols += `<th style="width:10%">Effektiv Genutzt [TiB]</th>`;
+            headerCols += `<th style="width:9%">Effektiv Genutzt [TiB]</th>`;
         }
         return `<div class="cap-section">
             <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
