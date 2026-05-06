@@ -717,19 +717,28 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
         return inserted
 
     with app.app_context():
+        last_error_message = ''
         for attempt in range(3):
             run_start = datetime.utcnow()
             stored = 0
             try:
+                bind = db.session.get_bind()
+                dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
                 stored = _bulk_upsert_records(run_start)
 
                 # ------------------------------------------------------------------
                 # Reconciliation: remove (or mark absent) records that were not seen
                 # in this collection cycle.
                 # ------------------------------------------------------------------
-                stale = SnapshotRecord.query.filter(
+                stale_q = SnapshotRecord.query.filter(
                     SnapshotRecord.last_seen < run_start,
-                ).all()
+                )
+                # In PostgreSQL, skip currently locked rows to avoid collector
+                # deadlocks with concurrent user updates (comment/TTL/delete).
+                # Those rows are reconciled on the next collector cycle.
+                if dialect_name == 'postgresql':
+                    stale_q = stale_q.with_for_update(skip_locked=True)
+                stale = stale_q.order_by(SnapshotRecord.id.asc()).all()
                 removed = 0
                 marked_absent = 0
                 for rec in stale:
@@ -788,6 +797,7 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                 return
             except OperationalError as exc:
                 db.session.rollback()
+                last_error_message = str(exc)
                 if 'deadlock detected' not in str(exc).lower() or attempt == 2:
                     logger.error("Snapshot collector DB upsert failed: %s", exc)
                     logger.debug(traceback.format_exc())
@@ -801,6 +811,7 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                 time.sleep(backoff)
             except Exception as exc:
                 db.session.rollback()
+                last_error_message = str(exc)
                 logger.error("Snapshot collector DB upsert failed: %s", exc)
                 logger.debug(traceback.format_exc())
                 break
@@ -813,7 +824,9 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                 systems_queried=systems_queried,
                 snapshots_stored=0,
                 status='error',
-                error_message='Snapshot collector DB upsert failed',
+                error_message=(
+                    (last_error_message or 'Snapshot collector DB upsert failed')[:4000]
+                ),
             )
             db.session.add(meta)
             db.session.commit()
