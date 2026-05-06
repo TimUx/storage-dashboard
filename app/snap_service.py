@@ -90,7 +90,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, text
+from sqlalchemy import and_, or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import OperationalError
 
@@ -143,6 +143,28 @@ _thread_lock = threading.Lock()
 _collect_event = threading.Event()
 _collect_run_lock = threading.Lock()
 _PG_ADVISORY_LOCK_KEY = 92017341
+
+
+def _format_db_error(exc: Exception) -> str:
+    """Return a detailed DB error string without premature truncation."""
+    parts: list[str] = []
+    msg = str(exc).strip()
+    if msg:
+        parts.append(msg)
+    orig = getattr(exc, 'orig', None)
+    if orig is not None:
+        pgerror = getattr(orig, 'pgerror', None)
+        if isinstance(pgerror, str) and pgerror.strip() and pgerror.strip() not in parts:
+            parts.append(pgerror.strip())
+        diag = getattr(orig, 'diag', None)
+        if diag is not None:
+            for attr in ('message_detail', 'message_primary', 'message_hint', 'context'):
+                val = getattr(diag, attr, None)
+                if isinstance(val, str) and val.strip():
+                    detail = f"{attr}={val.strip()}"
+                    if detail not in parts:
+                        parts.append(detail)
+    return " | ".join(parts) if parts else "Snapshot collector DB upsert failed"
 
 
 # ---------------------------------------------------------------------------
@@ -724,54 +746,89 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
             try:
                 bind = db.session.get_bind()
                 dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
+                if dialect_name == 'postgresql':
+                    lock_timeout_ms = int(app.config.get('SNAP_COLLECTOR_DB_LOCK_TIMEOUT_MS', 3000) or 0)
+                    stmt_timeout_ms = int(app.config.get('SNAP_COLLECTOR_DB_STATEMENT_TIMEOUT_MS', 0) or 0)
+                    if lock_timeout_ms > 0:
+                        db.session.execute(
+                            text("SET LOCAL lock_timeout = :lock_timeout"),
+                            {'lock_timeout': f'{lock_timeout_ms}ms'},
+                        )
+                    if stmt_timeout_ms > 0:
+                        db.session.execute(
+                            text("SET LOCAL statement_timeout = :statement_timeout"),
+                            {'statement_timeout': f'{stmt_timeout_ms}ms'},
+                        )
                 stored = _bulk_upsert_records(run_start)
+                # Ensure ORM fallback upserts (sqlite/tests) are visible to the
+                # stale-record reconciliation query even though we use a
+                # no_autoflush block below.
+                db.session.flush()
 
                 # ------------------------------------------------------------------
                 # Reconciliation: remove (or mark absent) records that were not seen
                 # in this collection cycle.
                 # ------------------------------------------------------------------
-                stale_q = SnapshotRecord.query.filter(
+                # Prevent query-invoked autoflush from flushing partially updated
+                # ORM state while we build the stale row list. This avoids extra
+                # lock churn and reduces deadlock probability under concurrent UI
+                # updates (comment/TTL/delete).
+                with db.session.no_autoflush:
+                    stale_q = SnapshotRecord.query.filter(
+                        SnapshotRecord.last_seen < run_start,
+                    )
+                    # In PostgreSQL, skip currently locked rows to avoid collector
+                    # deadlocks with concurrent user updates (comment/TTL/delete).
+                    # Those rows are reconciled on the next collector cycle.
+                    if dialect_name == 'postgresql':
+                        stale_q = stale_q.with_for_update(skip_locked=True)
+                    stale = stale_q.order_by(SnapshotRecord.id.asc()).all()
+                # First handle commented rows in one set-based UPDATE. This avoids
+                # row-by-row ORM updates and shortens lock hold times.
+                marked_absent = SnapshotRecord.query.filter(
                     SnapshotRecord.last_seen < run_start,
+                    SnapshotRecord.comment.isnot(None),
+                    SnapshotRecord.comment != '',
+                ).update(
+                    {
+                        SnapshotRecord.flasharray_present: False,
+                        SnapshotRecord.ontap_present: False,
+                        SnapshotRecord.storage_locations: None,
+                        SnapshotRecord.last_seen: run_start,
+                    },
+                    synchronize_session=False,
                 )
-                # In PostgreSQL, skip currently locked rows to avoid collector
-                # deadlocks with concurrent user updates (comment/TTL/delete).
-                # Those rows are reconciled on the next collector cycle.
-                if dialect_name == 'postgresql':
-                    stale_q = stale_q.with_for_update(skip_locked=True)
-                stale = stale_q.order_by(SnapshotRecord.id.asc()).all()
+
                 removed = 0
-                marked_absent = 0
                 for rec in stale:
+                    # Commented rows were already handled via bulk UPDATE.
                     if rec.comment:
-                        # Preserve operator annotations – just clear presence flags
-                        rec.flasharray_present = False
-                        rec.ontap_present = False
-                        rec.storage_locations = None
-                        rec.last_seen = run_start  # reset so it isn't stale next run
+                        continue
+                    # Keep the run resilient: a single delete failure (e.g. legacy
+                    # FK constraints in older DB schemas) must not roll back the
+                    # whole collection run.
+                    try:
+                        with db.session.begin_nested():
+                            _delete_snapshot_with_audit_logs(rec)
+                            db.session.flush()
+                        removed += 1
+                    except Exception as delete_exc:
+                        logger.warning(
+                            "Snapshot collector: could not delete stale record %s "
+                            "(sid=%s), marking absent instead: %s",
+                            rec.id, rec.sid, delete_exc,
+                        )
+                        # Fallback for undeletable rows without comments.
+                        SnapshotRecord.query.filter_by(id=rec.id).update(
+                            {
+                                SnapshotRecord.flasharray_present: False,
+                                SnapshotRecord.ontap_present: False,
+                                SnapshotRecord.storage_locations: None,
+                                SnapshotRecord.last_seen: run_start,
+                            },
+                            synchronize_session=False,
+                        )
                         marked_absent += 1
-                    else:
-                        # Keep the run resilient: a single delete failure (e.g. legacy
-                        # FK constraints in older DB schemas) must not roll back the
-                        # whole collection run.
-                        try:
-                            with db.session.begin_nested():
-                                _delete_snapshot_with_audit_logs(rec)
-                                db.session.flush()
-                            removed += 1
-                        except Exception as delete_exc:
-                            logger.warning(
-                                "Snapshot collector: could not delete stale record %s "
-                                "(sid=%s), marking absent instead: %s",
-                                rec.id, rec.sid, delete_exc,
-                            )
-                            # Ensure the instance is managed for UPDATE even if a
-                            # failed delete attempt touched its state.
-                            db.session.add(rec)
-                            rec.flasharray_present = False
-                            rec.ontap_present = False
-                            rec.storage_locations = None
-                            rec.last_seen = run_start
-                            marked_absent += 1
 
                 if removed or marked_absent:
                     logger.info(
@@ -797,7 +854,7 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                 return
             except OperationalError as exc:
                 db.session.rollback()
-                last_error_message = str(exc)
+                last_error_message = _format_db_error(exc)
                 if 'deadlock detected' not in str(exc).lower() or attempt == 2:
                     logger.error("Snapshot collector DB upsert failed: %s", exc)
                     logger.debug(traceback.format_exc())
@@ -811,7 +868,7 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                 time.sleep(backoff)
             except Exception as exc:
                 db.session.rollback()
-                last_error_message = str(exc)
+                last_error_message = _format_db_error(exc)
                 logger.error("Snapshot collector DB upsert failed: %s", exc)
                 logger.debug(traceback.format_exc())
                 break
@@ -825,7 +882,7 @@ def _upsert_snapshot_records(app, aggregated, systems_queried):
                 snapshots_stored=0,
                 status='error',
                 error_message=(
-                    (last_error_message or 'Snapshot collector DB upsert failed')[:4000]
+                    last_error_message or 'Snapshot collector DB upsert failed'
                 ),
             )
             db.session.add(meta)
