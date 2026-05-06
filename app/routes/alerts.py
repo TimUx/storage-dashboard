@@ -1,4 +1,6 @@
 """Alerts page route – shows all open alerts across all storage systems"""
+from datetime import datetime
+
 from flask import Blueprint, render_template
 from app.models import StorageSystem, StatusCache, AlertState
 
@@ -16,6 +18,8 @@ CONNECTIVITY_ALERT_ID = 'dashboard.connectivity'
 CONNECTIVITY_ALERT_TITLE = 'System nicht erreichbar'
 SNAP_COLLECTOR_ALERT_ID = 'dashboard.snap-collector'
 SNAP_COLLECTOR_ALERT_TITLE = 'Snapshot-Aktualisierung fehlgeschlagen'
+SNAP_COLLECTOR_STALE_ALERT_ID = 'dashboard.snap-collector.stale'
+SNAP_COLLECTOR_STALE_ALERT_TITLE = 'Snapshot-Aktualisierung überfällig'
 
 
 def _status_indicates_unreachable(status):
@@ -171,12 +175,28 @@ def collect_alerts():
         if _status_indicates_unreachable(status):
             all_alerts.append(_tag(_synthetic_connectivity_alert(system, status, fetched_at)))
 
-    # Add a synthetic app-health alert when the latest snapshot collector run failed.
+    # Add synthetic app-health alerts for snapshot collector failures/staleness.
     try:
         from app.models import SnapshotCollectorMetadata
+        try:
+            from app.snap_service import SNAP_COLLECT_INTERVAL_SECONDS
+        except Exception:
+            SNAP_COLLECT_INTERVAL_SECONDS = 15 * 60
+
+        stale_threshold_seconds = max(int(SNAP_COLLECT_INTERVAL_SECONDS) * 2, 20 * 60)
         latest_snap_run = SnapshotCollectorMetadata.query.order_by(
             SnapshotCollectorMetadata.run_at.desc()
         ).first()
+        latest_snap_error = SnapshotCollectorMetadata.query.filter(
+            SnapshotCollectorMetadata.status == 'error'
+        ).order_by(SnapshotCollectorMetadata.run_at.desc()).first()
+
+        if latest_snap_run and latest_snap_run.run_at:
+            now = datetime.utcnow()
+            age_seconds = max(0, int((now - latest_snap_run.run_at).total_seconds()))
+        else:
+            age_seconds = None
+
         if latest_snap_run and (latest_snap_run.status or '').lower() == 'error':
             run_at = latest_snap_run.run_at.isoformat() if latest_snap_run.run_at else None
             details = (latest_snap_run.error_message or '').strip() or (
@@ -191,6 +211,65 @@ def collect_alerts():
                 'severity': 'error',
                 'error_code': 'SNAP_COLLECTOR',
                 'timestamp': run_at or '-',
+                'component': 'Background-Thread',
+                'fetched_at': run_at,
+            })
+        elif (
+            latest_snap_run
+            and latest_snap_run.run_at
+            and age_seconds is not None
+            and age_seconds > stale_threshold_seconds
+        ):
+            run_at = latest_snap_run.run_at.isoformat()
+            last_status = (latest_snap_run.status or 'unknown').lower()
+            systems_queried = latest_snap_run.systems_queried or 0
+            duration = latest_snap_run.duration_seconds
+            duration_text = (
+                f'{duration:.1f}s'
+                if isinstance(duration, (int, float))
+                else 'unbekannt'
+            )
+
+            reason_hint = (
+                'Seit dem letzten erfolgreichen Lauf wurde kein neuer Lauf abgeschlossen. '
+                'Mögliche Ursachen: Background-Thread gestoppt/hängend, '
+                'Scheduler blockiert oder Prozess-Neustart ohne aktive Jobs.'
+                if last_status == 'success' else
+                'Der letzte bekannte Lauf war nicht erfolgreich. '
+                'Die Aktualisierung bleibt daher auf einem alten Stand.'
+            )
+
+            last_error_hint = ''
+            if latest_snap_error and latest_snap_error.run_at:
+                err_run_at = latest_snap_error.run_at.isoformat()
+                err_msg = (latest_snap_error.error_message or '').strip()
+                if err_msg:
+                    err_msg = err_msg.replace('\n', ' ').strip()
+                    if len(err_msg) > 220:
+                        err_msg = err_msg[:220] + '...'
+                    last_error_hint = (
+                        f' Letzter Fehlerlauf ({err_run_at}): {err_msg}'
+                    )
+                else:
+                    last_error_hint = (
+                        f' Letzter Fehlerlauf ({err_run_at}) ohne Fehlermeldungstext.'
+                    )
+
+            all_alerts.append({
+                'system_name': 'Snapshot Collector',
+                'system_vendor': 'Storage Dashboard',
+                'alert_id': SNAP_COLLECTOR_STALE_ALERT_ID,
+                'title': SNAP_COLLECTOR_STALE_ALERT_TITLE,
+                'details': (
+                    f'Die letzte erfolgreiche Snapshot-Sammelroutine liegt '
+                    f'seit {age_seconds // 60} Minuten zurück. '
+                    f'Letzter Laufstatus: {last_status.upper()}, '
+                    f'Dauer: {duration_text}, abgefragte Systeme: {systems_queried}. '
+                    f'{reason_hint}{last_error_hint}'
+                ),
+                'severity': 'warning',
+                'error_code': 'SNAP_COLLECTOR_STALE',
+                'timestamp': run_at,
                 'component': 'Background-Thread',
                 'fetched_at': run_at,
             })
