@@ -14,6 +14,8 @@ VENDOR_NAMES = {
 # Synthetic alert when the dashboard cannot reach a system (stable id/title for AlertState).
 CONNECTIVITY_ALERT_ID = 'dashboard.connectivity'
 CONNECTIVITY_ALERT_TITLE = 'System nicht erreichbar'
+SNAP_COLLECTOR_ALERT_ID = 'dashboard.snap-collector'
+SNAP_COLLECTOR_ALERT_TITLE = 'Snapshot-Aktualisierung fehlgeschlagen'
 
 
 def _status_indicates_unreachable(status):
@@ -168,6 +170,33 @@ def collect_alerts():
 
         if _status_indicates_unreachable(status):
             all_alerts.append(_tag(_synthetic_connectivity_alert(system, status, fetched_at)))
+
+    # Add a synthetic app-health alert when the latest snapshot collector run failed.
+    try:
+        from app.models import SnapshotCollectorMetadata
+        latest_snap_run = SnapshotCollectorMetadata.query.order_by(
+            SnapshotCollectorMetadata.run_at.desc()
+        ).first()
+        if latest_snap_run and (latest_snap_run.status or '').lower() == 'error':
+            run_at = latest_snap_run.run_at.isoformat() if latest_snap_run.run_at else None
+            details = (latest_snap_run.error_message or '').strip() or (
+                'Die letzte Snapshot-Sammelroutine ist fehlgeschlagen.'
+            )
+            all_alerts.append({
+                'system_name': 'Snapshot Collector',
+                'system_vendor': 'Storage Dashboard',
+                'alert_id': SNAP_COLLECTOR_ALERT_ID,
+                'title': SNAP_COLLECTOR_ALERT_TITLE,
+                'details': details,
+                'severity': 'error',
+                'error_code': 'SNAP_COLLECTOR',
+                'timestamp': run_at or '-',
+                'component': 'Background-Thread',
+                'fetched_at': run_at,
+            })
+    except Exception:
+        # Keep alerts rendering resilient even if optional snapshot metadata lookup fails.
+        pass
 
     _merge_alert_states(all_alerts)
     return all_alerts

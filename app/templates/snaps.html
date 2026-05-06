@@ -989,14 +989,10 @@ function renderStats(stats) {
     const panel = document.getElementById('sn-stats');
     const lastUpdate = stats.last_update ? formatDt(stats.last_update) : '–';
     const status = (stats.last_update_status || '').toLowerCase();
-    const lastErrorAt = stats.last_error_update ? formatDt(stats.last_error_update) : null;
-    const lastErrorMsg = (stats.last_error_message || '').trim();
     const intervalSeconds = Number(stats.collector_interval_seconds || 0);
     const staleThresholdSeconds = intervalSeconds > 0 ? Math.max(intervalSeconds * 2, 20 * 60) : 20 * 60;
     const lastUpdateAgeSeconds = stats.last_update ? Math.floor((Date.now() - new Date(stats.last_update).getTime()) / 1000) : null;
     const staleByAge = Number.isFinite(lastUpdateAgeSeconds) && lastUpdateAgeSeconds > staleThresholdSeconds;
-    const staleByStatus = status === 'error';
-    const stale = staleByAge || staleByStatus;
     const total   = stats.total ?? 0;
     const older5  = stats.older_5_days ?? 0;
     const older10 = stats.older_10_days ?? 0;
@@ -1030,17 +1026,6 @@ function renderStats(stats) {
             <span class="sn-chip-value">überfällig (${formatAge(lastUpdateAgeSeconds)})</span>
         </span>`;
     }
-    let collectorErrorChip = '';
-    if (staleByStatus || lastErrorMsg) {
-        const errorTitle = lastErrorMsg
-            ? `Letzter Fehler: ${lastErrorMsg}${lastErrorAt ? ` (${lastErrorAt})` : ''}`
-            : 'Letzter Collector-Lauf mit Fehler beendet.';
-        collectorErrorChip = `
-        <span class="sn-chip error" title="${escAttr(errorTitle)}">
-            <span class="sn-chip-label">Fehler</span>
-            <span class="sn-chip-value">${lastErrorAt ? escHtml(lastErrorAt) : 'Details im Server-Log'}</span>
-        </span>`;
-    }
 
     panel.innerHTML = `
         <span class="sn-chip" title="Anzahl der Snapshot-Gruppen insgesamt">
@@ -1064,7 +1049,6 @@ function renderStats(stats) {
             <span class="sn-chip-value" style="font-weight:600">${escHtml(statusLabel)}</span>
         </span>
         ${collectorHealthChip}
-        ${collectorErrorChip}
         ${ruleChip}
     `;
     renderCollectorRunningChip();
