@@ -2,7 +2,7 @@
 
 ## Vulnerability Status
 
-Last checked: 2026-02-15
+Last checked: 2026-05-10
 
 ### Current Status: ✅ No Known Vulnerabilities
 
@@ -58,7 +58,7 @@ All dependencies have been scanned and updated to secure versions:
 ## Known Limitations
 
 ### Credential storage in the database
-Storage system credentials (API user/password/token) are stored **encrypted** at rest using `cryptography.fernet` and a key derived from `SECRET_KEY` (see `app/crypto_utils.py` and `StorageSystem` model properties).
+Storage system credentials (API user/password/token) and **SMTP passwords** (Admin → Einstellungen → E-Mail) are stored **encrypted** at rest using `cryptography.fernet` and a key derived from `SECRET_KEY` (see `app/crypto_utils.py` and the respective model properties).
 
 **Mitigation**
 - Use a strong, random `SECRET_KEY` and protect database access.

@@ -737,7 +737,7 @@ curl -sk https://<DD>:3009/rest/v1.0/dd-systems/0/replication/contexts \
 
 Das Storage Dashboard stellt unter `/snaps/` eine REST-API für die zentrale Verwaltung von HANA-Datenbank-Snapshots zur Verfügung. Die Endpunkte werden vom Frontend (`snaps.html`) genutzt und können auch direkt aufgerufen werden.
 
-> **Authentifizierung:** Kein Auth-Token erforderlich (kein `@login_required`); die Endpunkte sind über die normale Web-Session erreichbar.
+> **Authentifizierung:** Kein Admin-Login (`@login_required` entfällt). Die optionalen API-Keys (`API_ACCESS_TOKEN`) gelten nur für Routen unter **`/api/…`**, nicht für `/snaps/…`.
 
 ### Endpunktübersicht
 
@@ -766,6 +766,7 @@ Gibt alle Snapshot-Datensätze mit Statistik zurück.
 | `created_before` | ISO-8601 | Nur Snapshots erstellt vor diesem Datum |
 | `ttl_after` | ISO-8601 | Nur Snapshots mit TTL nach diesem Datum |
 | `ttl_before` | ISO-8601 | Nur Snapshots mit TTL vor diesem Datum |
+| `ttl_exclusion_only` | `1` | Nur Einträge, die einer konfigurierten TTL-Auto-Delete-Ausschlussregel entsprechen |
 
 **Beispiel:**
 
@@ -821,17 +822,25 @@ curl -s "http://localhost:5000/snaps/api/list?created_before=2026-03-11" | pytho
     "older_10_days": 3,
     "last_update": "2026-03-16T07:55:00",
     "last_update_status": "success",
-    "actions_lock_hours": 25
+    "last_success_update": "2026-03-16T07:55:00",
+    "last_error_update": null,
+    "last_error_message": "",
+    "collector_interval_seconds": 900,
+    "actions_lock_hours": 25,
+    "ttl_min_increase_hours": 1,
+    "snap_ttl_auto_delete_enabled": false,
+    "snap_ttl_auto_delete_exclusion_rule_count": 0
   }
 }
 ```
 
-Pro Snapshot liefert die Antwort zwei zusätzliche Felder:
+Pro Snapshot liefert die Antwort u.a. diese Felder:
 
 - `actions_locked` (bool): Server-autoritativ. `true`, wenn die TTL ≤ 25 Stunden in der Zukunft liegt (oder bereits abgelaufen ist). In diesem Zustand sind sowohl die TTL-Bearbeitung als auch das Einplanen einer Löschung gesperrt.
 - `actions_lock_reason` (string|null): Klartext-Begründung für die Sperre (oder `null`).
+- `ttl_auto_delete_excluded` (bool): `true`, wenn Admin-Ausschlussregeln konfiguriert sind und dieser Datensatz davon erfasst wird.
 
-`stats.actions_lock_hours` enthält den serverseitig konfigurierten Schwellwert (Default 25 h).
+`stats.actions_lock_hours` enthält den serverseitig konfigurierten Schwellwert (Default 25 h). `stats.snap_ttl_auto_delete_enabled` spiegelt den Schalter **TTL abgelaufen → automatisch löschen** wider; `stats.last_error_message` liefert bei fehlgeschlagenem Collector-Lauf den zuletzt protokollierten Fehlertext.
 
 ---
 

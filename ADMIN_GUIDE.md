@@ -70,10 +70,12 @@ verschiedener Hersteller zentral überwachen möchten.
 - Kapazitätsreport mit historischen Verläufen (2 Jahre)
 - System-Detailansicht (Hardware-Status, Node-Infos, Capacity)
 - Hintergrund-Polling mit konfigurierbarem Intervall
+- Snapshot-Verwaltung inkl. optionaler TTL-Auto-Löschung, Ausschlussregeln und E-Mail-Digest
 - Tags-System für flexible Kategorisierung
 - REST API mit Swagger UI
 - CLI-Interface (lokal und remote)
-- Pure1 Integration (Storage on Demand)
+- Pure1 Integration (Storage on Demand) inkl. Verlaufsimport
+- SMTP für Testmail und Snapshot-TTL-Digest
 
 > **Hinweis:** Das Dashboard ist für den Einsatz in **internen Firmennetzwerken** konzipiert.
 > Es unterstützt firmeneigene CA- und Root-Zertifikate.
@@ -90,7 +92,7 @@ verschiedener Hersteller zentral überwachen möchten.
 | **CPU** | 2 Cores | 4 Cores |
 | **RAM** | 2 GB | 4 GB |
 | **Festplatte** | 10 GB | 20 GB |
-| **Python** | 3.8+ | 3.11+ |
+| **Python** | 3.10+ | 3.11+ (Dockerfile / Empfehlung) |
 | **Datenbank** | SQLite | PostgreSQL 16 |
 
 ### Netzwerk-Anforderungen
@@ -550,11 +552,11 @@ docker-compose restart storage-dashboard
 
 Erreichbar unter: **Admin → Einstellungen** (`/admin/settings`)
 
-Die Einstellungen sind in sechs Tabs organisiert:
+Die Oberfläche ist in **neun** Tabs gegliedert (einheitlich volle Inhaltsbreite). Nach Änderungen jeweils **Speichern**; einige Tabs (z.B. E-Mail-Test) nutzen zusätzliche JSON-APIs unter `/admin/api/…`.
 
 ### Tab: Design
 
-Firmenname, Logo-URL und Farbschema (Primär-, Sekundär- und Akzentfarbe).
+Firmenname, Logo-Upload und Farbschema (Primär-, Sekundär- und Akzentfarbe).
 
 ![Einstellungen – Design](screenshots/settings-design.png)
 
@@ -574,22 +576,43 @@ Upload und Verwaltung von CA-Zertifikaten (Kurzübersicht; Details in [Abschnitt
 
 ### Tab: API-Zugänge (Pure1)
 
-Konfiguration der Pure1 Integration (Details in [Abschnitt 13](#13-pure1-integration)).
+Konfiguration der Pure1 Integration inkl. **SoD-Verlaufsimport** (Details und Ablauf in [Abschnitt 13](#13-pure1-integration)).
 
 ![Einstellungen – API-Zugänge (Pure1)](screenshots/settings-api-access-pure1.png)
 
 ### Tab: Proxy
 
-HTTP/HTTPS-Proxy für ausgehende Internetverbindungen (Details in [Abschnitt 12](#12-proxy-konfiguration)).
+HTTP/HTTPS-Proxy für ausgehende Internetverbindungen (Details in [Abschnitt 12](#12-proxy-konfiguration)). Optional: Freitextfeld für eine **No-Proxy-Liste** (kommaseparierte Hosts/Muster), die nicht über den Proxy gehen sollen.
 
 ![Einstellungen – Proxy](screenshots/settings-proxy.png)
 
+### Tab: E-Mail (SMTP)
+
+Konfiguration des **ausgehenden SMTP**-Servers für:
+
+- **Testmail:** Button sendet eine Probenachricht an eine von Ihnen eingegebene Adresse (`POST /admin/api/smtp-test`, nur angemeldete Admins).
+- **Snapshot-TTL-Digest:** siehe Tab **Snapshots**.
+
+SMTP-Passwort wird verschlüsselt gespeichert (wie andere Geheimnisse). Übliche Kombinationen: Port **587** mit STARTTLS, oder Port **465** mit implizitem SSL (Checkbox **SMTPS**).
+
+### Tab: Snapshots
+
+Zentrale **Richtlinien** für die Snapshot-Verwaltung:
+
+1. **TTL abgelaufen → automatisch löschen:** Wenn aktiviert, markiert der Hintergrund-Collector Datensätze mit abgelaufener TTL für die zeitnahe Löschung auf dem Storage (gleicher Mechanismus wie „Löschen“ planen, aber ohne 24h-Wartezeit). **Ausschlussregeln** haben Vorrang.
+2. **Ausschlussregeln (JSON):** Array von Objekten `{"storage": "<fnmatch-Muster>", "sid": "<fnmatch-Muster>"}`. Leer oder `*` bedeutet „beliebig“. Mindestens ein Feld muss eingeschränkt sein (reine `*/*`-Regeln werden ignoriert). Die UI kann eine **Vorschau** betroffener Snapshots anzeigen.
+3. **TTL-Ablauf per E-Mail:** Aktivierung und Empfängerliste (kommagetrennt). Voraussetzung: vollständige SMTP-Konfiguration. Versand höchstens **einmal pro Kalendertag**, **nach 07:00** Uhr in der konfigurierten App-Zeitzone, wenn der Snapshot-Collector läuft – Inhalt: Snapshots, deren TTL in den **nächsten 24 Stunden** abläuft.
+
 ### Tab: System
 
-- **Zeitzone**: z.B. `Europe/Berlin` (MEZ/MESZ)
-- **Hintergrund-Aktualisierungsintervall**: 1–60 Minuten (wie oft Statusdaten vom Polling-Service aktualisiert werden)
+- **Zeitzone**: z.B. `Europe/Berlin` (MEZ/MESZ); wirkt u.a. auf Log-Zeiten und den Snapshot-Digest.
+- **Hintergrund-Aktualisierungsintervall**: 1–60 Minuten (Status-Polling).
 
 ![Einstellungen – System](screenshots/settings-system.png)
+
+### Tab: Backup
+
+Import/Export von Konfigurationsdaten (Systeme, Tags, Zertifikate, AppSettings, …) – siehe Schaltflächen im Tab.
 
 ---
 
@@ -602,14 +625,15 @@ Internetzugang hat (z.B. für Pure1).
 
 1. Admin → **Einstellungen** → Tab **„Proxy"**
 2. HTTP-Proxy-URL eingeben: `http://proxy.example.com:3128`
-3. HTTPS-Proxy-URL eingeben: `https://proxy.example.com:3128`
-4. **„Speichern"** klicken
+3. HTTPS-URL eingeben: `https://proxy.example.com:3128` (falls abweichend)
+4. Optional: **No-Proxy**-Liste für interne Ziele, die direkt erreichbar sein sollen
+5. **„Speichern"** klicken
 
 Proxy-URLs werden **verschlüsselt** in der Datenbank gespeichert.
 
-> **Hinweis:** Der Proxy wird ausschließlich für ausgehende Internetverbindungen verwendet
-> (z.B. Pure1 API). Verbindungen zu lokalen Storage-Systemen werden **nie** über den Proxy
-> geleitet.
+> **Hinweis:** Der Proxy wird für ausgehende Internetverbindungen verwendet (z.B. Pure1 API).
+> Verbindungen zu lokalen Storage-Systemen werden standardmäßig **nicht** über den Proxy geleitet;
+> die No-Proxy-Liste feinjustiert dies bei Bedarf.
 
 ---
 
@@ -642,6 +666,13 @@ bei Pure FlashArrays mit Evergreen/One Dashboard.
 App-ID, Private Key und Passphrase werden **verschlüsselt** gespeichert.
 
 ![Einstellungen – API-Zugänge (Pure1)](screenshots/settings-api-access-pure1.png)
+
+### Pure1-Verlauf für den Kapazitätsreport
+
+Der Kapazitätsreport (Tab **Verlauf**) kann **SoD-Zeitreihen** anzeigen. Kurz erklärt:
+
+- Der Button **Aktualisieren** auf der Kapazitätsseite holt die **aktuellen** Systemkapazitäten und aktualisiert bei konfiguriertem Pure1 den **aktuellen SoD-Lizenz-Cache** – **ohne** den mehrjährigen Historienimport.
+- Den **Import der SoD-Historie** (ca. zwei Jahre tägliche Punkte) starten Sie bewusst unter **Admin → Einstellungen → API-Zugänge** mit **„SoD-Verlauf (2 Jahre) von Pure1 importieren"**.
 
 ---
 
@@ -702,6 +733,7 @@ Erreichbar über den orangen **🔔-Button** in der Navbar (zeigt Anzahl offener
 | **Pure Storage** | Array Alerts | Severity, Titel, Details, Error-Code, Komponente |
 | **NetApp StorageGRID** | Grid Alerts | Severity, Alert-Name, Details, Node |
 | **Dell DataDomain** | Active Alerts | Severity, Alert-Name, Kategorie, Meldung |
+| **Storage Dashboard** | Snapshot-Collector-Status | Zeigt u.a. fehlgeschlagene Collector-Läufe oder überfällige Aktualisierung (synthetische Einträge mit klarem Titel und Fehlerdetail) |
 
 ### 15.3 Alert-Bearbeitung
 
@@ -771,6 +803,11 @@ Historische Kapazitätsgraphen (bis zu 2 Jahre, tägliche Datenpunkte).
 | **Excel-Export** | Alle Kapazitätsdaten als XLSX herunterladen |
 | **PDF-Export** | Bericht als PDF exportieren |
 | **CSV-Import** | Kapazitätsdaten (inkl. SoD) manuell importieren |
+
+### 16.7 Aktualisieren vs. SoD-Verlauf
+
+- **Aktualisieren** (Kapazitätsreport): aktuelle Block/File/…-Werte der Systeme; optional Aktualisierung des **aktuellen** Pure1-SoD-Caches – **kein** automatischer Mehrjahres-Import.
+- **SoD-Verlauf:** separat im Admin-Bereich unter Pure1-Einstellungen (siehe [Abschnitt 13](#13-pure1-integration)).
 
 ---
 
@@ -1159,6 +1196,20 @@ TZ=Europe/Berlin                             # Zeitzone
 LOG_LEVEL=INFO
 GUNICORN_WORKERS=4
 GUNICORN_TIMEOUT=120
+
+# REST-API absichern (alle /api/* außer /api/health)
+# API_ACCESS_TOKEN=<zufälliges-geheimnis>
+
+# Hintergrund-Jobs (z.B. mehrere Gunicorn-Worker)
+# BACKGROUND_JOBS_ENABLED=1
+# BACKGROUND_JOB_LOCKFILE=/run/storage-dashboard/background.lock
+
+# Snapshot-Collector DB (PostgreSQL)
+# SNAP_COLLECTOR_DB_LOCK_TIMEOUT_MS=3000
+# SNAP_COLLECTOR_DB_STATEMENT_TIMEOUT_MS=0
+
+# Navbar-Alerts-Cache
+# OPEN_ALERTS_CACHE_SECONDS=30
 ```
 
 ---
@@ -1187,7 +1238,7 @@ python cli.py dashboard                  # Status im Terminal anzeigen
 
 ---
 
-**Dokumentversion:** 2.0  
-**Letzte Aktualisierung:** März 2026  
+**Dokumentversion:** 2.1  
+**Letzte Aktualisierung:** Mai 2026  
 **Lizenz:** Siehe LICENSE-Datei im Repository  
 **Support:** [GitHub Issues](https://github.com/TimUx/storage-dashboard/issues)

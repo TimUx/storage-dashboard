@@ -517,8 +517,9 @@ Das Dashboard erkennt die folgenden Namensschemata:
 
 | Einstellung | Beschreibung |
 |-------------|--------------|
-| `snaps_enabled` | Pro System konfigurierbar (Admin → System bearbeiten). Muss `True` sein, damit Snapshots abgerufen werden. |
-| `SNAP_COLLECT_INTERVAL_SECONDS` | Umgebungsvariable, Standard: `900` (15 Minuten) |
+| `snaps_enabled` | Pro System (Admin → System bearbeiten). Muss aktiv sein, damit der Collector dieses System abfragt. |
+| Collector-Intervall | Fest **15 Minuten** (`SNAP_COLLECT_INTERVAL_SECONDS = 900` in `app/snap_service.py`), nicht per Umgebungsvariable änderbar. |
+| `SNAP_COLLECTOR_DB_LOCK_TIMEOUT_MS` / `SNAP_COLLECTOR_DB_STATEMENT_TIMEOUT_MS` | Optional: Begrenzung von Wartezeit bzw. SQL-Timeout beim Schreiben in PostgreSQL (siehe `app/__init__.py`). |
 | API-Token | Wird verschlüsselt in der Datenbank gespeichert (Feld `api_token` bei System-Typ `pure`) |
 
 > **Hinweis:** Das Dashboard ruft Snapshots nur von Systemen ab, bei denen `enabled=True` **und** `snaps_enabled=True` (oder `snaps_enabled IS NULL` für migrierte Altdaten) gesetzt ist.
