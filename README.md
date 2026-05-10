@@ -36,7 +36,7 @@ Storage Dashboard überwacht Pure Storage, NetApp ONTAP, NetApp StorageGRID und 
 | **Multi-Vendor Support** | Pure Storage, NetApp ONTAP 9, NetApp StorageGRID 11, Dell DataDomain |
 | **Echtzeit-Dashboard** | Card- und Table-Ansicht aller Systeme mit farbkodierten Status-Badges |
 | **Alerts-Seite** | Konsolidierte Übersicht aller offenen Alerts aller Systeme inkl. ONTAP EMS Events |
-| **Snapshot-Verwaltung** | Automatische Erfassung von HANA DB-Snapshots (FlashArray + ONTAP), TTL-Verwaltung, Abgleich mit Storage |
+| **Snapshot-Verwaltung** | Automatische Erfassung von HANA-DB-Snapshots (FlashArray + ONTAP), TTL-Verwaltung, optional TTL-Auto-Löschung mit Ausschlussregeln, E-Mail-Digest, Abgleich mit Storage |
 | **Kapazitätsreport** | Tabellarische und grafische Kapazitätsübersicht (5 Ansichten) mit 2-Jahres-Verlauf |
 | **System-Detailansicht** | Einzelsystem-Daten mit Capacity, Hardware-Status, Node-Infos und Alerts |
 | **Hintergrund-Polling** | Konfigurierbarer Hintergrunddienst (1–60 min) mit UI-seitigem Caching |
@@ -113,6 +113,8 @@ Die Alerts-Seite aggregiert alle offenen Alerts aus dem Status-Cache aller Syste
 | **NetApp StorageGRID** | Grid Alerts | Severity, Alert-Name, Details, Node |
 | **Dell DataDomain** | Active Alerts | Severity, Alert-Name, Kategorie, Meldung |
 
+Zusätzlich können **Dashboard-interne Meldungen** erscheinen, wenn die **Snapshot-Erfassung** fehlschlägt oder der Collector **überfällig** ist (Details in der Alerts-Tabelle).
+
 **ONTAP EMS Alert-Abfrage:**  
 Das Dashboard ruft via `GET /api/support/ems/events?message.severity=emergency,alert,error` die letzten 100 EMS Events ab. Die Severity wird auf den Hardware-Status gemappt:
 - `emergency` → `hardware_status = error`
@@ -155,12 +157,16 @@ Durch Klick auf den ▶-Button wird eine Zeile aufgeklappt und zeigt die konkret
 | **Sortierung** | Alle Spalten sortierbar (SID, Datum, TTL, DB, NFS) |
 | **Statistik-Panel** | Schnellüberblick: Snapshots gesamt, älter 5 Tage (orange), älter 10 Tage (rot), letzte Aktualisierung |
 | **Manueller Trigger** | 🔄-Button löst sofortigen Collector-Lauf aus |
+| **TTL-Auto-Löschung (optional)** | In **Admin → Einstellungen → Snapshots** aktivierbar: Datensätze mit abgelaufener TTL werden wie „Löschen“ behandigt und vom Collector zeitnah auf dem Storage entfernt (siehe dortige Ausschlussregeln) |
+| **Ausschlussregeln (Wildcards)** | JSON-Liste aus Mustern für Storage-Namen (`fnmatch`) und SID – Treffer werden von der TTL-Auto-Löschung ausgenommen |
+| **TTL-E-Mail-Digest** | Optional: nach 07:00 Uhr (App-Zeitzone) höchstens einmal pro Kalendertag eine SMTP-Mail mit Snapshots, deren TTL in den nächsten 24 h abläuft |
+| **Collector-Diagnose** | Letzte Lauf-Statusmeldungen in der Snapshot-UI; bei Fehlern oder überfälligen Läufen zusätzlich **synthetische Alerts** auf der Alerts-Seite |
 
 ### Hintergrund-Collector
 
 Der Collector (`app/snap_service.py`) läuft als Daemon-Thread parallel zu den anderen Services:
 
-- **Intervall**: 15 Minuten (konfigurierbar via `SNAP_COLLECT_INTERVAL_SECONDS`)
+- **Intervall**: 15 Minuten (fest im Code: Konstante `SNAP_COLLECT_INTERVAL_SECONDS` in `app/snap_service.py`)
 - **Quellen**: Pure FlashArray (REST API v2 `/volume-snapshots`) + NetApp ONTAP (`/storage/volumes/{uuid}/snapshots`)
 - **SID-Extraktion**: Regex-basiert aus Snapshot-Name (`ACP_1_data.HDBSNAP-…` → `ACP`)
 - **TTL-Extraktion**: Zeitstempel-Suffix `HDBSNAP-YYYY-MM-DD-HHMMSS` oder `vgSID.YYYY-MM-DD-HHMMSS`
@@ -234,11 +240,13 @@ Historische Kapazitätsgraphen (2 Jahre tägliche Datenpunkte) für alle Storage
 - Prognose: Wachstumsprognose im Verlaufsgraphen
 - Pure1 SoD-Tab: Nur sichtbar wenn Pure1 in Einstellungen konfiguriert
 
+**Aktualisieren im Kapazitätsreport:** Der Button **Aktualisieren** lädt die aktuellen Kapazitätswerte der Systeme (und bei konfiguriertem Pure1 den **aktuellen SoD-Lizenz-Cache**). Er startet **keinen** mehrjährigen Pure1-SoD-Verlaufsimport. Diesen Import (ca. 2 Jahre tägliche Punkte) steuern Sie gezielt unter **Admin → Einstellungen → API-Zugänge** mit **SoD-Verlauf (2 Jahre) von Pure1 importieren**.
+
 ---
 
 ## 8. Admin-Bereich
 
-Der Admin-Bereich (`/admin`) ist durch Login geschützt und enthält Systemverwaltung, Einstellungen, Logs, Zertifikate und Tags.
+Der Admin-Bereich (`/admin`) ist durch Login geschützt und enthält Systemverwaltung, Einstellungen, Logs, Zertifikate und Tags. Admin-Seiten nutzen die **volle Inhaltsbreite** (einheitliches Layout).
 
 ![Admin-Bereich](screenshots/admin-area.png)
 
@@ -271,7 +279,7 @@ Tags können in Gruppen organisiert werden (z.B. „Storage Art", „Landschaft"
 
 ## 9. Einstellungen
 
-Erreichbar unter **Admin → Einstellungen** (`/admin/settings`). Die Einstellungen sind in sechs Tabs unterteilt.
+Erreichbar unter **Admin → Einstellungen** (`/admin/settings`). Die Einstellungen sind in **neun** Tabs unterteilt: Design, Logs, Zertifikate, API-Zugänge (Pure1), Proxy, **E-Mail (SMTP)**, **Snapshots** (TTL-Auto-Löschung, Ausschlüsse, optionaler TTL-Digest), System, **Backup/Import-Export**.
 
 ### Tab: Design
 
@@ -299,15 +307,29 @@ Konfiguration der Pure1 REST API für Storage on Demand Daten. App-ID, Private K
 
 ### Tab: Proxy
 
-HTTP/HTTPS-Proxy für ausgehende Internet-Verbindungen (z.B. für Pure1). Proxy-URLs werden **verschlüsselt** gespeichert.
+HTTP/HTTPS-Proxy für ausgehende Internet-Verbindungen (z.B. für Pure1). Proxy-URLs werden **verschlüsselt** gespeichert. Optional: **`NO_PROXY`-ähnliche Ausnahmeliste** (`proxy_no_proxy`) für Hosts, die ohne Proxy erreicht werden sollen.
 
 ![Einstellungen – Proxy](screenshots/settings-proxy.png)
+
+### Tab: E-Mail (SMTP)
+
+Ausgehende SMTP-Konfiguration (Server, Port, STARTTLS/SMTPS, Auth optional). Wird u.a. für den **Testversand** und den **TTL-Snapshot-Digest** genutzt. SMTP-Passwort wird **verschlüsselt** gespeichert.
+
+### Tab: Snapshots
+
+- **TTL abgelaufen → automatisch löschen:** Schalter für die TTL-Auto-Löschung (siehe Snapshot-Verwaltung).
+- **Ausschlussregeln (JSON):** Vorschau und Validierung im Admin-UI; Schnittstelle `/admin/api/snap-ttl-exclusions-preview`.
+- **TTL-Ablauf per E-Mail:** Empfängerliste und Aktivierung des täglichen Digest (nach 07:00, App-Zeitzone), sofern SMTP vollständig konfiguriert ist.
 
 ### Tab: System
 
 Zeitzone und Hintergrund-Aktualisierungsintervall (1–60 Minuten).
 
 ![Einstellungen – System](screenshots/settings-system.png)
+
+### Tab: Backup
+
+Import/Export der Konfiguration (u.a. Systeme, Tags, Einstellungen) – siehe Admin-Menü.
 
 ---
 
@@ -323,6 +345,8 @@ Die API umfasst folgende Endpunkte:
 
 | Methode | Pfad | Beschreibung |
 |---------|------|-------------|
+| `GET` | `/health` | Liveness der App (ohne Auth) |
+| `GET` | `/api/health` | Liveness im API-Blueprint (ohne Auth) |
 | `GET` | `/` | Haupt-Dashboard (HTML) |
 | `GET` | `/api/systems` | Alle Storage-Systeme auflisten |
 | `GET` | `/api/status` | Live-Status aller aktiven Systeme |
@@ -342,12 +366,14 @@ Unter `/admin/docs` finden Sie eine detaillierte Einrichtungsanleitung für jede
 
 **OpenAPI-Spezifikation** herunterladen: `/static/openapi.json`
 
+> **Optional – API-Absicherung:** Ist die Umgebungsvariable `API_ACCESS_TOKEN` gesetzt, erfordern alle `/api/*`-Routen (außer `/api/health`) den Header `Authorization: Bearer …` oder `X-API-Key`. Siehe [SECURITY.md](SECURITY.md).
+
 ---
 
 ## 11. Systemanforderungen
 
 - **Betriebssystem**: Linux (SUSE 15, Ubuntu 22+, RHEL 8+, oder vergleichbar)
-- **Python**: 3.8 oder höher
+- **Python**: 3.11 oder höher empfohlen (Dockerfile); die CI-Testsuite läuft zusätzlich mit 3.10
 - **Datenbank**: PostgreSQL (empfohlen) oder SQLite
 - **Netzwerk**: HTTPS-Zugriff zu den Storage-Systemen (Port 443)
 
@@ -510,9 +536,15 @@ python cli.py migrate
 |----------|-------------|---------|
 | `SECRET_KEY` | Flask Session-Secret (zufälliger Hex-String) | — (Pflichtfeld) |
 | `DATABASE_URL` | Datenbankverbindung | `sqlite:///storage_dashboard.db` |
-| `SSL_VERIFY` | TLS-Zertifikate prüfen | `true` |
+| `SSL_VERIFY` | TLS-Zertifikate der Storage-APIs prüfen | oft `false` in Compose-Beispielen; für Produktion `true`, sobald CAs hinterlegt sind |
 | `FLASK_ENV` | `development` oder `production` | `production` |
 | `POSTGRES_PASSWORD` | PostgreSQL-Passwort (nur Container) | — |
+| `API_ACCESS_TOKEN` | Optional: gemeinsames Geheimnis für `/api/*` (außer `/api/health`) | — (leer = bisheriges Verhalten) |
+| `BACKGROUND_JOBS_ENABLED` | `0`/`false`: keine Hintergrund-Threads in diesem Prozess | `1` |
+| `BACKGROUND_JOB_LOCKFILE` | Optional: Pfad zu einer Lock-Datei (`flock`); nur ein Gunicorn-Worker startet Jobs | — |
+| `SNAP_COLLECTOR_DB_LOCK_TIMEOUT_MS` | Wartezeit in ms auf DB-Sperren im Snapshot-Collector | `3000` |
+| `SNAP_COLLECTOR_DB_STATEMENT_TIMEOUT_MS` | Optional: Postgres-Statement-Timeout für Collector-Upserts | `0` (= aus) |
+| `OPEN_ALERTS_CACHE_SECONDS` | TTL für den Navbar-Alerts-Zähler | `30` |
 
 📖 **Deployment-Dokumentation**: [DEPLOYMENT.md](DEPLOYMENT.md)  
 📖 **Sicherheits-Dokumentation**: [SECURITY.md](SECURITY.md)  
@@ -576,22 +608,9 @@ Der DR Planner verwendet einen wöchentlichen Hintergrund-Build-Job (Standard: e
 
 **Wichtig**: Die DR-Seite im Browser ruft zur Laufzeit keine Storage-APIs auf. Alle Daten stammen aus der PostgreSQL-Datenbank.
 
-### Scheduler-Konfiguration
+### Scheduler / Build-Intervall
 
-Der Build-Intervall ist über die Umgebungsvariable `DR_BUILD_INTERVAL_SECONDS` konfigurierbar:
-
-```bash
-# Standard: 1 Woche (604800 Sekunden)
-DR_BUILD_INTERVAL_SECONDS=604800
-
-# Beispiel: täglich um Mitternacht (86400 Sekunden)
-DR_BUILD_INTERVAL_SECONDS=86400
-
-# Beispiel: alle 12 Stunden
-DR_BUILD_INTERVAL_SECONDS=43200
-```
-
-Ohne die Umgebungsvariable wird der Standard von 7 Tagen (eine Woche) verwendet.
+Das automatische DR-Build-Intervall ist derzeit **fest im Code** hinterlegt: eine Woche (`DR_BUILD_INTERVAL_SECONDS` in `app/dr_service.py`). Eine Änderung erfordert Anpassung dieser Konstante (oder künftige Konfiguration über die App). Manuelle Neuberechnung bleibt über die DR-Oberfläche („Rebuild“) möglich.
 
 ### DR Planner bedienen
 
@@ -661,4 +680,4 @@ Der DR Planner nutzt dieselbe PostgreSQL-Datenbank wie das gesamte Dashboard. Ne
 
 ---
 
-*Storage Dashboard v1.3 – Created by [Timo Braun](mailto:github@timobraun.de)*
+*Storage Dashboard – Stand Mai 2026 – Created by [Timo Braun](mailto:github@timobraun.de)*

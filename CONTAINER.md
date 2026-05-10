@@ -117,6 +117,8 @@ EOF
 
 **Wichtig:** Der Secret Key ist essentiell für die Sicherheit der Anwendung!
 
+Weitere optionale Variablen (API-Token für `/api/*`, Hintergrund-Job-Steuerung, Snapshot-Collector-DB-Timeouts, Alerts-Cache) sind in **[README.md](README.md)** und **[DEPLOYMENT.md](DEPLOYMENT.md)** beschrieben – bei Bedarf in derselben `.env` ergänzen und Container neu starten.
+
 ### 3. Container starten
 
 **Mit Podman (empfohlen):**

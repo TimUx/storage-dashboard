@@ -53,7 +53,7 @@ python remote-cli.py [OPTIONEN] BEFEHL [ARGUMENTE]
 ### Optionen
 
 - `--url TEXT`: Dashboard URL (Standard: `http://localhost:5000`)
-- `--api-key TEXT`: API-Schlüssel für Authentifizierung (optional)
+- `--api-key TEXT`: Gleiches Geheimnis wie serverseitig **`API_ACCESS_TOKEN`** (Header `X-API-Key` oder `Authorization: Bearer`). Erforderlich, sobald der Server diese Variable gesetzt hat; sonst optional.
 - `--help`: Zeigt die Hilfe an
 
 ### Umgebungsvariablen

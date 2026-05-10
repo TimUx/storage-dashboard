@@ -150,4 +150,4 @@ if __name__ == '__main__':
 - Alle Beispiele benötigen `remote-cli.py` im übergeordneten Verzeichnis oder im PATH
 - Stellen Sie sicher, dass die erforderlichen Python-Pakete installiert sind: `pip install click requests tabulate`
 - Passen Sie die URLs und Schwellwerte an Ihre Umgebung an
-- Für Produktivumgebungen sollten Sie API-Authentifizierung verwenden
+- Wenn der Server `API_ACCESS_TOKEN` setzt: `remote-cli.py` mit `--api-key …` oder Umgebungsvariable `DASHBOARD_API_KEY` / `API_ACCESS_TOKEN` (siehe `REMOTE_CLI.md`)

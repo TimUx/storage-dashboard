@@ -14,7 +14,7 @@ Dieses Dokument beschreibt die **automatisierte Test-Suite**, kritische **User-F
 | **Kapazität** | Tabs, `/capacity/api/data`, Historie, Export/Import (teilweise login-geschützt) |
 | **Snapshots** | UI + `/snaps/api/*`, Collector-Service |
 | **DR Planner** | `/dr/`, Build-Pipeline, JSON-APIs |
-| **Admin** | Login, Systeme, Tags, Zertifikate, Logs, Einstellungen, Backup/Import |
+| **Admin** | Login, Systeme, Tags, Zertifikate, Logs, Einstellungen (inkl. SMTP, Snapshot-Richtlinien, Pure1/SoD), Backup/Import |
 | **Hintergrund** | Status-, Kapazitäts-, SoD-, DR-, Snapshot-Threads |
 | **Sicherheit** | Flask-Login (Admin), verschlüsselte Secrets, optionales SSL |
 

@@ -567,6 +567,12 @@ docker exec -it storage-dashboard python cli.py migrate
 | `SSL_VERIFY` | TLS-Zertifikate der Storage-Systeme prüfen | `false` |
 | `FLASK_ENV` | `development` oder `production` | `production` |
 | `TZ` | Zeitzone (z.B. `Europe/Berlin`) | `Europe/Berlin` |
+| `API_ACCESS_TOKEN` | Optional: Schutz aller `/api/*`-Routen außer `/api/health` | — |
+| `BACKGROUND_JOBS_ENABLED` | `0` oder `false`: keine Hintergrund-Threads in diesem Prozess | `1` |
+| `BACKGROUND_JOB_LOCKFILE` | Unix-`flock`-Pfad: nur ein Worker startet Status/Kapazität/Snaps/… | — |
+| `SNAP_COLLECTOR_DB_LOCK_TIMEOUT_MS` | Snapshot-Collector: ms Warten auf DB-Lock | `3000` |
+| `SNAP_COLLECTOR_DB_STATEMENT_TIMEOUT_MS` | Snapshot-Collector: Postgres-Statement-Timeout (0 = aus) | `0` |
+| `OPEN_ALERTS_CACHE_SECONDS` | Cache für Navbar-Alerts-Zähler | `30` |
 
 ---
 

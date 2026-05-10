@@ -146,9 +146,11 @@ Gunicorn Master Process
 ├── Worker 1 (Flask)
 │   ├── HTTP Request Handler
 │   └── Background Threads:
-│       ├── status_service._background_loop()    (kontinuierlich, konfigurierbar 1-60 min)
+│       ├── status_service._background_loop()    (kontinuierlich, konfigurierbar 1–60 min)
 │       ├── capacity_service._background_loop()  (stündlich)
-│       └── sod_service._background_loop()       (wöchentlich)
+│       ├── sod_service._background_loop()       (wöchentlich + SoD-Verlauf-Refresh)
+│       ├── dr_service._background_loop()        (DR-Build, Intervall im Code)
+│       └── snap_service._background_loop()      (alle 15 min)
 │
 ├── Worker 2 (Flask) — nur Request Handler (keine weiteren Background Threads)
 ├── Worker 3 ...
@@ -234,7 +236,7 @@ storage-dashboard/
 │   │   └── admin/                # Admin-Templates
 │   │       ├── index.html        # Admin-Übersicht
 │   │       ├── form.html         # Formular: System hinzufügen/bearbeiten
-│   │       ├── settings_tabbed.html  # Einstellungen (6 Tabs)
+│   │       ├── settings_tabbed.html  # Einstellungen (9 Tabs)
 │   │       ├── certificates.html     # Zertifikatsverwaltung
 │   │       ├── tags.html             # Tag-Verwaltung
 │   │       ├── logs.html             # Log-Viewer
@@ -300,7 +302,7 @@ StorageSystem (*) ──────── (*) Tag
     ├──── (1:N) SystemLog
     └──── (M:1 self) partner_cluster (MetroCluster/Active-Cluster)
 
-AppSettings (1 Zeile)           # Singleton: Anwendungseinstellungen
+AppSettings (1 Zeile)           # Singleton: Anwendungseinstellungen (inkl. SMTP, Snapshot-TTL-Policy, Pure1, Proxy)
 AdminUser (N)                   # Login-Benutzer
 Certificate (N)                 # CA/Root-Zertifikate
 SubscriptionLicenseCache (1)    # Pure1 SoD-Lizenzdaten (JSON)
@@ -437,6 +439,15 @@ Metadaten zu jedem Collector-Lauf (für Statusanzeige in der UI).
 | `status` | String | `success` oder `error` |
 | `error_message` | Text | Fehlermeldung (bei status=error) |
 
+#### AppSettings – Snapshot- und Mail-Felder (Auswahl)
+
+| Feld | Beschreibung |
+|------|----------------|
+| `snap_auto_delete_ttl_expired` | `1`: Collector markiert abgelaufene TTL-Zeilen für zeitnahe Storage-Löschung |
+| `snap_ttl_auto_delete_exclusions_json` | JSON-Array von `{"storage":"*","sid":"*"}`-Regeln (`app/snap_ttl_auto_delete_exclusions.py`) |
+| `snap_ttl_expiry_email_enabled` / `snap_ttl_expiry_recipients` | Täglicher Digest (nach 07:00 App-TZ) per SMTP |
+| `smtp_*` | Ausgehende SMTP-Konfiguration; Passwort verschlüsselt wie andere Secrets |
+
 
 ---
 
@@ -453,7 +464,7 @@ Die Flask-Anwendung wird über eine Factory-Funktion `create_app()` erstellt (Ap
 - Flask-Login initialisieren (`LoginManager`)
 - Blueprint-Registrierung
 - Jinja2-Filter registrieren (`format_datetime`)
-- Hintergrund-Threads starten (`status_service`, `capacity_service`, `sod_service`)
+- Hintergrund-Threads starten (`status_service`, `capacity_service`, `sod_service`, `dr_service`, `snap_service`; gesteuert über `app.background_jobs`)
 
 ```python
 # Vereinfachter Ablauf create_app():
@@ -468,11 +479,15 @@ app.register_blueprint(admin_bp, url_prefix='/admin')
 app.register_blueprint(api_bp, url_prefix='/api')
 app.register_blueprint(alerts_bp, url_prefix='/alerts')
 app.register_blueprint(capacity_bp, url_prefix='/capacity')
+app.register_blueprint(dr_bp, url_prefix='/dr')
+app.register_blueprint(snaps_bp, url_prefix='/snaps')
 
-# Hintergrund-Threads starten
-status_service.start_background_thread(app)
-capacity_service.start_background_thread(app)
-sod_service.start_background_thread(app)
+# Hintergrund-Threads starten (siehe app.background_jobs: BACKGROUND_JOBS_ENABLED, BACKGROUND_JOB_LOCKFILE)
+status_service.start_background_refresh(app)
+capacity_service.start_background_refresh(app)
+sod_service.start_background_refresh(app)
+dr_service.start_background_refresh(app)
+snap_service.start_background_refresh(app)
 ```
 
 ### 6.2 Datenbankmigrationen (`app/migrations.py`)
@@ -707,9 +722,11 @@ von Verlaufsdatenpunkten (bis 2 Jahre).
 
 ### 8.4 `snap_service.py` – Snapshot-Collector
 
-**Aufgabe:** Regelmäßiges Einlesen aller HANA-Snapshots von Pure FlashArray- und NetApp ONTAP-Systemen, Speichern in `snapshot_records` und Abgleich mit dem Storage (Reconciliation).
+**Aufgabe:** Regelmäßiges Einlesen aller HANA-Snapshots von Pure FlashArray- und NetApp ONTAP-Systemen, Speichern in `snapshot_records` und Abgleich mit dem Storage (Reconciliation). Optional: TTL-abgelaufene Zeilen für Löschung vormerken (`_schedule_ttl_expired_deletions`, respektiert Ausschlussregeln). Nach erfolgreichem Lauf: optionaler **TTL-Digest** (`maybe_send_snap_ttl_expiry_digest`).
 
-**Intervall:** 15 Minuten (konfigurierbar via `SNAP_COLLECT_INTERVAL_SECONDS`, Standard `900`)
+**Intervall:** 15 Minuten (fest: `SNAP_COLLECT_INTERVAL_SECONDS = 900` in `app/snap_service.py` – keine Umgebungsvariable).
+
+**DB-Konfiguration (optional):** `SNAP_COLLECTOR_DB_LOCK_TIMEOUT_MS`, `SNAP_COLLECTOR_DB_STATEMENT_TIMEOUT_MS` in `create_app()` / Umgebung.
 
 **SID-Erkennung:** Regex `(?:vg)?([A-Z0-9]{3,5})(?:_|\.)` → extrahiert 3–5-stellige SAP-SID vom Anfang des Snapshot-Namens.
 
@@ -740,13 +757,22 @@ _background_loop() [Thread]
     │       │   └── mit Kommentar → flasharray/ontap_present = False
     │       └── INSERT SnapshotCollectorMetadata
     │
+    ├── _schedule_ttl_expired_deletions(app)   # wenn snap_auto_delete_ttl_expired
     └── _process_expired_deletions(app)
-        └── DELETE expired records (delete_marked + delete_deadline <= now)
+        └── Storage-Löschung für delete_marked + Deadline / TTL-Pfade
+
+maybe_send_snap_ttl_expiry_digest(app)  # nach erfolgreichem Lauf, siehe snap_ttl_email.py
 ```
 
 **Manueller Trigger:** `POST /snaps/api/trigger-collect` → setzt `_collect_event`
 
-### 8.5 Thread-Sicherheit
+**Alerts:** `app/routes/alerts.py` blendet bei fehlgeschlagenem oder überfälligem Collector synthetische Einträge ein (`SNAP_COLLECTOR`, `SNAP_COLLECTOR_STALE`).
+
+### 8.5 `dr_service.py` – DR-Build
+
+Wöchentlicher Hintergrund-Job (`DR_BUILD_INTERVAL_SECONDS` in `app/dr_service.py`, derzeit fest eine Woche): entdeckt DR-Beziehungen, generiert Artefakte und speichert sie in PostgreSQL. UI und `/dr/api/*` lesen nur die Datenbank. Manueller Rebuild: `POST /dr/api/rebuild`.
+
+### 8.6 Thread-Sicherheit
 
 Alle Services verwenden dasselbe Muster:
 
@@ -754,7 +780,7 @@ Alle Services verwenden dasselbe Muster:
 _background_thread_started = False
 _thread_lock = threading.Lock()
 
-def start_background_thread(app):
+def start_background_refresh(app):
     global _background_thread_started
     with _thread_lock:
         if _background_thread_started:
@@ -808,6 +834,10 @@ def start_background_thread(app):
 | `/admin/logs` | GET | Log-Viewer |
 | `/admin/swagger` | GET | Swagger UI |
 | `/admin/docs` | GET | API-Dokumentation |
+| `/admin/api/smtp-test` | POST | Testmail (login_required) |
+| `/admin/api/snap-ttl-exclusions-preview` | POST | Vorschau Ausschlussregeln vs. DB |
+| `/admin/api/pure1-test` | POST | Schritt-für-Schritt Pure1-Verbindungstest |
+| `/admin/api/...` | — | Weitere Admin-JSON-Endpunkte (u.a. SoD-Verlauf, siehe `app/routes/admin/`) |
 
 **REST API (`api`):**
 
@@ -833,6 +863,8 @@ def start_background_thread(app):
 | `/snaps/api/undo-delete` | POST | Geplante Löschung innerhalb der 24 h stornieren |
 | `/snaps/api/comment` | POST | Operator-Kommentar speichern |
 | `/snaps/api/trigger-collect` | POST | Sofortigen Collector-Lauf auslösen |
+
+`GET /snaps/api/list` unterstützt `ttl_exclusion_only=1` und liefert in `stats` u.a. `snap_ttl_auto_delete_enabled`, `snap_ttl_auto_delete_exclusion_rule_count`, `last_error_message`, `collector_interval_seconds`.
 
 ---
 
@@ -1078,9 +1110,12 @@ _do_collect(app)
         ├── SnapshotCollectorMetadata speichern
         └── db.session.commit()
 
+_schedule_ttl_expired_deletions(app)   # optional: AppSettings.snap_auto_delete_ttl_expired + Exclusions
+
 _process_expired_deletions(app)
-    └── SnapshotRecord.query.filter(delete_marked, delete_deadline <= now)
-        └── db.session.delete(rec) für alle abgelaufenen Einträge
+    └── geplante Storage-Löschungen (delete_marked / TTL-Pfad)
+
+maybe_send_snap_ttl_expiry_digest(app)   # optional: SMTP + snap_ttl_expiry_email_enabled
 ```
 
 ---
@@ -1118,6 +1153,7 @@ Sensible Felder in der Datenbank werden mit **Fernet**-Verschlüsselung gespeich
 | `pure1_public_key` | AppSettings |
 | `proxy_http` | AppSettings |
 | `proxy_https` | AppSettings |
+| `smtp_password` | AppSettings |
 
 **Schlüsselableitung:**
 ```
@@ -1153,6 +1189,12 @@ Die Anwendung wird ausschließlich über Umgebungsvariablen (`.env`-Datei) konfi
 | `POSTGRES_DB` | Container | `storage_dashboard` | Datenbankname |
 | `POSTGRES_USER` | Container | `dashboard` | Datenbankbenutzer |
 | `TZ` | – | `Europe/Berlin` | Zeitzone für Logs |
+| `API_ACCESS_TOKEN` | – | — | Optional: Absicherung aller `/api/*`-Routen außer `/api/health` |
+| `BACKGROUND_JOBS_ENABLED` | – | `1` | `0`/`false`: keine Hintergrund-Threads in diesem Worker |
+| `BACKGROUND_JOB_LOCKFILE` | – | — | Unix-`flock`: nur ein Prozess startet Hintergrund-Jobs |
+| `SNAP_COLLECTOR_DB_LOCK_TIMEOUT_MS` | – | `3000` | Warten auf DB-Lock im Snapshot-Collector |
+| `SNAP_COLLECTOR_DB_STATEMENT_TIMEOUT_MS` | – | `0` | Postgres-Statement-Timeout (0 = aus) |
+| `OPEN_ALERTS_CACHE_SECONDS` | – | `30` | Cache-TTL für offene Alerts (Navbar) |
 
 ---
 
@@ -1191,6 +1233,9 @@ pytest tests/ --cov=app
 | `test_ontap_rest_status_alerts.py` | ONTAP REST-Status-Alerts |
 | `test_pure1_client.py` | Pure1 JWT-Client |
 | `test_pure_controller_status.py` | Pure Shelf-Controller-Filterung |
+| `test_snap_ttl_auto_delete_exclusions.py` | TTL-Auto-Delete-Ausschlussregeln |
+| `test_snap_ttl_email.py` / `test_mail_api.py` | SMTP-Hilfen und Test-Endpunkt |
+| `test_sod_service_history_refresh.py` | SoD-Verlauf-Backfill |
 
 ---
 
@@ -1402,4 +1447,4 @@ tests/test_my_new_vendor.py
 
 ---
 
-*Storage Dashboard Developer Guide – Version 1.1 – März 2026*
+*Storage Dashboard Developer Guide – Stand Mai 2026*
