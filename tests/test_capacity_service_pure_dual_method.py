@@ -40,6 +40,8 @@ def app():
         patch('app.capacity_service.start_background_refresh', _no_op),
         patch('app.sod_service.start_background_refresh', _no_op),
         patch('app.status_service.start_background_refresh', _no_op),
+        patch('app.dr_service.start_background_refresh', _no_op),
+        patch('app.snap_service.start_background_refresh', _no_op),
     ]
     for p in patches:
         p.start()
