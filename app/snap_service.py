@@ -1117,42 +1117,34 @@ def _do_collect(app):
     from app import db
     from app.models import StorageSystem
 
-    def _try_acquire_pg_lock() -> bool:
-        """Cross-process lock for PostgreSQL deployments."""
-        bind = db.session.get_bind()
-        dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
-        if dialect_name != 'postgresql':
-            return True
-        got = db.session.execute(
-            text("SELECT pg_try_advisory_lock(:key)"),
-            {'key': _PG_ADVISORY_LOCK_KEY},
-        ).scalar()
-        return bool(got)
-
-    def _release_pg_lock() -> None:
-        bind = db.session.get_bind()
-        dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
-        if dialect_name != 'postgresql':
-            return
-        try:
-            db.session.execute(
-                text("SELECT pg_advisory_unlock(:key)"),
-                {'key': _PG_ADVISORY_LOCK_KEY},
-            )
-        except Exception as exc:
-            logger.warning("Snapshot collector: could not release PG advisory lock: %s", exc)
-
     if not _collect_run_lock.acquire(blocking=False):
         logger.info("Snapshot collector: previous run still active, skipping overlapping run.")
         return
 
-    pg_lock_acquired = False
+    # PostgreSQL advisory locks are per database session. Holding them on Flask's
+    # scoped ``db.session`` and releasing after a *different* ``app.app_context()``
+    # often runs ``pg_advisory_unlock`` on another pooled connection, so the real
+    # lock stays held until that connection is recycled — every subsequent run then
+    # skips at try_advisory_lock and snapshots look "stale".
+    advisory_conn = None
     try:
         with app.app_context():
-            pg_lock_acquired = _try_acquire_pg_lock()
-            if not pg_lock_acquired:
-                logger.info("Snapshot collector: another process currently runs collection, skipping.")
-                return
+            bind = db.session.get_bind()
+            dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
+            if dialect_name == "postgresql":
+                advisory_conn = db.engine.connect()
+                got = advisory_conn.execute(
+                    text("SELECT pg_try_advisory_lock(:key)"),
+                    {"key": _PG_ADVISORY_LOCK_KEY},
+                ).scalar()
+                if not bool(got):
+                    advisory_conn.close()
+                    advisory_conn = None
+                    logger.info(
+                        "Snapshot collector: another process currently runs collection, skipping.",
+                    )
+                    return
+
             systems = StorageSystem.query.filter(
                 StorageSystem.enabled == True,  # noqa: E712
                 or_(StorageSystem.snaps_enabled == True, StorageSystem.snaps_enabled == None),  # noqa: E712,E711
@@ -1189,9 +1181,18 @@ def _do_collect(app):
         _schedule_ttl_expired_deletions(app)
         _process_expired_deletions(app)
     finally:
-        with app.app_context():
-            if pg_lock_acquired:
-                _release_pg_lock()
+        if advisory_conn is not None:
+            try:
+                advisory_conn.execute(
+                    text("SELECT pg_advisory_unlock(:key)"),
+                    {"key": _PG_ADVISORY_LOCK_KEY},
+                )
+            except Exception as exc:
+                logger.warning("Snapshot collector: could not release PG advisory lock: %s", exc)
+            try:
+                advisory_conn.close()
+            except Exception:
+                pass
         _collect_run_lock.release()
 
 
