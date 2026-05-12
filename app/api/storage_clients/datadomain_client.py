@@ -937,12 +937,13 @@ class DellDataDomainClient(StorageClient):
             total_bytes = physical_capacity.get('total', 0)
             used_bytes = physical_capacity.get('used', 0)
 
-            # Get logical capacity and compression factor for additional info
+            # Get logical capacity and compression / deduplication factors
             data.get('logical_capacity', {})
             compression_factor = data.get('compression_factor', 0) or 0
+            deduplication_factor = data.get('deduplication_factor', 0) or 0
 
             logger.debug(f"DataDomain {self.ip_address} - System: {system_name}, Type: {system_type}, Model: {model}, "
-                        f"Version: {os_version}, Compression: {compression_factor:.2f}x")
+                        f"Version: {os_version}, Compression: {compression_factor:.2f}x, Dedup: {deduplication_factor:.2f}x")
 
             # Gather comprehensive system information using helper methods
             # Get HA status and partner node information
@@ -1129,6 +1130,30 @@ class DellDataDomainClient(StorageClient):
             # Add additional system details
             result['system_name'] = system_name
             result['model'] = model
+            dd_eff_detail = {}
+            try:
+                cf = float(compression_factor) if compression_factor else 0.0
+            except (TypeError, ValueError):
+                cf = 0.0
+            try:
+                df = float(deduplication_factor) if deduplication_factor else 0.0
+            except (TypeError, ValueError):
+                df = 0.0
+            if cf > 0:
+                dd_eff_detail['compression_factor'] = round(cf, 2)
+            if df > 0:
+                dd_eff_detail['deduplication_factor'] = round(df, 2)
+            eff_ratio = None
+            if cf > 1 and df > 1:
+                eff_ratio = round(cf * df, 2)
+            elif cf > 0:
+                eff_ratio = round(cf, 2)
+            elif df > 0:
+                eff_ratio = round(df, 2)
+            if eff_ratio and eff_ratio > 0:
+                result['efficiency_ratio'] = eff_ratio
+            if dd_eff_detail:
+                result['efficiency_detail'] = dd_eff_detail
             if compression_factor:
                 result['compression_factor'] = compression_factor
 

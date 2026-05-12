@@ -73,6 +73,9 @@ ALLOWED_COLUMNS = {
     'smtp_from_name': 'VARCHAR(200)',
     # sod_history
     'on_demand_tb': 'FLOAT',
+    # capacity_snapshots – Speicher-Effizienz (Kapazitätsreport)
+    'efficiency_ratio': 'FLOAT',
+    'efficiency_detail_json': 'TEXT',
 }
 
 # Dialect-specific type overrides: {column_name: {dialect_name: sql_type}}
@@ -339,6 +342,19 @@ def migrate_sod_history_table():
     return migrations_applied
 
 
+def migrate_capacity_snapshots_table():
+    """Migrate capacity_snapshots for efficiency metrics (Kapazitätsreport)."""
+    migrations_applied = []
+    cols = [
+        ('efficiency_ratio', ALLOWED_COLUMNS['efficiency_ratio']),
+        ('efficiency_detail_json', ALLOWED_COLUMNS['efficiency_detail_json']),
+    ]
+    for col_name, col_type in cols:
+        if add_column_if_not_exists('capacity_snapshots', col_name, col_type):
+            migrations_applied.append(col_name)
+    return migrations_applied
+
+
 def backfill_snaps_enabled_null_to_true():
     """Set snaps_enabled = True for all storage_systems rows where snaps_enabled IS NULL.
 
@@ -403,6 +419,10 @@ def run_all_migrations():
         # Migrate sod_history table
         if 'sod_history' in inspector.get_table_names():
             migrations = migrate_sod_history_table()
+            all_migrations.extend(migrations)
+
+        if 'capacity_snapshots' in inspector.get_table_names():
+            migrations = migrate_capacity_snapshots_table()
             all_migrations.extend(migrations)
         
         # Seed initial tags if tag_groups table exists

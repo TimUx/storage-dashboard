@@ -892,6 +892,12 @@ function fmtPct(val) {
     return parseFloat(val).toFixed(1) + ' %';
 }
 
+/** Storage efficiency ratio (e.g. data reduction factor) for Kapazitätsreport */
+function fmtEff(val) {
+    if (val == null || val === undefined) return '–';
+    return parseFloat(val).toFixed(2) + '×';
+}
+
 function pctBarHtml(pct) {
     if (pct == null) return '–';
     const p = Math.max(parseFloat(pct), 0);
@@ -924,12 +930,20 @@ function hasProvisioned(rows, totalRow) {
            rows.some(r => r.provisioned_tb != null);
 }
 
-function tableHeader(label, showProvisioned, showEffectiveUsed) {
+/** True when grouped capacity rows include any average efficiency value. */
+function groupHasEfficiency(g) {
+    if (!g) return false;
+    if (g.total && g.total.avg_efficiency_ratio != null) return true;
+    return !!(g.rows && g.rows.some(r => r.avg_efficiency_ratio != null));
+}
+
+function tableHeader(label, showProvisioned, showEffectiveUsed, showEfficiency) {
     // Determine widths based on number of columns
     // Base: label + 3 TiB cols + 1 pct col = 5 cols
     // With provisioned: + 2 cols = 7 cols
     // With effectiveUsed: + 1 col = up to 8 cols
-    let totalCols = 5 + (showProvisioned ? 2 : 0) + (showEffectiveUsed ? 1 : 0);
+    // With efficiency: + 1 col
+    let totalCols = 5 + (showProvisioned ? 2 : 0) + (showEffectiveUsed ? 1 : 0) + (showEfficiency ? 1 : 0);
     const pctColWidth = totalCols <= 5 ? '24%' : '17%';
     const tbColWidth  = totalCols <= 5 ? '17%' : '12%';
 
@@ -938,6 +952,9 @@ function tableHeader(label, showProvisioned, showEffectiveUsed) {
         <th style="width:${tbColWidth}">Genutzt [TiB]</th>
         <th style="width:${tbColWidth}">Frei [TiB]</th>
         <th style="width:${pctColWidth}">Genutzt [%]</th>`;
+    if (showEfficiency) {
+        cols += `<th style="width:${tbColWidth}" title="Mittelwert der Effizienzfaktoren (z. B. Datenreduktion) der zugeordneten Systeme">Ø Effizienz [×]</th>`;
+    }
     if (showProvisioned) {
         cols += `<th style="width:${tbColWidth}">Provisioniert [TiB]</th><th style="width:${pctColWidth}">Provisioniert [%]</th>`;
     }
@@ -947,7 +964,7 @@ function tableHeader(label, showProvisioned, showEffectiveUsed) {
     return `<thead><tr>${cols}</tr></thead>`;
 }
 
-function rowHtml(label, row, isTotalRow, showProvisioned, showEffectiveUsedCol, effectiveUsedValue) {
+function rowHtml(label, row, isTotalRow, showProvisioned, showEffectiveUsedCol, effectiveUsedValue, showEfficiencyCol) {
     const cls = isTotalRow ? ' class="total-row"' : '';
     let html = `<tr${cls}>
         <td>${label}</td>
@@ -955,6 +972,9 @@ function rowHtml(label, row, isTotalRow, showProvisioned, showEffectiveUsedCol, 
         <td>${fmt(row.used_tb)}</td>
         <td>${fmt(row.free_tb)}</td>
         <td>${pctBarHtml(row.percent_used)}</td>`;
+    if (showEfficiencyCol) {
+        html += `<td>${fmtEff(row.avg_efficiency_ratio)}</td>`;
+    }
     if (showProvisioned) {
         html += `<td>${fmt(row.provisioned_tb)}</td>
         <td>${pctBarHtmlProv(row.percent_provisioned)}</td>`;
@@ -1091,6 +1111,7 @@ function buildSodSummarySection(sodDataArg) {
 
 function buildSection(title, subtitle, rows, totalRow, sodRowEffMap) {
     const showProvisioned = hasProvisioned(rows, totalRow);
+    const showEfficiency = groupHasEfficiency({ rows, total: totalRow });
 
     let showEffectiveUsed = false;
     let effTotal = null;
@@ -1105,11 +1126,13 @@ function buildSection(title, subtitle, rows, totalRow, sodRowEffMap) {
 
     const rowsHtml = rows.map(r => rowHtml(
         r.label, r, false, showProvisioned,
-        showEffectiveUsed, sodRowEffMap ? (sodRowEffMap[r.label] ?? null) : null
+        showEffectiveUsed, sodRowEffMap ? (sodRowEffMap[r.label] ?? null) : null,
+        showEfficiency
     )).join('');
     const totalHtml = rowHtml(
         'Total', totalRow, true, showProvisioned,
-        showEffectiveUsed, effTotal
+        showEffectiveUsed, effTotal,
+        showEfficiency
     );
     return `<div class="cap-section">
         <div class="cap-section-header">
@@ -1118,7 +1141,7 @@ function buildSection(title, subtitle, rows, totalRow, sodRowEffMap) {
         </div>
         <div class="cap-table-wrap">
             <table class="cap-table">
-                ${tableHeader('Gruppe', showProvisioned, showEffectiveUsed)}
+                ${tableHeader('Gruppe', showProvisioned, showEffectiveUsed, showEfficiency)}
                 <tbody>${rowsHtml}${totalHtml}</tbody>
             </table>
         </div>
@@ -1222,6 +1245,7 @@ function renderByStorageArt(data) {
     let html = data.map(g => {
         const sodRowEffMap = pure1Configured ? (effMaps.byArtEnv[g.storage_art] || null) : null;
         const showProvisioned = hasProvisioned(g.rows, g.total);
+        const showEfficiency = groupHasEfficiency(g);
 
         let showEffectiveUsed = false;
         let effTotal = null;
@@ -1236,11 +1260,13 @@ function renderByStorageArt(data) {
 
         const rowsHtml = g.rows.map(r => rowHtml(
             r.label, r, false, showProvisioned,
-            showEffectiveUsed, sodRowEffMap ? (sodRowEffMap[r.label] ?? null) : null
+            showEffectiveUsed, sodRowEffMap ? (sodRowEffMap[r.label] ?? null) : null,
+            showEfficiency
         )).join('');
         const totalHtml = rowHtml(
             'Total', g.total, true, showProvisioned,
-            showEffectiveUsed, effTotal
+            showEffectiveUsed, effTotal,
+            showEfficiency
         );
         return `<div class="cap-section">
             <div class="cap-section-header">
@@ -1249,7 +1275,7 @@ function renderByStorageArt(data) {
             </div>
             <div class="cap-table-wrap">
                 <table class="cap-table">
-                    ${tableHeader('Gruppe', showProvisioned, showEffectiveUsed)}
+                    ${tableHeader('Gruppe', showProvisioned, showEffectiveUsed, showEfficiency)}
                     <tbody>${rowsHtml}${totalHtml}</tbody>
                 </table>
             </div>
@@ -1303,8 +1329,16 @@ function renderDetails(data) {
         const isBlock = g.storage_art === 'Block';
         const showProvisioned = g.systems.some(s => s.provisioned_tb != null);
         const showEffectiveUsed = isBlock && pure1Configured && Object.keys(sodResMap).length > 0;
+        const showEfficiency = g.systems.some(s =>
+            (s.efficiency_ratio != null && s.efficiency_ratio > 0) ||
+            (s.efficiency_detail && typeof s.efficiency_detail === 'object' && Object.keys(s.efficiency_detail).length > 0)
+        );
         const rows = g.systems.map(s => {
             const errBadge = s.error ? `<span class="err-badge" title="${escHtml(s.error)}">Fehler</span>` : '';
+            const parts = s.efficiency_detail && typeof s.efficiency_detail === 'object'
+                ? Object.entries(s.efficiency_detail).map(([k, v]) => `${k}: ${v}`).join(' · ')
+                : '';
+            const effTitle = parts ? ` title="${escHtml(parts)}"` : '';
             let row = `<tr>
                 <td>${escHtml(s.system_name)}${errBadge}</td>
                 <td>${escHtml(s.environment)}</td>
@@ -1313,6 +1347,9 @@ function renderDetails(data) {
                 <td>${fmt(s.used_tb)}</td>
                 <td>${fmt(s.free_tb)}</td>
                 <td>${pctBarHtml(s.percent_used)}</td>`;
+            if (showEfficiency) {
+                row += `<td${effTitle}>${fmtEff(s.efficiency_ratio)}</td>`;
+            }
             if (showProvisioned) {
                 row += `<td>${fmt(s.provisioned_tb)}</td>
                 <td>${pctBarHtmlProv(s.percent_provisioned)}</td>`;
@@ -1331,6 +1368,9 @@ function renderDetails(data) {
                         <th style="width:9%">Genutzt [TiB]</th>
                         <th style="width:9%">Frei [TiB]</th>
                         <th style="width:15%">Genutzt [%]</th>`;
+        if (showEfficiency) {
+            headerCols += `<th style="width:8%" title="Herstellerspezifischer Effizienzfaktor (z. B. Datenreduktion); Details im Tooltip">Effizienz [×]</th>`;
+        }
         if (showProvisioned) {
             headerCols += `<th style="width:9%">Provisioniert [TiB]</th><th style="width:15%">Provisioniert [%]</th>`;
         }

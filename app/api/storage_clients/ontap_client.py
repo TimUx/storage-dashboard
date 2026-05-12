@@ -667,20 +667,34 @@ class NetAppONTAPClient(StorageClient):
                                 mc_node['uuid'] = cluster_node.get('uuid')
                             break
 
-            # Get aggregate space info
-            # REST API: GET /api/storage/aggregates?fields=space
+            # Get aggregate space info (optionally include efficiency for Kapazitätsreport)
+            # REST API: GET /api/storage/aggregates
             total_bytes = 0
             used_bytes = 0
+            ontap_efficiency_ratio = None
+            ontap_efficiency_detail = {}
 
             try:
                 aggregates_response = local_session().get(
                     f"{self.base_url}/api/storage/aggregates",
                     auth=auth,
                     headers=headers,
-                    params={'fields': 'space'},
+                    params={'fields': 'space.block_storage,space.efficiency'},
                     verify=ssl_verify,
                     timeout=10
                 )
+                if aggregates_response.status_code != 200:
+                    aggregates_response = local_session().get(
+                        f"{self.base_url}/api/storage/aggregates",
+                        auth=auth,
+                        headers=headers,
+                        params={'fields': 'space'},
+                        verify=ssl_verify,
+                        timeout=10
+                    )
+
+                eff_logical = 0
+                eff_physical = 0
 
                 if aggregates_response.status_code == 200:
                     aggregates_data = aggregates_response.json()
@@ -698,6 +712,29 @@ class NetAppONTAPClient(StorageClient):
 
                         total_bytes += size
                         used_bytes += used
+
+                        eff = space.get('efficiency')
+                        if isinstance(eff, dict):
+                            for lk, pk in (
+                                ('logical_used', 'physical_used'),
+                                ('logical_size', 'physical_used'),
+                            ):
+                                lu = eff.get(lk)
+                                pu = eff.get(pk)
+                                if lu and pu:
+                                    try:
+                                        eff_logical += int(lu)
+                                        eff_physical += int(pu)
+                                    except (TypeError, ValueError):
+                                        pass
+                                    break
+
+                if eff_physical > 0 and eff_logical > 0:
+                    ratio = eff_logical / eff_physical
+                    if ratio > 1.0:
+                        ontap_efficiency_ratio = round(ratio, 2)
+                        ontap_efficiency_detail['logical_used'] = eff_logical
+                        ontap_efficiency_detail['physical_used'] = eff_physical
             except Exception as aggr_error:
                 # Log the error but continue with 0 capacity
                 logger.warning(f"Could not get aggregate space info for {self.ip_address}: {aggr_error}")
@@ -991,6 +1028,10 @@ class NetAppONTAPClient(StorageClient):
                 result['svm_peers'] = svm_peers
             if metrocluster_interconnects:
                 result['metrocluster_interconnects'] = metrocluster_interconnects
+            if ontap_efficiency_ratio:
+                result['efficiency_ratio'] = ontap_efficiency_ratio
+            if ontap_efficiency_detail:
+                result['efficiency_detail'] = ontap_efficiency_detail
             return result
         except Exception as e:
             logger.error(f"Error getting NetApp ONTAP health status for {self.ip_address}: {e}")

@@ -179,6 +179,7 @@ class PureStorageClient(StorageClient):
 
             total_bytes = 0
             used_bytes = 0
+            pure_efficiency_detail = {}
             # Evergreen/One Dashboard detection: when the Evergreen/One Dashboard API is
             # active on the array, ``space.total_physical`` is absent or returns 0 and
             # ``capacity`` may report an incorrect (too large) licensed value instead of
@@ -212,6 +213,23 @@ class PureStorageClient(StorageClient):
                             "(space.total_physical is absent or 0)",
                             self.ip_address,
                         )
+
+                    dr = space_info.get('data_reduction')
+                    tr = space_info.get('total_reduction')
+                    if dr is not None:
+                        try:
+                            drf = float(dr)
+                            if drf > 0:
+                                pure_efficiency_detail['data_reduction'] = round(drf, 2)
+                        except (TypeError, ValueError):
+                            pass
+                    if tr is not None:
+                        try:
+                            trf = float(tr)
+                            if trf > 0:
+                                pure_efficiency_detail['total_reduction'] = round(trf, 2)
+                        except (TypeError, ValueError):
+                            pass
 
             # Get controllers/nodes information
             # REST API v2: GET /api/2.x/controllers
@@ -605,6 +623,12 @@ class PureStorageClient(StorageClient):
             )
             if pod_replica_links:
                 result['pod_replica_links'] = pod_replica_links
+            if pure_efficiency_detail.get('data_reduction'):
+                result['efficiency_ratio'] = pure_efficiency_detail['data_reduction']
+            elif pure_efficiency_detail.get('total_reduction'):
+                result['efficiency_ratio'] = pure_efficiency_detail['total_reduction']
+            if pure_efficiency_detail:
+                result['efficiency_detail'] = pure_efficiency_detail
             return result
 
         except Exception as e:
