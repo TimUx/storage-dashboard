@@ -778,7 +778,7 @@ td.ttl-cell .ttl-display.ttl-locked .ttl-edit-icon { opacity: .8; }
                    id="filter-sid"
                    placeholder="z. B. ACP, *PRD*, HDBSNAP-2026*"
                    aria-describedby="filter-sid-hint"
-                   oninput="applyFilters()">
+                   oninput="applyFiltersDebounced()">
         </div>
 
         <div class="sn-filter-field">
@@ -926,6 +926,11 @@ let _lastCollectorUpdate = null; // most recent stats.last_update value from API
 let _listStats = {};             // last /snaps/api/list stats (exclusion rules, auto-delete flag)
 let _collectInProgress = false;  // manual refresh currently waiting for new run
 let _autoReloadTimer = null;     // periodic list refresh interval
+let _loadAbortCtrl = null;       // AbortController for in-flight loadSnapshots
+let _lastLoadAt = 0;             // timestamp (ms) of last successful loadSnapshots
+let _lastSnapshotsSig = '';      // signature of last rendered _snapshots payload
+let _filterDebounceTimer = null; // debounce timer for the search input
+let _renderRafHandle = null;     // pending requestAnimationFrame handle for renderTable
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -959,28 +964,90 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && !_execRunning) {
-            loadSnapshots();
-        }
+        if (document.visibilityState !== 'visible') return;
+        // Skip if another flow is already pulling fresh data – the
+        // AbortController in loadSnapshots would otherwise cancel an
+        // in-flight manual refresh / streaming operation.
+        if (_execRunning || _collectInProgress) return;
+        // Don't kick off a fresh fetch on every brief tab focus change –
+        // the 60s poll already keeps things fresh. Only reload if data
+        // is older than 30s.
+        if (Date.now() - _lastLoadAt < 30_000) return;
+        loadSnapshots();
     });
 });
 
 // ─── Data loading ─────────────────────────────────────────────────────────
+/**
+ * Compute a cheap signature for a snapshot payload.
+ *
+ * Used by ``loadSnapshots`` to skip the (expensive) re-render of the
+ * table on the periodic 60s poll when nothing relevant changed. The
+ * signature deliberately includes only the fields that affect the
+ * rendered row, so e.g. ``last_seen`` updates do not trigger a redraw.
+ */
+function _snapshotsSignature(list) {
+    if (!Array.isArray(list)) return '';
+    const parts = new Array(list.length);
+    for (let i = 0; i < list.length; i++) {
+        const s = list[i] || {};
+        parts[i] = [
+            s.id,
+            s.sid,
+            s.creation_time,
+            s.ttl,
+            s.flasharray_present ? 1 : 0,
+            s.ontap_present ? 1 : 0,
+            s.delete_marked ? 1 : 0,
+            s.delete_deadline || '',
+            s.actions_locked ? 1 : 0,
+            s.ttl_auto_delete_excluded ? 1 : 0,
+            s.comment || '',
+        ].join('|');
+    }
+    return parts.join('\u0002');
+}
+
 async function loadSnapshots() {
     try {
-        const resp = await fetch('/snaps/api/list');
+        // Cancel any in-flight request so overlapping reloads (visibilitychange,
+        // manual refresh, 60s poll) cannot pile up and trigger redundant renders.
+        if (_loadAbortCtrl) _loadAbortCtrl.abort();
+        _loadAbortCtrl = ('AbortController' in window) ? new AbortController() : null;
+
+        const resp = await fetch('/snaps/api/list',
+            _loadAbortCtrl ? {signal: _loadAbortCtrl.signal} : undefined);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const data = await resp.json();
-        _snapshots = data.snapshots || [];
+        _lastLoadAt = Date.now();
+        const snaps = data.snapshots || [];
+        const sig = _snapshotsSignature(snaps);
+        const dataChanged = (sig !== _lastSnapshotsSig);
+        _lastSnapshotsSig = sig;
+        _snapshots = snaps;
         _lastCollectorUpdate = (data.stats && data.stats.last_update) || null;
         _listStats = data.stats || {};
         renderStats(data.stats || {});
         updateTtlExclusionFilterRow();
-        applyFilters();
+        if (dataChanged) {
+            applyFilters();
+        } else {
+            // Refresh just the active delete-countdown timers so the
+            // "Verbleibend" tooltip stays accurate without a full redraw.
+            for (const s of _snapshots) {
+                if (s.delete_marked && s.delete_deadline) {
+                    startTimer(s.id, s.delete_deadline);
+                }
+            }
+        }
         return data;
     } catch (e) {
-        document.getElementById('sn-tbody').innerHTML =
-            `<tr><td colspan="8" class="sn-empty">Fehler beim Laden: ${e.message}</td></tr>`;
+        if (e && e.name === 'AbortError') return null;
+        const tbody = document.getElementById('sn-tbody');
+        if (tbody) {
+            tbody.innerHTML =
+                `<tr><td colspan="8" class="sn-empty">Fehler beim Laden: ${escHtml(e.message)}</td></tr>`;
+        }
         return null;
     }
 }
@@ -1157,7 +1224,27 @@ function snapshotTextSearchMatch(haystack, patternRaw) {
     return hay.indexOf(pat) >= 0;
 }
 
+/**
+ * Debounced wrapper around ``applyFilters`` used by the search input.
+ *
+ * Each keystroke triggers a full table re-render, which is expensive on
+ * large snapshot lists. Coalescing the re-renders into one per ~250ms
+ * keeps the UI responsive while the operator types.
+ */
+function applyFiltersDebounced() {
+    refreshFilterBadge();
+    if (_filterDebounceTimer) clearTimeout(_filterDebounceTimer);
+    _filterDebounceTimer = setTimeout(() => {
+        _filterDebounceTimer = null;
+        applyFilters();
+    }, 250);
+}
+
 function applyFilters() {
+    if (_filterDebounceTimer) {
+        clearTimeout(_filterDebounceTimer);
+        _filterDebounceTimer = null;
+    }
     const textF   = document.getElementById('filter-sid').value;
     const caAfter = document.getElementById('filter-created-after').value;
     const caBefore= document.getElementById('filter-created-before').value;
@@ -1258,8 +1345,109 @@ function sortedData() {
     });
 }
 
+// ─── Detail row rendering (lazy) ──────────────────────────────────────────
+/**
+ * Build the inner HTML for an expanded snapshot detail row.
+ *
+ * Pulled out of ``renderTable`` so detail content can be generated only
+ * when a row is actually expanded. Rendering all detail rows up front
+ * caused the table to balloon to tens of thousands of DOM nodes on
+ * large installations, which is what made the page sluggish and
+ * occasionally crashed the browser tab.
+ */
+function buildDetailHtml(s) {
+    const locs = s.storage_locations || {};
+    const faSystems = locs.flasharray_systems || [];
+    const ontapCls  = locs.ontap_clusters || [];
+
+    function groupFASystems(systems) {
+        const keys = systems.map(sys => JSON.stringify((sys.snapshot_names || []).slice().sort()));
+        const groups = [];
+        const usedIdx = new Set();
+        for (let i = 0; i < systems.length; i++) {
+            if (usedIdx.has(i)) continue;
+            const names = [systems[i].name];
+            for (let j = i + 1; j < systems.length; j++) {
+                if (!usedIdx.has(j) && keys[j] === keys[i]) {
+                    names.push(systems[j].name);
+                    usedIdx.add(j);
+                }
+            }
+            usedIdx.add(i);
+            groups.push({ names, snapshot_names: systems[i].snapshot_names || [] });
+        }
+        return groups;
+    }
+
+    let detailHtml = '<div class="sn-detail-grid">';
+    if (faSystems.length) {
+        detailHtml += '<div class="sn-detail-section"><h4>FlashArray</h4><ul>';
+        for (const grp of groupFASystems(faSystems)) {
+            detailHtml += `<li><strong>${grp.names.map(escHtml).join(' / ')}</strong>`;
+            if (grp.snapshot_names.length) {
+                detailHtml += '<ul>';
+                for (const sn of grp.snapshot_names) {
+                    detailHtml += `<li>${escHtml(sn)}</li>`;
+                }
+                detailHtml += '</ul>';
+            }
+            detailHtml += '</li>';
+        }
+        detailHtml += '</ul></div>';
+    }
+    if (ontapCls.length) {
+        detailHtml += '<div class="sn-detail-section"><h4>ONTAP</h4><ul>';
+        for (const oc of ontapCls) {
+            detailHtml += `<li><strong>${escHtml(oc.cluster)}</strong>`;
+            if (oc.svm) detailHtml += ` / ${escHtml(oc.svm)}`;
+            if (oc.volumes && oc.volumes.length) {
+                detailHtml += '<ul>';
+                for (const v of oc.volumes) {
+                    if (v !== null && typeof v === 'object') {
+                        const snapPart = v.snap
+                            ? ` <span style="color:var(--sn-muted)">${escHtml(v.snap)}</span>`
+                            : '';
+                        detailHtml += `<li>${escHtml(v.volume)}${snapPart}</li>`;
+                    } else {
+                        detailHtml += `<li>${escHtml(v)}</li>`;
+                    }
+                }
+                detailHtml += '</ul>';
+            }
+            detailHtml += '</li>';
+        }
+        detailHtml += '</ul></div>';
+    }
+    if (!faSystems.length && !ontapCls.length) {
+        detailHtml += '<span style="color:var(--sn-muted)">Keine Detail-Informationen vorhanden.</span>';
+    }
+    detailHtml += '</div>';
+    return detailHtml;
+}
+
+/** Inject detail HTML for a row on demand (cached via data-loaded flag). */
+function fillDetailRow(snapId) {
+    const row = document.getElementById(`detail-${snapId}`);
+    if (!row || row.dataset.loaded === '1') return;
+    const snap = _snapshots.find(s => Number(s.id) === Number(snapId));
+    if (!snap) return;
+    const cell = row.querySelector('.sn-detail-cell');
+    if (!cell) return;
+    cell.innerHTML = buildDetailHtml(snap);
+    row.dataset.loaded = '1';
+}
+
 // ─── Table rendering ──────────────────────────────────────────────────────
 function renderTable() {
+    // Coalesce multiple synchronous renderTable calls into one paint frame.
+    if (_renderRafHandle) return;
+    _renderRafHandle = requestAnimationFrame(() => {
+        _renderRafHandle = null;
+        _renderTableImpl();
+    });
+}
+
+function _renderTableImpl() {
     const tbody = document.getElementById('sn-tbody');
     const rows  = sortedData();
     if (!rows.length) {
@@ -1325,75 +1513,9 @@ function renderTable() {
             delCol = `<button class="icon-btn icon-btn-delete" onclick="markDelete(${s.id})" title="Löschung in 24h einplanen" aria-label="Löschung in 24h einplanen">${ICON_TRASH}</button>`;
         }
 
-        // Storage locations detail
-        const locs = s.storage_locations || {};
-        const faSystems  = locs.flasharray_systems || [];
-        const ontapCls   = locs.ontap_clusters || [];
-
-        // Group FlashArray systems that share identical snapshot lists
-        function groupFASystems(systems) {
-            const keys = systems.map(sys => JSON.stringify((sys.snapshot_names || []).slice().sort()));
-            const groups = [];
-            const usedIdx = new Set();
-            for (let i = 0; i < systems.length; i++) {
-                if (usedIdx.has(i)) continue;
-                const names = [systems[i].name];
-                for (let j = i + 1; j < systems.length; j++) {
-                    if (!usedIdx.has(j) && keys[j] === keys[i]) {
-                        names.push(systems[j].name);
-                        usedIdx.add(j);
-                    }
-                }
-                usedIdx.add(i);
-                groups.push({ names, snapshot_names: systems[i].snapshot_names || [] });
-            }
-            return groups;
-        }
-
-        let detailHtml = '<div class="sn-detail-grid">';
-        if (faSystems.length) {
-            detailHtml += '<div class="sn-detail-section"><h4>FlashArray</h4><ul>';
-            for (const grp of groupFASystems(faSystems)) {
-                detailHtml += `<li><strong>${grp.names.map(escHtml).join(' / ')}</strong>`;
-                if (grp.snapshot_names.length) {
-                    detailHtml += '<ul>';
-                    for (const sn of grp.snapshot_names) {
-                        detailHtml += `<li>${escHtml(sn)}</li>`;
-                    }
-                    detailHtml += '</ul>';
-                }
-                detailHtml += '</li>';
-            }
-            detailHtml += '</ul></div>';
-        }
-        if (ontapCls.length) {
-            detailHtml += '<div class="sn-detail-section"><h4>ONTAP</h4><ul>';
-            for (const oc of ontapCls) {
-                detailHtml += `<li><strong>${escHtml(oc.cluster)}</strong>`;
-                if (oc.svm) detailHtml += ` / ${escHtml(oc.svm)}`;
-                if (oc.volumes && oc.volumes.length) {
-                    detailHtml += '<ul>';
-                    for (const v of oc.volumes) {
-                        if (v !== null && typeof v === 'object') {
-                            const snapPart = v.snap
-                                ? ` <span style="color:var(--sn-muted)">${escHtml(v.snap)}</span>`
-                                : '';
-                            detailHtml += `<li>${escHtml(v.volume)}${snapPart}</li>`;
-                        } else {
-                            detailHtml += `<li>${escHtml(v)}</li>`;
-                        }
-                    }
-                    detailHtml += '</ul>';
-                }
-                detailHtml += '</li>';
-            }
-            detailHtml += '</ul></div>';
-        }
-        if (!faSystems.length && !ontapCls.length) {
-            detailHtml += '<span style="color:var(--sn-muted)">Keine Detail-Informationen vorhanden.</span>';
-        }
-        detailHtml += '</div>';
-
+        // The detail row is rendered lazily: the cell stays empty until the
+        // user expands the row (or the row was already expanded before the
+        // re-render, in which case we fill it once below).
         html += `
         <tr${rowClass}>
             <td><button class="expand-btn${isOpen ? ' open' : ''}" id="${btnId}" onclick="toggleDetail(${snapId})" title="Details">▶</button></td>
@@ -1417,13 +1539,16 @@ function renderTable() {
             <td>${delCol}</td>
         </tr>
         <tr class="sn-detail-row${isOpen ? ' open' : ''}" id="${expandId}">
-            <td colspan="8" class="sn-detail-cell">${detailHtml}</td>
+            <td colspan="8" class="sn-detail-cell"></td>
         </tr>`;
     }
     tbody.innerHTML = html;
 
-    // Start countdown timers for delete-pending rows
+    // Fill detail content only for the rows that are currently expanded.
     for (const s of rows) {
+        if (_openDetailIds.has(Number(s.id))) {
+            fillDetailRow(s.id);
+        }
         if (s.delete_marked && s.delete_deadline) {
             startTimer(s.id, s.delete_deadline);
         }
@@ -1438,6 +1563,11 @@ function toggleDetail(id) {
     if (!row) return;
     const isOpen = row.classList.contains('open');
     const willOpen = !isOpen;
+    if (willOpen) {
+        // Render the detail HTML on demand so the table starts up fast
+        // even with thousands of snapshots.
+        fillDetailRow(snapId);
+    }
     row.classList.toggle('open', willOpen);
     if (btn) btn.classList.toggle('open', willOpen);
     if (willOpen) _openDetailIds.add(snapId);
