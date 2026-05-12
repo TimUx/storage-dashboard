@@ -1,4 +1,5 @@
 """Capacity data service – hourly background refresh and aggregation helpers"""
+import json
 import logging
 import threading
 import traceback
@@ -64,6 +65,19 @@ def _fetch_system_capacity(system, pure1_app_id, pure1_private_key, pure1_passph
         if error_msg:
             # API returned an error – caller will preserve last-known-good values.
             return {'system_id': system.id, 'use_existing': True, 'error_msg': error_msg}
+
+        eff_ratio = status.get('efficiency_ratio')
+        if eff_ratio is not None:
+            try:
+                eff_ratio = float(eff_ratio)
+                if eff_ratio <= 0:
+                    eff_ratio = None
+            except (TypeError, ValueError):
+                eff_ratio = None
+        eff_detail = status.get('efficiency_detail')
+        if eff_detail is not None and not isinstance(eff_detail, dict):
+            eff_detail = None
+        eff_detail_json = json.dumps(eff_detail) if eff_detail else None
 
         total_tb = status.get('capacity_total_tb', 0.0) or 0.0
         used_tb = status.get('capacity_used_tb', 0.0) or 0.0
@@ -133,6 +147,8 @@ def _fetch_system_capacity(system, pure1_app_id, pure1_private_key, pure1_passph
             'percent_used': percent_used,
             'percent_free': percent_free,
             'error_msg': None,
+            'efficiency_ratio': eff_ratio,
+            'efficiency_detail_json': eff_detail_json,
         }
 
     except Exception as exc:
@@ -230,14 +246,20 @@ def _do_refresh(app):
                     free_tb = existing.free_tb
                     percent_used = existing.percent_used
                     percent_free = existing.percent_free
+                    eff_ratio = existing.efficiency_ratio
+                    eff_detail_json = existing.efficiency_detail_json
                 else:
                     total_tb = used_tb = free_tb = percent_used = percent_free = 0.0
+                    eff_ratio = None
+                    eff_detail_json = None
             else:
                 total_tb = result['total_tb']
                 used_tb = result['used_tb']
                 free_tb = result['free_tb']
                 percent_used = result['percent_used']
                 percent_free = result['percent_free']
+                eff_ratio = result.get('efficiency_ratio')
+                eff_detail_json = result.get('efficiency_detail_json')
 
             # Upsert latest snapshot (one row per system – replace old one)
             if existing:
@@ -248,6 +270,8 @@ def _do_refresh(app):
                 existing.percent_used = percent_used
                 existing.percent_free = percent_free
                 existing.error = error_msg
+                existing.efficiency_ratio = eff_ratio
+                existing.efficiency_detail_json = eff_detail_json
             else:
                 snap = CapacitySnapshot(
                     system_id=system.id,
@@ -257,6 +281,8 @@ def _do_refresh(app):
                     percent_used=percent_used,
                     percent_free=percent_free,
                     error=error_msg,
+                    efficiency_ratio=eff_ratio,
+                    efficiency_detail_json=eff_detail_json,
                 )
                 db.session.add(snap)
 
@@ -330,7 +356,8 @@ def trigger_refresh(app):
 def _zero_row():
     return {'total_tb': 0.0, 'used_tb': 0.0, 'free_tb': 0.0,
             'provisioned_tb': None, 'percent_used': 0.0, 'percent_free': 0.0,
-            'percent_provisioned': None}
+            'percent_provisioned': None,
+            '_eff_sum': 0.0, '_eff_n': 0}
 
 
 def _accumulate(row, other):
@@ -348,10 +375,26 @@ def _accumulate(row, other):
         row['free_tb'] += other.free_tb or 0.0
         if hasattr(other, 'provisioned_tb') and other.provisioned_tb is not None:
             row['provisioned_tb'] = (row['provisioned_tb'] or 0.0) + other.provisioned_tb
+        ratio = getattr(other, 'efficiency_ratio', None)
+        if ratio is not None:
+            try:
+                rf = float(ratio)
+                if rf > 0:
+                    row['_eff_sum'] += rf
+                    row['_eff_n'] += 1
+            except (TypeError, ValueError):
+                pass
 
 
 def _finalize(row):
     """Recompute percentages after accumulation."""
+    eff_sum = row.pop('_eff_sum', 0.0) or 0.0
+    eff_n = int(row.pop('_eff_n', 0) or 0)
+    if eff_n > 0:
+        row['avg_efficiency_ratio'] = round(eff_sum / eff_n, 2)
+    else:
+        row['avg_efficiency_ratio'] = None
+
     total = row['total_tb']
     if total > 0:
         row['percent_used'] = round(row['used_tb'] / total * 100, 1)
@@ -367,6 +410,29 @@ def _finalize(row):
     if row['provisioned_tb'] is not None:
         row['provisioned_tb'] = round(row['provisioned_tb'], 2)
     return row
+
+
+def _avg_efficiency_systems_filtered(systems, snapshots, predicate):
+    """Arithmetic mean of ``efficiency_ratio`` for systems matching ``predicate``."""
+    ratios = []
+    for system in systems:
+        if not predicate(system):
+            continue
+        snap = snapshots.get(system.id)
+        if not snap or snap.error:
+            continue
+        r = snap.efficiency_ratio
+        if r is None:
+            continue
+        try:
+            rf = float(r)
+            if rf > 0:
+                ratios.append(rf)
+        except (TypeError, ValueError):
+            continue
+    if not ratios:
+        return None
+    return round(sum(ratios) / len(ratios), 2)
 
 
 def _tags_by_group(system):
@@ -426,6 +492,13 @@ def build_by_storage_art(systems, snapshots):
             rows.append(row)
             _accumulate(total_row, row)
         _finalize(total_row)
+        total_row['avg_efficiency_ratio'] = _avg_efficiency_systems_filtered(
+            systems, snapshots,
+            lambda s, a=art: (
+                (a == 'Sonstige' and not _tags_by_group(s).get('Storage Art'))
+                or a in _tags_by_group(s).get('Storage Art', [])
+            ),
+        )
         result.append({'storage_art': art, 'rows': rows, 'total': total_row})
     return result
 
@@ -468,6 +541,13 @@ def build_by_environment(systems, snapshots):
             rows.append(row)
             _accumulate(total_row, row)
         _finalize(total_row)
+        total_row['avg_efficiency_ratio'] = _avg_efficiency_systems_filtered(
+            systems, snapshots,
+            lambda s, e=env: (
+                (e == 'Unbekannt' and not _tags_by_group(s).get('Landschaft'))
+                or e in _tags_by_group(s).get('Landschaft', [])
+            ),
+        )
         result.append({'environment': env, 'rows': rows, 'total': total_row})
     return result
 
@@ -519,6 +599,13 @@ def build_by_department(systems, snapshots):
             rows.append(row)
             _accumulate(total_row, row)
         _finalize(total_row)
+        total_row['avg_efficiency_ratio'] = _avg_efficiency_systems_filtered(
+            systems, snapshots,
+            lambda s, d=dept: (
+                (d == 'Sonstige' and not _tags_by_group(s).get('Themenzugehörigkeit'))
+                or d in _tags_by_group(s).get('Themenzugehörigkeit', [])
+            ),
+        )
         result.append({'department': dept, 'rows': rows, 'total': total_row})
     return result
 
@@ -551,6 +638,8 @@ def build_details(systems, snapshots):
             'percent_used': 0.0, 'percent_free': 0.0,
             'percent_provisioned': None,
             'error': None,
+            'efficiency_ratio': None,
+            'efficiency_detail': None,
         }
         if snap:
             row['total_tb'] = round(snap.total_tb or 0.0, 2)
@@ -561,6 +650,18 @@ def build_details(systems, snapshots):
             row['provisioned_tb'] = round(snap.provisioned_tb, 2) if snap.provisioned_tb is not None else None
             row['percent_provisioned'] = snap.percent_provisioned
             row['error'] = snap.error
+            if snap.efficiency_ratio is not None:
+                try:
+                    er = float(snap.efficiency_ratio)
+                    if er > 0:
+                        row['efficiency_ratio'] = round(er, 2)
+                except (TypeError, ValueError):
+                    pass
+            if snap.efficiency_detail_json:
+                try:
+                    row['efficiency_detail'] = json.loads(snap.efficiency_detail_json)
+                except json.JSONDecodeError:
+                    row['efficiency_detail'] = None
 
         for art in arts:
             groups[art].append(dict(row))

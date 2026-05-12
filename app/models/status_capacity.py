@@ -60,6 +60,9 @@ class CapacitySnapshot(db.Model):
     percent_free = db.Column(db.Float, default=0.0)
     percent_provisioned = db.Column(db.Float)  # nullable
     error = db.Column(db.Text)
+    # Speicher-Effizienz (Kapazitätsreport): z. B. Data-Reduction-Faktor; Detail-JSON je Hersteller
+    efficiency_ratio = db.Column(db.Float)  # nullable – Hauptkennzahl (z. B. 3.5 = 3.5×)
+    efficiency_detail_json = db.Column(db.Text)  # nullable JSON mit Hersteller-spezifischen Werten
 
     def to_dict(self):
         return {
@@ -74,6 +77,8 @@ class CapacitySnapshot(db.Model):
             'percent_free': self.percent_free,
             'percent_provisioned': self.percent_provisioned,
             'error': self.error,
+            'efficiency_ratio': self.efficiency_ratio,
+            'efficiency_detail_json': self.efficiency_detail_json,
         }
 
     def __repr__(self):

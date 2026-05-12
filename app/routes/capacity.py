@@ -1,6 +1,7 @@
 """Capacity Report routes – /capacity/"""
 import csv
 import io
+import json
 import logging
 from datetime import date as _date
 from flask import Blueprint, render_template, jsonify, request, current_app, Response
@@ -251,6 +252,7 @@ def api_export_current_csv():
         'storage_art', 'system_name', 'environment', 'department',
         'total_tb', 'used_tb', 'free_tb', 'percent_used',
         'provisioned_tb', 'percent_provisioned',
+        'efficiency_ratio', 'efficiency_detail_json',
     ])
     writer.writeheader()
     for group in details:
@@ -266,6 +268,9 @@ def api_export_current_csv():
                 'percent_used': sys_row.get('percent_used'),
                 'provisioned_tb': sys_row.get('provisioned_tb'),
                 'percent_provisioned': sys_row.get('percent_provisioned'),
+                'efficiency_ratio': sys_row.get('efficiency_ratio'),
+                'efficiency_detail_json': json.dumps(sys_row.get('efficiency_detail'), ensure_ascii=False)
+                    if sys_row.get('efficiency_detail') else '',
             })
 
     return Response(
@@ -293,6 +298,7 @@ def api_export_current_excel():
 
     headers = ['Storage Art', 'System', 'Umgebung', 'Tätigkeitsfeld',
                'Gesamt [TiB]', 'Genutzt [TiB]', 'Frei [TiB]', 'Genutzt [%]',
+               'Effizienz [×]', 'Effizienz (Detail JSON)',
                'Provisioniert [TiB]', 'Provisioniert [%]']
     header_fill = PatternFill(fill_type='solid', fgColor='0098DB')
     header_font = Font(bold=True, color='FFFFFF')
@@ -314,6 +320,9 @@ def api_export_current_excel():
                 sys_row.get('used_tb'),
                 sys_row.get('free_tb'),
                 sys_row.get('percent_used'),
+                sys_row.get('efficiency_ratio'),
+                json.dumps(sys_row.get('efficiency_detail'), ensure_ascii=False)
+                    if sys_row.get('efficiency_detail') else '',
                 sys_row.get('provisioned_tb'),
                 sys_row.get('percent_provisioned'),
             ])
