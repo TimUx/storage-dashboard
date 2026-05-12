@@ -1169,13 +1169,35 @@ class NetAppONTAPClient(StorageClient):
             info['resolved_endpoint'] = (
                 f"/api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}"
             )
+            # ONTAP often replies 202 (Accepted) and processes the change
+            # asynchronously via /api/cluster/jobs. Without polling that
+            # job we cannot tell whether the expiry was actually updated –
+            # a silently-failed job would let the caller think the
+            # snapshot is now deletable, while it still has its old
+            # expiry. Poll until the job reaches success/failure.
+            if ok and resp.status_code == 202:
+                job_uuid = self._extract_job_uuid_from_response(resp)
+                if job_uuid:
+                    job_ok, job_info = self._wait_for_job_completion(
+                        job_uuid, auth, headers, ssl_verify, timeout_seconds=45
+                    )
+                    info['job_uuid'] = job_uuid
+                    info['job'] = job_info
+                    ok = job_ok
+                else:
+                    info['job'] = {
+                        'state': 'unknown',
+                        'message': (
+                            'HTTP 202 received, but no job UUID returned in body/headers'
+                        ),
+                    }
             if ok:
                 logger.info("ONTAP %s: set expiry_time on %s/%s (uuid=%s) → %s",
                             self.ip_address, volume_name, snap_name, snap_uuid, expiry_iso)
             else:
-                logger.warning("ONTAP %s: set expiry_time on %s/%s failed (HTTP %d): %s",
+                logger.warning("ONTAP %s: set expiry_time on %s/%s failed (HTTP %d, job=%s): %s",
                                self.ip_address, volume_name, snap_name,
-                               resp.status_code, resp.text[:200])
+                               resp.status_code, info.get('job'), resp.text[:200])
             return ok, info
         except Exception as exc:
             logger.warning("ONTAP update_snapshot_expiry error %s/%s: %s",
@@ -1214,17 +1236,41 @@ class NetAppONTAPClient(StorageClient):
             resp = local_session().delete(
                 f"{self.base_url}/api/storage/volumes/{vol_uuid}/snapshots/{snap_uuid}",
                 auth=auth, headers=headers, verify=ssl_verify, timeout=60,
+                params={'return_timeout': 30},
             )
             ok = resp.status_code in (200, 202)
             info = {'status_code': resp.status_code, 'text': resp.text[:500],
                     'volume_uuid': vol_uuid, 'snap_uuid': snap_uuid}
+            # ONTAP usually returns 202 + job UUID and processes the
+            # delete asynchronously. Without polling /api/cluster/jobs we
+            # would report "success" even when the job fails (e.g. because
+            # expiry_time was still in the future, or a SnapMirror lock is
+            # active). That false positive previously caused the dashboard
+            # to remove the DB record while the snapshot kept living on
+            # the array.
+            if ok and resp.status_code == 202:
+                job_uuid = self._extract_job_uuid_from_response(resp)
+                if job_uuid:
+                    job_ok, job_info = self._wait_for_job_completion(
+                        job_uuid, auth, headers, ssl_verify, timeout_seconds=60
+                    )
+                    info['job_uuid'] = job_uuid
+                    info['job'] = job_info
+                    ok = job_ok
+                else:
+                    info['job'] = {
+                        'state': 'unknown',
+                        'message': (
+                            'HTTP 202 received, but no job UUID returned in body/headers'
+                        ),
+                    }
             if ok:
                 logger.info("ONTAP %s: deleted snapshot %s/%s (uuid=%s)",
                             self.ip_address, volume_name, snap_name, snap_uuid)
             else:
-                logger.warning("ONTAP %s: delete snapshot %s/%s failed (HTTP %d): %s",
+                logger.warning("ONTAP %s: delete snapshot %s/%s failed (HTTP %d, job=%s): %s",
                                self.ip_address, volume_name, snap_name,
-                               resp.status_code, resp.text[:200])
+                               resp.status_code, info.get('job'), resp.text[:200])
             return ok, info
         except Exception as exc:
             logger.warning("ONTAP delete_volume_snapshot error %s/%s: %s",

@@ -614,9 +614,11 @@ def _build_delete_plan(rec, locs: dict) -> list[dict]:
     array auto-eradicates after its configured eradication delay (default
     24 h).  No rename / expiration adjustment is necessary on Pure.
 
-    ONTAP: two steps per volume – first reset ``expiry_time`` to "now"
-    (ONTAP refuses deletion while the expiry is in the future, errors
-    1638555 / 53412007), then DELETE.
+    ONTAP: two steps per volume – first push ``expiry_time`` two days into
+    the past (ONTAP refuses deletion while the expiry is at or after "now",
+    errors 1638555 / 53412007; setting it clearly into the past avoids any
+    clock-skew / race-condition with the immediately following DELETE),
+    then DELETE.
     """
     plan: list[dict] = []
 
@@ -645,8 +647,15 @@ def _build_delete_plan(rec, locs: dict) -> list[dict]:
                 'execute': _make_fa_destroy_executor(array_name, snap_name),
             })
 
-    now_dt = datetime.utcnow()
-    now_iso = now_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+    # ONTAP requires expiry_time to lie strictly before "now" before a
+    # snapshot can be deleted. Setting it to exactly "now" is racy because
+    # the subsequent DELETE call arrives milliseconds later but cluster
+    # time may have advanced past the set value — sometimes it still
+    # works, sometimes the controller still considers the expiry "in the
+    # future" and rejects the DELETE (async job state=failure).
+    # Push the expiry safely into the past instead.
+    past_dt = datetime.utcnow() - timedelta(days=2)
+    past_iso = past_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
 
     for oc in locs.get('ontap_clusters', []):
         cluster = oc.get('cluster', '')
@@ -667,7 +676,7 @@ def _build_delete_plan(rec, locs: dict) -> list[dict]:
                 f"/snapshots/{{snap_uuid}}' "
                 f"-u <user>:<password> "
                 f"-H 'Content-Type: application/json' "
-                f"-d '{{\"expiry_time\":\"{now_iso}\"}}'"
+                f"-d '{{\"expiry_time\":\"{past_iso}\"}}'"
             )
             cmd_delete = (
                 f"curl -X DELETE 'https://{cluster}/api/storage/volumes/{{vol_uuid}}"
@@ -675,12 +684,12 @@ def _build_delete_plan(rec, locs: dict) -> list[dict]:
                 f"-u <user>:<password>"
             )
             plan.append({
-                'label': f'ONTAP expiry_time = jetzt: {vol_name}/{snap_name}',
+                'label': f'ONTAP expiry_time → Vergangenheit (-2 Tage): {vol_name}/{snap_name}',
                 'platform': 'ONTAP',
                 'target': target,
                 'command': cmd_expiry,
                 'execute': _make_ontap_set_expiry_executor(
-                    cluster, svm, vol_name, snap_name, now_iso,
+                    cluster, svm, vol_name, snap_name, past_iso,
                 ),
             })
             plan.append({
