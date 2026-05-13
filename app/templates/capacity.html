@@ -937,6 +937,12 @@ function groupHasEfficiency(g) {
     return !!(g.rows && g.rows.some(r => r.avg_efficiency_ratio != null));
 }
 
+
+/** True when any group in a dataset contains efficiency values. */
+function datasetHasEfficiency(groups) {
+    return Array.isArray(groups) && groups.some(groupHasEfficiency);
+}
+
 function tableHeader(label, showProvisioned, showEffectiveUsed, showEfficiency) {
     // Determine widths based on number of columns
     // Base: label + 3 TiB cols + 1 pct col = 5 cols
@@ -1109,9 +1115,9 @@ function buildSodSummarySection(sodDataArg) {
     </div>`;
 }
 
-function buildSection(title, subtitle, rows, totalRow, sodRowEffMap) {
+function buildSection(title, subtitle, rows, totalRow, sodRowEffMap, forceShowEfficiency = false) {
     const showProvisioned = hasProvisioned(rows, totalRow);
-    const showEfficiency = groupHasEfficiency({ rows, total: totalRow });
+    const showEfficiency = forceShowEfficiency || groupHasEfficiency({ rows, total: totalRow });
 
     let showEffectiveUsed = false;
     let effTotal = null;
@@ -1242,10 +1248,10 @@ function renderByStorageArt(data) {
         return;
     }
     const effMaps = buildSodEffUsedMaps();
+    const showEfficiency = datasetHasEfficiency(data);
     let html = data.map(g => {
         const sodRowEffMap = pure1Configured ? (effMaps.byArtEnv[g.storage_art] || null) : null;
         const showProvisioned = hasProvisioned(g.rows, g.total);
-        const showEfficiency = groupHasEfficiency(g);
 
         let showEffectiveUsed = false;
         let effTotal = null;
@@ -1293,9 +1299,10 @@ function renderByEnvironment(data) {
         return;
     }
     const effMaps = buildSodEffUsedMaps();
+    const showEfficiency = datasetHasEfficiency(data);
     let html = data.map(g => {
         const sodRowEffMap = pure1Configured ? (effMaps.byEnvArt[g.environment] || null) : null;
-        return buildSection(g.environment, 'Gruppierung nach Storage Art', g.rows, g.total, sodRowEffMap);
+        return buildSection(g.environment, 'Gruppierung nach Storage Art', g.rows, g.total, sodRowEffMap, showEfficiency);
     }).join('');
     const sodHtml = pure1Configured ? buildSodSummarySection(sodData) : '';
     el.innerHTML = `<div class="cap-grid">${sodHtml}${html}</div>`;
@@ -1309,9 +1316,10 @@ function renderByDepartment(data) {
         return;
     }
     const effMaps = buildSodEffUsedMaps();
+    const showEfficiency = datasetHasEfficiency(data);
     let html = data.map(g => {
         const sodRowEffMap = pure1Configured ? (effMaps.byDeptLabel[g.department] || null) : null;
-        return buildSection(g.department, 'Umgebung × Storage Art', g.rows, g.total, sodRowEffMap);
+        return buildSection(g.department, 'Umgebung × Storage Art', g.rows, g.total, sodRowEffMap, showEfficiency);
     }).join('');
     const sodHtml = pure1Configured ? buildSodSummarySection(sodData) : '';
     el.innerHTML = `<div class="cap-grid">${sodHtml}${html}</div>`;
@@ -1325,14 +1333,15 @@ function renderDetails(data) {
         return;
     }
     const sodResMap = getSodResourceMap();
+    const showAnyEfficiency = data.some(g => g.systems.some(s =>
+        (s.efficiency_ratio != null && s.efficiency_ratio > 0) ||
+        (s.efficiency_detail && typeof s.efficiency_detail === 'object' && Object.keys(s.efficiency_detail).length > 0)
+    ));
     const html = data.map(g => {
         const isBlock = g.storage_art === 'Block';
         const showProvisioned = g.systems.some(s => s.provisioned_tb != null);
         const showEffectiveUsed = isBlock && pure1Configured && Object.keys(sodResMap).length > 0;
-        const showEfficiency = g.systems.some(s =>
-            (s.efficiency_ratio != null && s.efficiency_ratio > 0) ||
-            (s.efficiency_detail && typeof s.efficiency_detail === 'object' && Object.keys(s.efficiency_detail).length > 0)
-        );
+        const showEfficiency = showAnyEfficiency;
         const rows = g.systems.map(s => {
             const errBadge = s.error ? `<span class="err-badge" title="${escHtml(s.error)}">Fehler</span>` : '';
             const parts = s.efficiency_detail && typeof s.efficiency_detail === 'object'
