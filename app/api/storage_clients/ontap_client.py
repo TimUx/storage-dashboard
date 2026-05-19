@@ -679,7 +679,7 @@ class NetAppONTAPClient(StorageClient):
                     f"{self.base_url}/api/storage/aggregates",
                     auth=auth,
                     headers=headers,
-                    params={'fields': 'space.block_storage,space.efficiency'},
+                    params={'fields': 'space.block_storage,space.efficiency,space.efficiency_without_snapshots_flexclones'},
                     verify=ssl_verify,
                     timeout=10
                 )
@@ -695,6 +695,8 @@ class NetAppONTAPClient(StorageClient):
 
                 eff_logical = 0
                 eff_physical = 0
+                eff_wo_sf_ratio_sum = 0.0
+                eff_wo_sf_ratio_count = 0
 
                 if aggregates_response.status_code == 200:
                     aggregates_data = aggregates_response.json()
@@ -729,12 +731,32 @@ class NetAppONTAPClient(StorageClient):
                                         pass
                                     break
 
+                        # ONTAP file/backup systems often expose the reduction
+                        # factor only via efficiency_without_snapshots_flexclones.
+                        eff_wo_sf = space.get('efficiency_without_snapshots_flexclones')
+                        if isinstance(eff_wo_sf, dict):
+                            ratio = eff_wo_sf.get('ratio')
+                            try:
+                                ratio = float(ratio)
+                            except (TypeError, ValueError):
+                                ratio = None
+                            if ratio and ratio > 1.0:
+                                eff_wo_sf_ratio_sum += ratio
+                                eff_wo_sf_ratio_count += 1
+
                 if eff_physical > 0 and eff_logical > 0:
                     ratio = eff_logical / eff_physical
                     if ratio > 1.0:
                         ontap_efficiency_ratio = round(ratio, 2)
                         ontap_efficiency_detail['logical_used'] = eff_logical
                         ontap_efficiency_detail['physical_used'] = eff_physical
+
+                if eff_wo_sf_ratio_count > 0:
+                    avg_ratio = eff_wo_sf_ratio_sum / eff_wo_sf_ratio_count
+                    if avg_ratio > 1.0:
+                        ontap_efficiency_detail['ratio_wo_snapshots_flexclones'] = round(avg_ratio, 2)
+                        if not ontap_efficiency_ratio:
+                            ontap_efficiency_ratio = round(avg_ratio, 2)
             except Exception as aggr_error:
                 # Log the error but continue with 0 capacity
                 logger.warning(f"Could not get aggregate space info for {self.ip_address}: {aggr_error}")
