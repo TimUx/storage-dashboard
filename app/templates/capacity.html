@@ -39,14 +39,30 @@
     margin-bottom: 1rem;
 }
 .cap-header h2 { font-size: 1.4rem; color: var(--cap-blue); margin: 0; }
-.cap-header-actions { display: flex; gap: .75rem; align-items: center; }
+.cap-header-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: .25rem;
+}
+@media (max-width: 980px) {
+    .cap-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: .75rem;
+    }
+    .cap-header-actions {
+        width: 100%;
+        align-items: flex-start;
+    }
+}
 
 /* ── View Toggle ── */
 .view-toggle {
     display: flex;
     background: var(--cap-bg);
     border-radius: 6px;
-    overflow: hidden;
+    overflow: visible;
     border: 1px solid var(--cap-border);
     flex-wrap: wrap;
 }
@@ -301,6 +317,8 @@
 }
 .header-export-menu summary {
     list-style: none;
+    display: inline-flex;
+    align-items: center;
 }
 .header-export-menu summary::-webkit-details-marker { display: none; }
 .header-export-dropdown {
@@ -321,12 +339,24 @@
 .cap-header-top-row {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: .5rem;
     flex-wrap: wrap;
+}
+@media (max-width: 980px) {
+    .cap-header-top-row {
+        justify-content: flex-start;
+    }
 }
 .cap-header-status-row {
     width: 100%;
     margin-top: .2rem;
+    text-align: right;
+}
+@media (max-width: 980px) {
+    .cap-header-status-row {
+        text-align: left;
+    }
 }
 
 .header-status {
@@ -339,7 +369,7 @@
 .export-btn {
     background: var(--cap-bg);
     border: 1px solid var(--cap-border);
-    padding: .3rem .7rem;
+    padding: .28rem .62rem;
     border-radius: 4px;
     cursor: pointer;
     font-size: .82rem;
