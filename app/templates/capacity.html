@@ -63,6 +63,25 @@
 .view-toggle button:hover  { background: rgba(0,152,219,.1); color: var(--cap-blue); }
 .view-toggle button.active { background: var(--cap-blue); color: white; }
 
+.view-more-menu { position: relative; }
+.view-more-menu summary { list-style: none; }
+.view-more-menu summary::-webkit-details-marker { display:none; }
+.view-more-dropdown {
+    position: absolute;
+    top: calc(100% + .35rem);
+    left: 0;
+    z-index: 30;
+    min-width: 190px;
+    display: grid;
+    gap: .35rem;
+    padding: .45rem;
+    background: var(--cap-white);
+    border: 1px solid var(--cap-border);
+    border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.12);
+}
+.view-more-dropdown button { width: 100%; text-align: left; }
+
 /* ── Refresh button ── */
 .refresh-btn {
     background: var(--cap-blue);
@@ -121,6 +140,33 @@
     border-collapse: collapse;
     font-size: .84rem;
     table-layout: fixed;
+    max-width: 100%;
+}
+.cap-table th,
+.cap-table td {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.cap-table th {
+    white-space: normal;
+    line-height: 1.25;
+}
+.cap-table td {
+    white-space: normal;
+}
+.cap-table th:first-child,
+.cap-table td:first-child {
+    width: 18%;
+}
+.cap-table th:not(:first-child),
+.cap-table td:not(:first-child) {
+    width: auto;
+}
+@media (max-width: 1200px) {
+    .cap-table th:first-child,
+    .cap-table td:first-child {
+        width: 16%;
+    }
 }
 .cap-table th,
 .cap-table td {
@@ -198,6 +244,7 @@
 /* Percent bar cell */
 .pct-bar-wrap {
     display: flex;
+    white-space: nowrap;
     align-items: center;
     gap: .5rem;
     justify-content: flex-end;
@@ -268,6 +315,34 @@
 }
 
 /* ── Export / Import buttons ── */
+
+.header-export-menu {
+    position: relative;
+}
+.header-export-menu summary {
+    list-style: none;
+}
+.header-export-menu summary::-webkit-details-marker { display: none; }
+.header-export-dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + .35rem);
+    background: var(--cap-white);
+    border: 1px solid var(--cap-border);
+    border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.12);
+    padding: .45rem;
+    z-index: 30;
+    min-width: 220px;
+    display: grid;
+    gap: .35rem;
+}
+.header-status {
+    font-size: .82rem;
+    color: var(--cap-muted);
+    margin-right: .4rem;
+}
+
 .history-actions { display: flex; gap: .4rem; margin-left: auto; flex-wrap: wrap; }
 .export-btn {
     background: var(--cap-bg);
@@ -588,11 +663,28 @@
     <div class="cap-header-actions">
         <div class="view-toggle" id="viewToggle">
             <button class="active" data-view="by-storage-art">Nach Storage Art</button>
-            <button data-view="by-environment">Nach Umgebung</button>
-            <button data-view="by-department">Nach Tätigkeitsfeld</button>
-            <button data-view="details">Details</button>
             <button data-view="history">Verlauf</button>
+            <details class="view-more-menu" id="viewMoreMenu">
+                <summary class="export-btn">Weitere Views ▾</summary>
+                <div class="view-more-dropdown">
+                    <button class="export-btn" data-view="by-environment" onclick="closeViewMenu()">Nach Umgebung</button>
+                    <button class="export-btn" data-view="by-department" onclick="closeViewMenu()">Nach Tätigkeitsfeld</button>
+                    <button class="export-btn" data-view="details" onclick="closeViewMenu()">Details</button>
+                </div>
+            </details>
         </div>
+        <span class="header-status" id="capStatus">Lade Daten…</span>
+        <details class="header-export-menu">
+            <summary class="export-btn">📤 Export / Aktionen ▾</summary>
+            <div class="header-export-dropdown">
+                <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV (Aktuell)</button>
+                <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel (Aktuell)</button>
+                <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV (Verlauf)</button>
+                <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel (Verlauf)</button>
+                <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF (Verlauf)</button>
+                <button class="export-btn" onclick="exportImage()" title="Verlaufsdiagramme als PNG-Bild exportieren">📥 PNG (Verlauf)</button>
+            </div>
+        </details>
         <button class="refresh-btn" id="refreshBtn" onclick="triggerRefresh()"
                 title="Aktuelle Kapazitätswerte aller Speichersysteme abfragen. Bei konfiguriertem Pure1 zusätzlich die aktuellen SoD-Lizenzdaten (Cache) aktualisieren – nicht den mehrjährigen Verlaufsimport.">
             🔄 Aktualisieren
@@ -600,41 +692,23 @@
     </div>
 </div>
 
-<div class="cap-status" id="capStatus">Lade Daten…</div>
-
 <!-- ── View: By Storage Art ── -->
 <div class="cap-view active" id="view-by-storage-art">
-    <div class="table-actions">
-        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
-        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
-    </div>
     <div id="byStorageArtContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- ── View: By Environment ── -->
 <div class="cap-view" id="view-by-environment">
-    <div class="table-actions">
-        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
-        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
-    </div>
     <div id="byEnvironmentContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- ── View: By Department ── -->
 <div class="cap-view" id="view-by-department">
-    <div class="table-actions">
-        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
-        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
-    </div>
     <div id="byDepartmentContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- ── View: Details ── -->
 <div class="cap-view" id="view-details">
-    <div class="table-actions">
-        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
-        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
-    </div>
     <div id="detailsContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
@@ -655,11 +729,7 @@
             📊 %
         </button>
         <div class="history-actions">
-            <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV</button>
-            <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
-            <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF</button>
-            <button class="export-btn" onclick="exportImage()" title="Verlaufsdiagramme als PNG-Bild exportieren">📥 PNG</button>
-            {% if current_user.is_authenticated %}
+                        {% if current_user.is_authenticated %}
             <button class="import-btn" onclick="openImportModal()" title="Historische Daten aus CSV importieren">📤 Importieren</button>
             {% endif %}
         </div>
@@ -815,6 +885,11 @@ let _fullscreenArt   = null;
 let _fullscreenChart = null;
 
 // ── View Switching ────────────────────────────────────────────────────────
+function closeViewMenu() {
+    const menu = document.getElementById('viewMoreMenu');
+    if (menu) menu.removeAttribute('open');
+}
+
 document.querySelectorAll('#viewToggle button').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('#viewToggle button').forEach(b => b.classList.remove('active'));
