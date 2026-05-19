@@ -168,26 +168,6 @@
         width: 16%;
     }
 }
-.cap-table th,
-.cap-table td {
-    overflow-wrap: anywhere;
-    word-break: break-word;
-}
-.cap-table th {
-    white-space: normal;
-    line-height: 1.25;
-}
-.cap-table td {
-    white-space: normal;
-}
-.cap-table th:first-child,
-.cap-table td:first-child {
-    width: 24%;
-}
-.cap-table th:not(:first-child),
-.cap-table td:not(:first-child) {
-    width: auto;
-}
 
 /* ── 2-column grid for sections ── */
 .cap-grid {
@@ -337,6 +317,18 @@
     display: grid;
     gap: .35rem;
 }
+
+.cap-header-top-row {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+.cap-header-status-row {
+    width: 100%;
+    margin-top: .2rem;
+}
+
 .header-status {
     font-size: .82rem;
     color: var(--cap-muted);
@@ -661,6 +653,7 @@
 <div class="cap-header">
     <h2>📊 Kapazitätsreport</h2>
     <div class="cap-header-actions">
+        <div class="cap-header-top-row">
         <div class="view-toggle" id="viewToggle">
             <button class="active" data-view="by-storage-art">Nach Storage Art</button>
             <button data-view="history">Verlauf</button>
@@ -673,22 +666,23 @@
                 </div>
             </details>
         </div>
-        <span class="header-status" id="capStatus">Lade Daten…</span>
         <details class="header-export-menu">
             <summary class="export-btn">📤 Export / Aktionen ▾</summary>
             <div class="header-export-dropdown">
-                <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV (Aktuell)</button>
-                <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel (Aktuell)</button>
-                <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV (Verlauf)</button>
-                <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel (Verlauf)</button>
-                <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF (Verlauf)</button>
-                <button class="export-btn" onclick="exportImage()" title="Verlaufsdiagramme als PNG-Bild exportieren">📥 PNG (Verlauf)</button>
+                <button class="export-btn" onclick="exportForCurrentView('csv')" title="Als CSV exportieren (aktive View)">📥 CSV</button>
+                <button class="export-btn" onclick="exportForCurrentView('excel')" title="Als Excel exportieren (aktive View)">📥 Excel</button>
+                <button class="export-btn" onclick="exportForCurrentView('pdf')" title="Als PDF exportieren (Verlauf) oder fallback">📥 PDF</button>
+                <button class="export-btn" onclick="exportForCurrentView('png')" title="Als PNG exportieren (Verlauf) oder fallback">📥 PNG</button>
             </div>
         </details>
         <button class="refresh-btn" id="refreshBtn" onclick="triggerRefresh()"
                 title="Aktuelle Kapazitätswerte aller Speichersysteme abfragen. Bei konfiguriertem Pure1 zusätzlich die aktuellen SoD-Lizenzdaten (Cache) aktualisieren – nicht den mehrjährigen Verlaufsimport.">
             🔄 Aktualisieren
         </button>
+        </div>
+        <div class="cap-header-status-row">
+            <span class="header-status" id="capStatus">Lade Daten…</span>
+        </div>
     </div>
 </div>
 
@@ -890,16 +884,20 @@ function closeViewMenu() {
     if (menu) menu.removeAttribute('open');
 }
 
-document.querySelectorAll('#viewToggle button').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('#viewToggle button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const view = btn.dataset.view;
-        currentView = view;
-        document.querySelectorAll('.cap-view').forEach(v => v.classList.remove('active'));
-        document.getElementById('view-' + view).classList.add('active');
-        if (view === 'history') loadHistory(currentRange());
-    });
+document.getElementById('viewToggle').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-view]');
+    if (!btn) return;
+    ev.preventDefault();
+    const view = btn.dataset.view;
+    if (!view) return;
+    document.querySelectorAll('#viewToggle button[data-view]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentView = view;
+    document.querySelectorAll('.cap-view').forEach(v => v.classList.remove('active'));
+    const target = document.getElementById('view-' + view);
+    if (target) target.classList.add('active');
+    closeViewMenu();
+    if (view === 'history') loadHistory(currentRange());
 });
 
 function currentRange() {
@@ -1987,6 +1985,31 @@ function exportCurrentCsv() {
 function exportCurrentExcel() {
     window.location.href = '/capacity/api/export/current/excel';
 }
+
+function exportForCurrentView(format) {
+    const isHistory = currentView === 'history';
+    if (format === 'csv') {
+        return isHistory ? exportCsv() : exportCurrentCsv();
+    }
+    if (format === 'excel') {
+        return isHistory ? exportExcel() : exportCurrentExcel();
+    }
+    if (format === 'pdf') {
+        if (!isHistory) {
+            alert('PDF-Export ist aktuell nur in der Verlauf-Ansicht verfügbar.');
+            return;
+        }
+        return exportPdf();
+    }
+    if (format === 'png') {
+        if (!isHistory) {
+            alert('PNG-Export ist aktuell nur in der Verlauf-Ansicht verfügbar.');
+            return;
+        }
+        return exportImage();
+    }
+}
+
 
 // ── Import helpers ────────────────────────────────────────────────────────
 let _activeImportTab = 'physical';
