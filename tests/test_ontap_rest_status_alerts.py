@@ -741,6 +741,31 @@ class TestGetHealthStatusRestIntegration:
                      if a.get('category') == 'replication']
         assert len(sm_alerts) == 1
 
+    def test_ontap_efficiency_from_efficiency_wo_snapshots_flexclones(self):
+        """Use ONTAP aggregate ratio without snapshots/flexclones when present."""
+        result = _run({
+            '/api/storage/aggregates': [
+                _ok({'records': [
+                    {
+                        'space': {
+                            'block_storage': {'size': 10 * 1024 ** 4, 'used': 6 * 1024 ** 4},
+                            'efficiency_without_snapshots_flexclones': {'ratio': 1.74},
+                        }
+                    },
+                    {
+                        'space': {
+                            'block_storage': {'size': 8 * 1024 ** 4, 'used': 4 * 1024 ** 4},
+                            'efficiency_without_snapshots_flexclones': {'ratio': 1.89},
+                        }
+                    },
+                ]}),
+                _aggregates_state([]),
+            ]
+        })
+        assert result.get('efficiency_ratio') == 1.81
+        eff_detail = result.get('efficiency_detail') or {}
+        assert eff_detail.get('ratio_wo_snapshots_flexclones') == 1.81
+
     def test_offline_aggregate_appears_in_alert_details(self):
         result = _run({
             '/api/storage/aggregates': [

@@ -59,7 +59,6 @@
     color: var(--cap-muted);
     transition: all .25s;
     font-weight: 500;
-    white-space: nowrap;
 }
 .view-toggle button:hover  { background: rgba(0,152,219,.1); color: var(--cap-blue); }
 .view-toggle button.active { background: var(--cap-blue); color: white; }
@@ -116,12 +115,32 @@
 }
 
 /* ── Capacity Table ── */
-.cap-table-wrap { overflow-x: auto; }
+.cap-table-wrap { overflow-x: hidden; width: 100%; }
 .cap-table {
     width: 100%;
     border-collapse: collapse;
     font-size: .84rem;
     table-layout: fixed;
+}
+.cap-table th,
+.cap-table td {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.cap-table th {
+    white-space: normal;
+    line-height: 1.25;
+}
+.cap-table td {
+    white-space: normal;
+}
+.cap-table th:first-child,
+.cap-table td:first-child {
+    width: 24%;
+}
+.cap-table th:not(:first-child),
+.cap-table td:not(:first-child) {
+    width: auto;
 }
 
 /* ── 2-column grid for sections ── */
@@ -156,7 +175,6 @@
     padding: .45rem .55rem;
     text-align: right;
     border-bottom: 2px solid var(--cap-border);
-    white-space: nowrap;
 }
 .cap-table th:first-child { text-align: left; }
 .cap-table td {
@@ -368,7 +386,6 @@
     font-size: .85rem;
     font-weight: 500;
     color: var(--cap-text);
-    white-space: nowrap;
 }
 .pure1-date-row input[type="date"] {
     padding: .35rem .6rem;
@@ -944,28 +961,19 @@ function datasetHasEfficiency(groups) {
 }
 
 function tableHeader(label, showProvisioned, showEffectiveUsed, showEfficiency) {
-    // Determine widths based on number of columns
-    // Base: label + 3 TiB cols + 1 pct col = 5 cols
-    // With provisioned: + 2 cols = 7 cols
-    // With effectiveUsed: + 1 col = up to 8 cols
-    // With efficiency: + 1 col
-    let totalCols = 5 + (showProvisioned ? 2 : 0) + (showEffectiveUsed ? 1 : 0) + (showEfficiency ? 1 : 0);
-    const pctColWidth = totalCols <= 5 ? '24%' : '17%';
-    const tbColWidth  = totalCols <= 5 ? '17%' : '12%';
-
     let cols = `<th>${label}</th>
-        <th style="width:${tbColWidth}">Gesamt [TiB]</th>
-        <th style="width:${tbColWidth}">Genutzt [TiB]</th>
-        <th style="width:${tbColWidth}">Frei [TiB]</th>
-        <th style="width:${pctColWidth}">Genutzt [%]</th>`;
+        <th>Gesamt [TiB]</th>
+        <th>Genutzt [TiB]</th>
+        <th>Frei [TiB]</th>
+        <th>Genutzt [%]</th>`;
     if (showEfficiency) {
-        cols += `<th style="width:${tbColWidth}" title="Mittelwert der Effizienzfaktoren (z. B. Datenreduktion) der zugeordneten Systeme">Ø Effizienz [×]</th>`;
+        cols += `<th title="Mittelwert der Effizienzfaktoren (z. B. Datenreduktion) der zugeordneten Systeme">Ø Effizienz [×]</th>`;
     }
     if (showProvisioned) {
-        cols += `<th style="width:${tbColWidth}">Provisioniert [TiB]</th><th style="width:${pctColWidth}">Provisioniert [%]</th>`;
+        cols += `<th>Provisioniert [TiB]</th><th>Provisioniert [%]</th>`;
     }
     if (showEffectiveUsed) {
-        cols += `<th style="width:${tbColWidth}">Effektiv Genutzt [TiB]</th>`;
+        cols += `<th>Effektiv Genutzt [TiB]</th>`;
     }
     return `<thead><tr>${cols}</tr></thead>`;
 }
@@ -1373,18 +1381,18 @@ function renderDetails(data) {
         let headerCols = `<th>System</th>
                         <th>Umgebung</th>
                         <th>Tätigkeitsfeld</th>
-                        <th style="width:9%">Gesamt [TiB]</th>
-                        <th style="width:9%">Genutzt [TiB]</th>
-                        <th style="width:9%">Frei [TiB]</th>
-                        <th style="width:15%">Genutzt [%]</th>`;
+                        <th>Gesamt [TiB]</th>
+                        <th>Genutzt [TiB]</th>
+                        <th>Frei [TiB]</th>
+                        <th>Genutzt [%]</th>`;
         if (showEfficiency) {
-            headerCols += `<th style="width:8%" title="Herstellerspezifischer Effizienzfaktor (z. B. Datenreduktion); Details im Tooltip">Effizienz [×]</th>`;
+            headerCols += `<th title="Herstellerspezifischer Effizienzfaktor (z. B. Datenreduktion); Details im Tooltip">Effizienz [×]</th>`;
         }
         if (showProvisioned) {
-            headerCols += `<th style="width:9%">Provisioniert [TiB]</th><th style="width:15%">Provisioniert [%]</th>`;
+            headerCols += `<th>Provisioniert [TiB]</th><th>Provisioniert [%]</th>`;
         }
         if (showEffectiveUsed) {
-            headerCols += `<th style="width:9%">Effektiv Genutzt [TiB]</th>`;
+            headerCols += `<th>Effektiv Genutzt [TiB]</th>`;
         }
         return `<div class="cap-section">
             <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
