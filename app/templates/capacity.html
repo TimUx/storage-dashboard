@@ -59,10 +59,28 @@
     color: var(--cap-muted);
     transition: all .25s;
     font-weight: 500;
-    white-space: nowrap;
 }
 .view-toggle button:hover  { background: rgba(0,152,219,.1); color: var(--cap-blue); }
 .view-toggle button.active { background: var(--cap-blue); color: white; }
+
+.view-more-menu { position: relative; }
+.view-more-menu summary { list-style: none; }
+.view-more-menu summary::-webkit-details-marker { display:none; }
+.view-more-dropdown {
+    position: absolute;
+    top: calc(100% + .35rem);
+    left: 0;
+    z-index: 30;
+    min-width: 190px;
+    display: grid;
+    gap: .35rem;
+    padding: .45rem;
+    background: var(--cap-white);
+    border: 1px solid var(--cap-border);
+    border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.12);
+}
+.view-more-dropdown button { width: 100%; text-align: left; }
 
 /* ── Refresh button ── */
 .refresh-btn {
@@ -116,12 +134,39 @@
 }
 
 /* ── Capacity Table ── */
-.cap-table-wrap { overflow-x: auto; }
+.cap-table-wrap { overflow-x: hidden; width: 100%; }
 .cap-table {
     width: 100%;
     border-collapse: collapse;
     font-size: .84rem;
     table-layout: fixed;
+    max-width: 100%;
+}
+.cap-table th,
+.cap-table td {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.cap-table th {
+    white-space: normal;
+    line-height: 1.25;
+}
+.cap-table td {
+    white-space: normal;
+}
+.cap-table th:first-child,
+.cap-table td:first-child {
+    width: 18%;
+}
+.cap-table th:not(:first-child),
+.cap-table td:not(:first-child) {
+    width: auto;
+}
+@media (max-width: 1200px) {
+    .cap-table th:first-child,
+    .cap-table td:first-child {
+        width: 16%;
+    }
 }
 
 /* ── 2-column grid for sections ── */
@@ -156,7 +201,6 @@
     padding: .45rem .55rem;
     text-align: right;
     border-bottom: 2px solid var(--cap-border);
-    white-space: nowrap;
 }
 .cap-table th:first-child { text-align: left; }
 .cap-table td {
@@ -180,6 +224,7 @@
 /* Percent bar cell */
 .pct-bar-wrap {
     display: flex;
+    white-space: nowrap;
     align-items: center;
     gap: .5rem;
     justify-content: flex-end;
@@ -250,6 +295,46 @@
 }
 
 /* ── Export / Import buttons ── */
+
+.header-export-menu {
+    position: relative;
+}
+.header-export-menu summary {
+    list-style: none;
+}
+.header-export-menu summary::-webkit-details-marker { display: none; }
+.header-export-dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + .35rem);
+    background: var(--cap-white);
+    border: 1px solid var(--cap-border);
+    border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.12);
+    padding: .45rem;
+    z-index: 30;
+    min-width: 220px;
+    display: grid;
+    gap: .35rem;
+}
+
+.cap-header-top-row {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+.cap-header-status-row {
+    width: 100%;
+    margin-top: .2rem;
+}
+
+.header-status {
+    font-size: .82rem;
+    color: var(--cap-muted);
+    margin-right: .4rem;
+}
+
 .history-actions { display: flex; gap: .4rem; margin-left: auto; flex-wrap: wrap; }
 .export-btn {
     background: var(--cap-bg);
@@ -368,7 +453,6 @@
     font-size: .85rem;
     font-weight: 500;
     color: var(--cap-text);
-    white-space: nowrap;
 }
 .pure1-date-row input[type="date"] {
     padding: .35rem .6rem;
@@ -569,55 +653,56 @@
 <div class="cap-header">
     <h2>📊 Kapazitätsreport</h2>
     <div class="cap-header-actions">
+        <div class="cap-header-top-row">
         <div class="view-toggle" id="viewToggle">
             <button class="active" data-view="by-storage-art">Nach Storage Art</button>
-            <button data-view="by-environment">Nach Umgebung</button>
-            <button data-view="by-department">Nach Tätigkeitsfeld</button>
-            <button data-view="details">Details</button>
             <button data-view="history">Verlauf</button>
+            <details class="view-more-menu" id="viewMoreMenu">
+                <summary class="export-btn">Weitere Views ▾</summary>
+                <div class="view-more-dropdown">
+                    <button class="export-btn" data-view="by-environment" onclick="closeViewMenu()">Nach Umgebung</button>
+                    <button class="export-btn" data-view="by-department" onclick="closeViewMenu()">Nach Tätigkeitsfeld</button>
+                    <button class="export-btn" data-view="details" onclick="closeViewMenu()">Details</button>
+                </div>
+            </details>
         </div>
+        <details class="header-export-menu">
+            <summary class="export-btn">📤 Export / Aktionen ▾</summary>
+            <div class="header-export-dropdown">
+                <button class="export-btn" onclick="exportForCurrentView('csv')" title="Als CSV exportieren (aktive View)">📥 CSV</button>
+                <button class="export-btn" onclick="exportForCurrentView('excel')" title="Als Excel exportieren (aktive View)">📥 Excel</button>
+                <button class="export-btn" onclick="exportForCurrentView('pdf')" title="Als PDF exportieren (Verlauf) oder fallback">📥 PDF</button>
+                <button class="export-btn" onclick="exportForCurrentView('png')" title="Als PNG exportieren (Verlauf) oder fallback">📥 PNG</button>
+            </div>
+        </details>
         <button class="refresh-btn" id="refreshBtn" onclick="triggerRefresh()"
                 title="Aktuelle Kapazitätswerte aller Speichersysteme abfragen. Bei konfiguriertem Pure1 zusätzlich die aktuellen SoD-Lizenzdaten (Cache) aktualisieren – nicht den mehrjährigen Verlaufsimport.">
             🔄 Aktualisieren
         </button>
+        </div>
+        <div class="cap-header-status-row">
+            <span class="header-status" id="capStatus">Lade Daten…</span>
+        </div>
     </div>
 </div>
 
-<div class="cap-status" id="capStatus">Lade Daten…</div>
-
 <!-- ── View: By Storage Art ── -->
 <div class="cap-view active" id="view-by-storage-art">
-    <div class="table-actions">
-        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
-        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
-    </div>
     <div id="byStorageArtContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- ── View: By Environment ── -->
 <div class="cap-view" id="view-by-environment">
-    <div class="table-actions">
-        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
-        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
-    </div>
     <div id="byEnvironmentContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- ── View: By Department ── -->
 <div class="cap-view" id="view-by-department">
-    <div class="table-actions">
-        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
-        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
-    </div>
     <div id="byDepartmentContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
 <!-- ── View: Details ── -->
 <div class="cap-view" id="view-details">
-    <div class="table-actions">
-        <button class="export-btn" onclick="exportCurrentCsv()" title="Aktuelle Kapazitätsdaten als CSV exportieren">📥 CSV</button>
-        <button class="export-btn" onclick="exportCurrentExcel()" title="Aktuelle Kapazitätsdaten als Excel exportieren">📥 Excel</button>
-    </div>
     <div id="detailsContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
@@ -638,11 +723,7 @@
             📊 %
         </button>
         <div class="history-actions">
-            <button class="export-btn" onclick="exportCsv()" title="Historische Daten als CSV exportieren">📥 CSV</button>
-            <button class="export-btn" onclick="exportExcel()" title="Historische Daten als Excel exportieren">📥 Excel</button>
-            <button class="export-btn" onclick="exportPdf()" title="Verlaufsdiagramme als PDF exportieren">📥 PDF</button>
-            <button class="export-btn" onclick="exportImage()" title="Verlaufsdiagramme als PNG-Bild exportieren">📥 PNG</button>
-            {% if current_user.is_authenticated %}
+                        {% if current_user.is_authenticated %}
             <button class="import-btn" onclick="openImportModal()" title="Historische Daten aus CSV importieren">📤 Importieren</button>
             {% endif %}
         </div>
@@ -798,16 +879,25 @@ let _fullscreenArt   = null;
 let _fullscreenChart = null;
 
 // ── View Switching ────────────────────────────────────────────────────────
-document.querySelectorAll('#viewToggle button').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('#viewToggle button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const view = btn.dataset.view;
-        currentView = view;
-        document.querySelectorAll('.cap-view').forEach(v => v.classList.remove('active'));
-        document.getElementById('view-' + view).classList.add('active');
-        if (view === 'history') loadHistory(currentRange());
-    });
+function closeViewMenu() {
+    const menu = document.getElementById('viewMoreMenu');
+    if (menu) menu.removeAttribute('open');
+}
+
+document.getElementById('viewToggle').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-view]');
+    if (!btn) return;
+    ev.preventDefault();
+    const view = btn.dataset.view;
+    if (!view) return;
+    document.querySelectorAll('#viewToggle button[data-view]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentView = view;
+    document.querySelectorAll('.cap-view').forEach(v => v.classList.remove('active'));
+    const target = document.getElementById('view-' + view);
+    if (target) target.classList.add('active');
+    closeViewMenu();
+    if (view === 'history') loadHistory(currentRange());
 });
 
 function currentRange() {
@@ -944,28 +1034,19 @@ function datasetHasEfficiency(groups) {
 }
 
 function tableHeader(label, showProvisioned, showEffectiveUsed, showEfficiency) {
-    // Determine widths based on number of columns
-    // Base: label + 3 TiB cols + 1 pct col = 5 cols
-    // With provisioned: + 2 cols = 7 cols
-    // With effectiveUsed: + 1 col = up to 8 cols
-    // With efficiency: + 1 col
-    let totalCols = 5 + (showProvisioned ? 2 : 0) + (showEffectiveUsed ? 1 : 0) + (showEfficiency ? 1 : 0);
-    const pctColWidth = totalCols <= 5 ? '24%' : '17%';
-    const tbColWidth  = totalCols <= 5 ? '17%' : '12%';
-
     let cols = `<th>${label}</th>
-        <th style="width:${tbColWidth}">Gesamt [TiB]</th>
-        <th style="width:${tbColWidth}">Genutzt [TiB]</th>
-        <th style="width:${tbColWidth}">Frei [TiB]</th>
-        <th style="width:${pctColWidth}">Genutzt [%]</th>`;
+        <th>Gesamt [TiB]</th>
+        <th>Genutzt [TiB]</th>
+        <th>Frei [TiB]</th>
+        <th>Genutzt [%]</th>`;
     if (showEfficiency) {
-        cols += `<th style="width:${tbColWidth}" title="Mittelwert der Effizienzfaktoren (z. B. Datenreduktion) der zugeordneten Systeme">Ø Effizienz [×]</th>`;
+        cols += `<th title="Mittelwert der Effizienzfaktoren (z. B. Datenreduktion) der zugeordneten Systeme">Ø Effizienz [×]</th>`;
     }
     if (showProvisioned) {
-        cols += `<th style="width:${tbColWidth}">Provisioniert [TiB]</th><th style="width:${pctColWidth}">Provisioniert [%]</th>`;
+        cols += `<th>Provisioniert [TiB]</th><th>Provisioniert [%]</th>`;
     }
     if (showEffectiveUsed) {
-        cols += `<th style="width:${tbColWidth}">Effektiv Genutzt [TiB]</th>`;
+        cols += `<th>Effektiv Genutzt [TiB]</th>`;
     }
     return `<thead><tr>${cols}</tr></thead>`;
 }
@@ -1373,18 +1454,18 @@ function renderDetails(data) {
         let headerCols = `<th>System</th>
                         <th>Umgebung</th>
                         <th>Tätigkeitsfeld</th>
-                        <th style="width:9%">Gesamt [TiB]</th>
-                        <th style="width:9%">Genutzt [TiB]</th>
-                        <th style="width:9%">Frei [TiB]</th>
-                        <th style="width:15%">Genutzt [%]</th>`;
+                        <th>Gesamt [TiB]</th>
+                        <th>Genutzt [TiB]</th>
+                        <th>Frei [TiB]</th>
+                        <th>Genutzt [%]</th>`;
         if (showEfficiency) {
-            headerCols += `<th style="width:8%" title="Herstellerspezifischer Effizienzfaktor (z. B. Datenreduktion); Details im Tooltip">Effizienz [×]</th>`;
+            headerCols += `<th title="Herstellerspezifischer Effizienzfaktor (z. B. Datenreduktion); Details im Tooltip">Effizienz [×]</th>`;
         }
         if (showProvisioned) {
-            headerCols += `<th style="width:9%">Provisioniert [TiB]</th><th style="width:15%">Provisioniert [%]</th>`;
+            headerCols += `<th>Provisioniert [TiB]</th><th>Provisioniert [%]</th>`;
         }
         if (showEffectiveUsed) {
-            headerCols += `<th style="width:9%">Effektiv Genutzt [TiB]</th>`;
+            headerCols += `<th>Effektiv Genutzt [TiB]</th>`;
         }
         return `<div class="cap-section">
             <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
@@ -1904,6 +1985,31 @@ function exportCurrentCsv() {
 function exportCurrentExcel() {
     window.location.href = '/capacity/api/export/current/excel';
 }
+
+function exportForCurrentView(format) {
+    const isHistory = currentView === 'history';
+    if (format === 'csv') {
+        return isHistory ? exportCsv() : exportCurrentCsv();
+    }
+    if (format === 'excel') {
+        return isHistory ? exportExcel() : exportCurrentExcel();
+    }
+    if (format === 'pdf') {
+        if (!isHistory) {
+            alert('PDF-Export ist aktuell nur in der Verlauf-Ansicht verfügbar.');
+            return;
+        }
+        return exportPdf();
+    }
+    if (format === 'png') {
+        if (!isHistory) {
+            alert('PNG-Export ist aktuell nur in der Verlauf-Ansicht verfügbar.');
+            return;
+        }
+        return exportImage();
+    }
+}
+
 
 // ── Import helpers ────────────────────────────────────────────────────────
 let _activeImportTab = 'physical';
