@@ -37,6 +37,9 @@
     box-shadow: 0 2px 8px rgba(0,0,0,.08);
     border-left: 4px solid var(--cap-blue);
     margin-bottom: 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 60;
 }
 .cap-header h2 { font-size: 1.4rem; color: var(--cap-blue); margin: 0; }
 .cap-header-actions {
@@ -234,6 +237,14 @@
     flex-wrap: wrap;
     align-items: center;
     margin-bottom: .75rem;
+    max-width: 1080px;
+    margin-left: auto;
+    margin-right: auto;
+    background: var(--bg-color);
+    position: sticky;
+    top: 92px;
+    z-index: 55;
+    padding: .35rem 0;
 }
 .details-nav select {
     min-width: 220px;
