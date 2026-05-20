@@ -155,6 +155,23 @@
     max-width: 1080px;
     margin: 0 auto;
 }
+#view-details .cap-section.details-anchor-target,
+#view-details .details-anchor-target > .cap-section {
+    width: fit-content;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+.sod-contract-block {
+    max-width: 1080px;
+    margin: 0 auto .9rem;
+}
+.sod-contract-title {
+    font-weight: 600;
+    font-size: .85rem;
+    margin: .75rem 0 .25rem;
+    padding: 0;
+}
 .cap-table {
     width: 100%;
     border-collapse: collapse;
@@ -1382,7 +1399,8 @@ function buildSodDetailSection(sodDataArg) {
                 <td>${sAOD.toFixed(2)}</td><td>${sQOD.toFixed(2)}</td>
                 <td></td>
             </tr>`;
-            bodyHtml += `<p style="font-weight:600;font-size:.85rem;margin:.75rem 1.2rem .25rem;">📋 Vertrag ${escHtml(subName)}</p>
+            bodyHtml += `<div class="sod-contract-block">
+            <p class="sod-contract-title">📋 Vertrag ${escHtml(subName)}</p>
             <div class="cap-table-wrap"><table class="cap-table">
                 <thead><tr>
                     <th>Lizenz-Name</th><th>Service Tier</th>
@@ -1391,7 +1409,8 @@ function buildSodDetailSection(sodDataArg) {
                     <th>Arrays (Eff. Used)</th>
                 </tr></thead>
                 <tbody>${rows}</tbody>
-            </table></div>`;
+            </table></div>
+            </div>`;
         }
         if (sodDataArg.fetched_at) {
             const ts = new Date(
@@ -1406,7 +1425,7 @@ function buildSodDetailSection(sodDataArg) {
             </div>`;
         }
     }
-    return `<div class="cap-section">
+    return `<div class="cap-section sod-detail-section">
         <div class="cap-section-header">
             <span>📊 Storage on Demand</span>
         </div>
