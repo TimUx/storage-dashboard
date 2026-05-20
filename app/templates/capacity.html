@@ -198,17 +198,27 @@
 /* ── Details view: SoD left column + stacked per-art sections right ── */
 .cap-details-layout {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 1.25rem;
     align-items: start;
-}
-@media (max-width: 900px) {
-    .cap-details-layout { grid-template-columns: 1fr; }
 }
 .cap-details-stack {
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+}
+.details-nav {
+    display: flex;
+    gap: .6rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: .75rem;
+}
+.details-nav select {
+    min-width: 220px;
+}
+.details-anchor-target {
+    scroll-margin-top: 90px;
 }
 .cap-table th {
     background: #f8fafc;
@@ -733,6 +743,13 @@
 
 <!-- ── View: Details ── -->
 <div class="cap-view" id="view-details">
+    <div class="details-nav">
+        <label for="detailsSectionSelect"><strong>Bereich:</strong></label>
+        <select id="detailsSectionSelect" onchange="jumpToDetailsSection(this.value)">
+            <option value="">Zum Bereich springen…</option>
+        </select>
+        <button class="export-btn" onclick="copyCurrentViewLink()" title="Link zur aktuellen Ansicht kopieren">🔗 Link kopieren</button>
+    </div>
     <div id="detailsContent"><div class="cap-loading">Lade Daten…</div></div>
 </div>
 
@@ -908,6 +925,34 @@ let _lastHistoryData = null;
 let _fullscreenArt   = null;
 let _fullscreenChart = null;
 
+function updateUrlState(extra = {}) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', currentView);
+    if (currentView === 'history') {
+        url.searchParams.set('range', currentRange());
+    } else {
+        url.searchParams.delete('range');
+    }
+    if (currentView === 'details') {
+        const selected = extra.section || document.getElementById('detailsSectionSelect')?.value || '';
+        if (selected) url.searchParams.set('section', selected);
+        else url.searchParams.delete('section');
+    } else {
+        url.searchParams.delete('section');
+    }
+    window.history.replaceState({}, '', url.toString());
+}
+
+function copyCurrentViewLink() {
+    updateUrlState();
+    navigator.clipboard.writeText(window.location.href).then(() => {
+        const statusEl = document.getElementById('capStatus');
+        if (statusEl) statusEl.textContent = '🔗 Link zur aktuellen Ansicht wurde in die Zwischenablage kopiert.';
+    }).catch(() => {
+        window.prompt('Link manuell kopieren:', window.location.href);
+    });
+}
+
 // ── View Switching ────────────────────────────────────────────────────────
 function closeViewMenu() {
     const menu = document.getElementById('viewMoreMenu');
@@ -926,6 +971,7 @@ document.getElementById('viewToggle').addEventListener('click', (ev) => {
     document.querySelectorAll('.cap-view').forEach(v => v.classList.remove('active'));
     const target = document.getElementById('view-' + view);
     if (target) target.classList.add('active');
+    updateUrlState();
     closeViewMenu();
     if (view === 'history') loadHistory(currentRange());
 });
@@ -933,6 +979,19 @@ document.getElementById('viewToggle').addEventListener('click', (ev) => {
 function currentRange() {
     const active = document.querySelector('.range-btn.active');
     return active ? active.dataset.range : 'all';
+}
+
+function applyViewFromUrl() {
+    const url = new URL(window.location.href);
+    const view = url.searchParams.get('view');
+    const allowed = new Set(['by-storage-art', 'history', 'by-environment', 'by-department', 'details']);
+    if (!view || !allowed.has(view)) return;
+    const btn = document.querySelector(`#viewToggle button[data-view="${view}"]`);
+    if (btn) btn.click();
+    if (view === 'history') {
+        const range = url.searchParams.get('range');
+        if (range && ['all', '2y', '1y', '6m', '3m'].includes(range)) loadHistory(range);
+    }
 }
 
 // ── Data Loading ──────────────────────────────────────────────────────────
@@ -1497,7 +1556,7 @@ function renderDetails(data) {
         if (showEffectiveUsed) {
             headerCols += `<th>Effektiv Genutzt [TiB]</th>`;
         }
-        return `<div class="cap-section">
+        return `<div class="cap-section details-anchor-target" id="details-section-${escHtml(g.storage_art)}">
             <div class="cap-section-header"><span>${escHtml(g.storage_art)}</span></div>
             <div class="cap-table-wrap">
                 <table class="cap-table">
@@ -1511,15 +1570,35 @@ function renderDetails(data) {
     // When a SoD section is present, put it in the left column and stack all
     // per-art sections in the right column so that a large SoD table and
     // multiple smaller per-art tables sit side by side at their natural heights.
+    const sectionSelect = document.getElementById('detailsSectionSelect');
+    if (sectionSelect) {
+        const options = [`<option value="">Zum Bereich springen…</option>`];
+        if (sodDetailHtml) options.push('<option value="sod">Storage on Demand</option>');
+        for (const g of data) options.push(`<option value="${escHtml(g.storage_art)}">${escHtml(g.storage_art)}</option>`);
+        sectionSelect.innerHTML = options.join('');
+    }
+
     if (sodDetailHtml) {
         el.innerHTML = `
             <div class="cap-details-layout">
-                <div>${sodDetailHtml}</div>
-                <div class="cap-details-stack">${html}</div>
+                <div class="details-anchor-target" id="details-section-sod">${sodDetailHtml}</div>
+                <div class="cap-details-stack" style="grid-column: 1 / -1;">${html}</div>
             </div>`;
     } else {
-        el.innerHTML = `<div class="cap-grid">${html}</div>`;
+        el.innerHTML = `<div class="cap-grid" style="grid-template-columns: 1fr;">${html}</div>`;
     }
+    const sectionFromUrl = new URL(window.location.href).searchParams.get('section');
+    if (sectionFromUrl) jumpToDetailsSection(sectionFromUrl, false);
+}
+
+function jumpToDetailsSection(section, updateState = true) {
+    if (!section) return;
+    const target = document.getElementById('details-section-' + section);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const select = document.getElementById('detailsSectionSelect');
+    if (select) select.value = section;
+    if (updateState) updateUrlState({ section });
 }
 
 function escHtml(str) {
@@ -1535,6 +1614,7 @@ async function loadHistory(range) {
     document.querySelectorAll('.range-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.range === range);
     });
+    updateUrlState();
 
     const el = document.getElementById('historyContent');
     el.innerHTML = '<div class="cap-loading">Lade Verlaufsdaten…</div>';
@@ -2269,5 +2349,6 @@ document.addEventListener('keydown', e => {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 loadCapacityData();
+applyViewFromUrl();
 </script>
 {% endblock %}
