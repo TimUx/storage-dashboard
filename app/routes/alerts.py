@@ -16,6 +16,7 @@ VENDOR_NAMES = {
 # Synthetic alert when the dashboard cannot reach a system (stable id/title for AlertState).
 CONNECTIVITY_ALERT_ID = 'dashboard.connectivity'
 CONNECTIVITY_ALERT_TITLE = 'System nicht erreichbar'
+IP_CONNECTIVITY_ALERT_ID = 'dashboard.ip-connectivity'
 SNAP_COLLECTOR_ALERT_ID = 'dashboard.snap-collector'
 SNAP_COLLECTOR_ALERT_TITLE = 'Snapshot-Aktualisierung fehlgeschlagen'
 SNAP_COLLECTOR_STALE_ALERT_ID = 'dashboard.snap-collector.stale'
@@ -52,6 +53,28 @@ def _synthetic_connectivity_alert(system, status, fetched_at):
         'component': system.ip_address,
         'fetched_at': fetched_at,
     }
+
+
+def _synthetic_ip_alerts(system, status, fetched_at):
+    """Build one synthetic alert per unreachable management IP."""
+    ip_monitor = status.get('ip_monitor') if isinstance(status, dict) else {}
+    if not isinstance(ip_monitor, dict):
+        return []
+    alerts = []
+    for ip in ip_monitor.get('unreachable_ips') or []:
+        alerts.append({
+            'system_name': system.name,
+            'system_vendor': VENDOR_NAMES.get(system.vendor, system.vendor),
+            'alert_id': f'{IP_CONNECTIVITY_ALERT_ID}:{ip}',
+            'title': f'Management-IP nicht erreichbar ({ip})',
+            'details': f'Die Management-IP {ip} ist per TCP-Port {system.port or 443} nicht erreichbar.',
+            'severity': 'error',
+            'error_code': 'IP_CONNECTIVITY',
+            'timestamp': fetched_at or '-',
+            'component': ip,
+            'fetched_at': fetched_at,
+        })
+    return alerts
 
 
 def _normalize_dd_alert(alert, system):
@@ -174,6 +197,8 @@ def collect_alerts():
 
         if _status_indicates_unreachable(status):
             all_alerts.append(_tag(_synthetic_connectivity_alert(system, status, fetched_at)))
+        for ip_alert in _synthetic_ip_alerts(system, status, fetched_at):
+            all_alerts.append(_tag(ip_alert))
 
     # Add synthetic app-health alerts for snapshot collector failures/staleness.
     try:

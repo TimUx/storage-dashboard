@@ -592,6 +592,15 @@ body {
     background: rgba(0, 102, 204, 0.05);
 }
 
+.system-card.ip-unreachable {
+    border: 2px solid var(--brand-red);
+    box-shadow: 0 0 0 2px rgba(167, 2, 64, 0.16);
+}
+
+.systems-table tbody tr.ip-unreachable {
+    background: rgba(167, 2, 64, 0.08);
+}
+
 .systems-table .status-cell {
     text-align: center;
 }
@@ -1300,7 +1309,7 @@ body.table-view .systems-table {
             {% set system = item.system %}
             {% set status = item.status %}
             {% set dns_names = system.dns_names %}
-            <div class="system-card" 
+            <div class="system-card {% if status and status.ip_monitor and status.ip_monitor.has_unreachable %}ip-unreachable{% endif %}" 
                  data-system-id="{{ system.id }}"
                  data-vendor="{{ vendor }}" 
                  data-status="{{ status.status if status else 'loading' }}"
@@ -1367,6 +1376,14 @@ body.table-view .systems-table {
                         </span>
                     </div>
                     {% if status.status == 'online' %}
+                    {% if status.ip_monitor and status.ip_monitor.has_unreachable %}
+                    <div class="metric">
+                        <span class="metric-label">IP-Monitor:</span>
+                        <span class="metric-value metric-error">
+                            {{ status.ip_monitor.unreachable_ips|length }} nicht erreichbar
+                        </span>
+                    </div>
+                    {% endif %}
                     <div class="metric">
                         <span class="metric-label">Alerts:</span>
                         <span class="metric-value {% if status.alerts > 0 %}metric-warning{% endif %}">
@@ -1437,7 +1454,7 @@ body.table-view .systems-table {
                     {% set system = item.system %}
                     {% set status = item.status %}
                     {% set dns_names = system.dns_names %}
-                    <tr data-system-id="{{ system.id }}"
+                    <tr class="{% if status and status.ip_monitor and status.ip_monitor.has_unreachable %}ip-unreachable{% endif %}" data-system-id="{{ system.id }}"
                         data-vendor="{{ vendor }}" 
                         data-status="{{ status.status if status else 'loading' }}"
                         data-cluster-type="{{ system.cluster_type or '' }}"

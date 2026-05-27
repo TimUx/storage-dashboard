@@ -414,6 +414,10 @@
         font-family: monospace;
     }
 
+    .ip-badge.unreachable {
+        background: var(--brand-red);
+    }
+
     .dns-list {
         display: flex;
         flex-wrap: wrap;
@@ -738,7 +742,7 @@
         <div class="detail-row">
             <span class="detail-label">Primäre IP:</span>
             <span class="detail-value">
-                <span class="ip-badge">{{ system.ip_address }}:{{ system.port }}</span>
+                <span class="ip-badge {% if status.ip_monitor and system.ip_address in (status.ip_monitor.unreachable_ips or []) %}unreachable{% endif %}">{{ system.ip_address }}:{{ system.port }}</span>
             </span>
         </div>
         
@@ -761,7 +765,7 @@
             <span class="detail-value">
                 <div class="ip-list">
                     {% for ip in system.get_all_ips() %}
-                    <span class="ip-badge">{{ ip }}</span>
+                    <span class="ip-badge {% if status.ip_monitor and ip in (status.ip_monitor.unreachable_ips or []) %}unreachable{% endif %}">{{ ip }}</span>
                     {% endfor %}
                 </div>
             </span>
