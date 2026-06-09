@@ -103,6 +103,7 @@ def get_cached_status():
             continue
         status = cache.get_status() or {}
         all_alert_keys.extend(_collect_alert_keys(status, system.name))
+        all_alert_keys.extend(_collect_ip_connectivity_alert_keys(status, system.name))
     acknowledged_keys = _get_acknowledged_keys(all_alert_keys)
 
     result = []
@@ -116,20 +117,11 @@ def get_cached_status():
             })
             continue
 
-        status = cache.get_status() or {}
-
-        # Override capacity values with Pure1-corrected data from
-        # CapacitySnapshot (populated by the hourly capacity refresh which
-        # supplements local values with Pure1 physical-used figures).
+        status = dict(cache.get_status() or {})
         snap = snap_by_system_id.get(system.id)
-        if snap and snap.total_tb > 0:
-            status['capacity_total_tb'] = snap.total_tb
-            status['capacity_used_tb'] = snap.used_tb
-            status['capacity_percent'] = snap.percent_used
-
-        # Overlay acknowledged alert states so the dashboard reflects operator
-        # acknowledgments without requiring a live API refresh.
-        _apply_acknowledged_states(status, system.name, acknowledged_keys=acknowledged_keys)
+        _prepare_dashboard_status(
+            status, system.name, snap=snap, acknowledged_keys=acknowledged_keys,
+        )
 
         result.append({
             'system': system.to_dict(),
@@ -138,6 +130,20 @@ def get_cached_status():
         })
 
     return jsonify(result)
+
+
+def _collect_ip_connectivity_alert_keys(status, system_name):
+    from app.dashboard_status import collect_ip_connectivity_alert_keys
+
+    return collect_ip_connectivity_alert_keys(status, system_name)
+
+
+def _prepare_dashboard_status(status, system_name, *, snap=None, acknowledged_keys=None):
+    from app.dashboard_status import prepare_dashboard_status
+
+    prepare_dashboard_status(
+        status, system_name, snap=snap, acknowledged_keys=acknowledged_keys,
+    )
 
 
 def _collect_alert_keys(status, system_name):
@@ -226,9 +232,48 @@ def trigger_status_refresh():
     Useful for the manual-refresh button on the dashboard: the caller waits for
     the refresh to finish and receives up-to-date data in the response.
     """
+    from app.models import CapacitySnapshot
     from app.status_service import do_refresh_sync
+
     app = current_app._get_current_object()
     results = do_refresh_sync(app)
+    if not results:
+        return jsonify(results)
+
+    system_ids = [r['system']['id'] for r in results]
+    systems_by_id = {
+        s.id: s
+        for s in StorageSystem.query.filter(StorageSystem.id.in_(system_ids)).all()
+    }
+    snap_by_system_id = {
+        s.system_id: s
+        for s in CapacitySnapshot.query.filter(
+            CapacitySnapshot.system_id.in_(system_ids),
+        ).all()
+    }
+
+    all_alert_keys = []
+    for item in results:
+        system = systems_by_id.get(item['system']['id'])
+        status = item.get('status') or {}
+        if not system:
+            continue
+        all_alert_keys.extend(_collect_alert_keys(status, system.name))
+        all_alert_keys.extend(_collect_ip_connectivity_alert_keys(status, system.name))
+    acknowledged_keys = _get_acknowledged_keys(all_alert_keys)
+
+    for item in results:
+        system = systems_by_id.get(item['system']['id'])
+        status = item.get('status')
+        if not system or not isinstance(status, dict):
+            continue
+        _prepare_dashboard_status(
+            status,
+            system.name,
+            snap=snap_by_system_id.get(system.id),
+            acknowledged_keys=acknowledged_keys,
+        )
+
     return jsonify(results)
 
 

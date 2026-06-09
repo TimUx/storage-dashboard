@@ -1830,6 +1830,9 @@ function loadDashboardData() {
 function updateSystemCard(system, status) {
     const card = document.querySelector(`.system-card[data-system-id="${CSS.escape(String(system.id))}"]`);
     if (!card) return;
+
+    const ipUnreachable = !!(status.ip_monitor && status.ip_monitor.has_unreachable);
+    card.classList.toggle('ip-unreachable', ipUnreachable);
     
     // Update data attributes
     card.setAttribute('data-status', status.status || 'unknown');
@@ -1872,6 +1875,16 @@ function updateSystemCard(system, status) {
         
         // Online-specific metrics
         if (status.status === 'online') {
+            if (ipUnreachable) {
+                const unreachableCount = (status.ip_monitor.unreachable_ips || []).length;
+                metricsHTML += `
+                <div class="metric">
+                    <span class="metric-label">IP-Monitor:</span>
+                    <span class="metric-value metric-error">
+                        ${unreachableCount} nicht erreichbar
+                    </span>
+                </div>`;
+            }
             metricsHTML += `
                 <div class="metric">
                     <span class="metric-label">Alerts:</span>
@@ -1925,6 +1938,9 @@ function updateSystemCard(system, status) {
 function updateSystemTableRow(system, status) {
     const row = document.querySelector(`tr[data-system-id="${CSS.escape(String(system.id))}"]`);
     if (!row) return;
+
+    const ipUnreachable = !!(status.ip_monitor && status.ip_monitor.has_unreachable);
+    row.classList.toggle('ip-unreachable', ipUnreachable);
     
     // Update data attributes
     row.setAttribute('data-status', status.status || 'unknown');
