@@ -233,10 +233,8 @@ def system_details(system_id):
     # refresh supplements local array values with Pure1 physical-used figures,
     # which is the authoritative source for Evergreen One arrays.
     snap = CapacitySnapshot.query.filter_by(system_id=system.id).first()
-    if snap and snap.total_tb > 0:
-        status['capacity_total_tb'] = snap.total_tb
-        status['capacity_used_tb'] = snap.used_tb
-        status['capacity_percent'] = snap.percent_used
+    from app.dashboard_status import prepare_dashboard_status
+    prepare_dashboard_status(status, system.name, snap=snap)
 
     # Get partner cluster if exists
     partner_cluster = None
