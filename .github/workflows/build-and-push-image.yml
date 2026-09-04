@@ -1,6 +1,8 @@
 name: Build and Push Docker Image
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -39,7 +41,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository }}
           tags: |
-            type=raw,value=${{ inputs.tag }}
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=semver,pattern={{version}},value=${{ github.event.release.tag_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.event.release.tag_name }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
             type=sha,prefix={{branch}}-
 
       - name: Build and push Docker image
@@ -68,5 +73,5 @@ jobs:
           echo "\`\`\`yaml" >> $GITHUB_STEP_SUMMARY
           echo "services:" >> $GITHUB_STEP_SUMMARY
           echo "  storage-dashboard:" >> $GITHUB_STEP_SUMMARY
-          echo "    image: ${{ env.REGISTRY }}/${{ github.repository }}:${{ inputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "    image: ${{ env.REGISTRY }}/${{ github.repository }}:${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
