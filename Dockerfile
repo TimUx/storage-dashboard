@@ -1,7 +1,7 @@
 # Storage Dashboard Dockerfile
 # Multi-stage build for optimized image size
 
-FROM python:3.11-slim as builder
+FROM python:3.14-slim as builder
 
 # Set working directory
 WORKDIR /build
@@ -24,7 +24,7 @@ COPY requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 # Final stage
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Set working directory
 WORKDIR /app
