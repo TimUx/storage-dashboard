@@ -723,6 +723,12 @@ docker-compose up -d --build
 
 Das Repository verfügt über eine GitHub Action, die automatisch ein Docker Image erstellt und auf GitHub Container Registry hochlädt.
 
+**Bei Release-Veröffentlichung:**
+Der Workflow startet automatisch, sobald ein GitHub Release veröffentlicht wird.
+Ein Release mit Tag `v1.0.1` erzeugt die Image-Tags `1.0.1`, `1.0` und
+`sha-<kurzer-commit-hash>`. Stabile Releases aktualisieren zusätzlich `latest`.
+Der Release-Tag enthält `v`, die semantischen Docker-Tags dagegen nicht.
+
 **Workflow manuell auslösen:**
 1. Gehen Sie zu: `https://github.com/TimUx/storage-dashboard/actions/workflows/build-and-push-image.yml`
 2. Klicken Sie auf "Run workflow"
@@ -734,31 +740,31 @@ Das Image wird dann automatisch gebaut und unter `ghcr.io/timux/storage-dashboar
 **Verwendung eines spezifischen Tags:**
 ```bash
 # Podman
-podman pull ghcr.io/timux/storage-dashboard:v1.0.0
+podman pull ghcr.io/timux/storage-dashboard:1.0.1
 podman run -d \
   --name storage-dashboard \
   -p 5000:5000 \
   -v storage-data:/app/data:Z \
   --env-file .env \
-  ghcr.io/timux/storage-dashboard:v1.0.0
+  ghcr.io/timux/storage-dashboard:1.0.1
 
 # nerdctl
-nerdctl pull ghcr.io/timux/storage-dashboard:v1.0.0
+nerdctl pull ghcr.io/timux/storage-dashboard:1.0.1
 nerdctl run -d \
   --name storage-dashboard \
   -p 5000:5000 \
   -v storage-data:/app/data \
   --env-file .env \
-  ghcr.io/timux/storage-dashboard:v1.0.0
+  ghcr.io/timux/storage-dashboard:1.0.1
 
 # Docker
-docker pull ghcr.io/timux/storage-dashboard:v1.0.0
+docker pull ghcr.io/timux/storage-dashboard:1.0.1
 docker run -d \
   --name storage-dashboard \
   -p 5000:5000 \
   -v storage-data:/app/data \
   --env-file .env \
-  ghcr.io/timux/storage-dashboard:v1.0.0
+  ghcr.io/timux/storage-dashboard:1.0.1
 ```
 
 ## Container Registry
