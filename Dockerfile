@@ -12,6 +12,7 @@ WORKDIR /build
 # Pure1 JWT token generation via RSA signing).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libc6-dev \
     libpq-dev \
     libssl-dev \
     libffi-dev \
