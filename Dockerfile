@@ -1,7 +1,7 @@
 # Storage Dashboard Dockerfile
 # Multi-stage build for optimized image size
 
-FROM python:3.14-slim as builder
+FROM python:3.15-slim as builder
 
 # Set working directory
 WORKDIR /build
@@ -12,6 +12,7 @@ WORKDIR /build
 # Pure1 JWT token generation via RSA signing).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libc6-dev \
     libpq-dev \
     libssl-dev \
     libffi-dev \
@@ -24,7 +25,7 @@ COPY requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 # Final stage
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # Set working directory
 WORKDIR /app
